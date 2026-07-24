@@ -7,6 +7,13 @@ describe('useProjectionMultiTouch', () => {
   const sendTouch = vi.fn()
   const sendMultiTouch = vi.fn()
 
+  let rafCb: FrameRequestCallback | null = null
+  const flushRaf = () => {
+    const cb = rafCb
+    rafCb = null
+    cb?.(0)
+  }
+
   const createTarget = () => {
     const el = document.createElement('div')
     el.setPointerCapture = vi.fn()
@@ -39,6 +46,14 @@ describe('useProjectionMultiTouch', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    rafCb = null
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      rafCb = cb
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {
+      rafCb = null
+    })
     ;(window as any).projection = {
       ipc: {
         sendTouch,
@@ -58,6 +73,7 @@ describe('useProjectionMultiTouch', () => {
     expect(sendTouch).toHaveBeenCalledWith(0.5, 0.5, TouchAction.Down)
 
     result.current.onPointerMove(ptrEvent(target, { pointerType: 'mouse', clientX: 60 }))
+    flushRaf()
     expect(sendTouch).toHaveBeenCalledWith(0.6, 0.5, TouchAction.Move)
 
     result.current.onPointerUp(ptrEvent(target, { pointerType: 'mouse', clientX: 70 }))
@@ -107,6 +123,7 @@ describe('useProjectionMultiTouch', () => {
     result.current.onPointerMove(
       ptrEvent(target, { pointerType: 'touch', pointerId: 11, clientX: 60 })
     )
+    flushRaf()
     expect(sendMultiTouch).toHaveBeenCalledWith([
       expect.objectContaining({ id: 0, action: MultiTouchAction.Move, x: 0.6, y: 0.5 })
     ])

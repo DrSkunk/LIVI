@@ -1,5 +1,5 @@
 import { MultiTouchAction, TouchAction } from '@shared/types/ProjectionEnums'
-import { type RefObject, useCallback, useMemo, useRef } from 'react'
+import { type RefObject, useCallback, useEffect, useMemo, useRef } from 'react'
 
 type Handlers = {
   onPointerDown: React.PointerEventHandler<HTMLDivElement>
@@ -85,6 +85,8 @@ export const useProjectionMultiTouch = (
   const freeSlots = useRef<number[]>([])
   const nextSlot = useRef(0)
   const mouseDown = useRef(false)
+  const rafId = useRef<number | null>(null)
+  const lastMouse = useRef<{ x: number; y: number } | null>(null)
 
   const alloc = useCallback((pid: number) => {
     const old = slotByPointerId.current.get(pid)
@@ -120,12 +122,36 @@ export const useProjectionMultiTouch = (
     window.projection.ipc.sendMultiTouch(pts)
   }, [])
 
+  const cancelFlush = useCallback(() => {
+    if (rafId.current !== null) {
+      cancelAnimationFrame(rafId.current)
+      rafId.current = null
+    }
+  }, [])
+
+  // Coalesce moves to one send per animation frame so the touch report rate matches the
+  // display refresh rate, as the phone expects. Down/up/cancel stay immediate.
+  const scheduleMove = useCallback(() => {
+    if (rafId.current !== null) return
+    rafId.current = requestAnimationFrame(() => {
+      rafId.current = null
+      if (mouseDown.current && lastMouse.current) {
+        window.projection.ipc.sendTouch(lastMouse.current.x, lastMouse.current.y, TouchAction.Move)
+      } else {
+        sendFullFrame()
+      }
+    })
+  }, [sendFullFrame])
+
+  useEffect(() => cancelFlush, [cancelFlush])
+
   const onPointerDown = useCallback<Handlers['onPointerDown']>(
     (e) => {
       const el = e.currentTarget as HTMLElement
       const p = norm(el, videoRef, e.clientX, e.clientY, transform)
       if (!p) return
       const { x, y } = p
+      cancelFlush()
 
       if (e.pointerType === 'mouse') {
         mouseDown.current = true
@@ -140,7 +166,7 @@ export const useProjectionMultiTouch = (
       overrides.set(id, MultiTouchAction.Down)
       sendFullFrame(overrides)
     },
-    [alloc, sendFullFrame, videoRef, transform]
+    [alloc, cancelFlush, sendFullFrame, videoRef, transform]
   )
 
   const onPointerMove = useCallback<Handlers['onPointerMove']>(
@@ -152,22 +178,24 @@ export const useProjectionMultiTouch = (
 
       if (e.pointerType === 'mouse') {
         if (!mouseDown.current) return
-        window.projection.ipc.sendTouch(x, y, TouchAction.Move)
+        lastMouse.current = { x, y }
+        scheduleMove()
         return
       }
 
       const id = slotByPointerId.current.get(e.pointerId)
       if (id === undefined) return
       active.current.set(id, { x, y })
-      sendFullFrame()
+      scheduleMove()
     },
-    [sendFullFrame, videoRef, transform]
+    [scheduleMove, videoRef, transform]
   )
 
   const finishPointer = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       const el = e.currentTarget as HTMLElement
       const p = norm(el, videoRef, e.clientX, e.clientY, transform)
+      cancelFlush()
 
       if (e.pointerType === 'mouse') {
         if (!mouseDown.current) return
@@ -203,7 +231,7 @@ export const useProjectionMultiTouch = (
       el.releasePointerCapture?.(e.pointerId)
       free(e.pointerId)
     },
-    [free, sendFullFrame, videoRef, transform]
+    [cancelFlush, free, sendFullFrame, videoRef, transform]
   )
 
   const onPointerUp = useCallback<Handlers['onPointerUp']>((e) => finishPointer(e), [finishPointer])
