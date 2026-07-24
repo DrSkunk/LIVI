@@ -25,6 +25,18 @@ async function loadDisplayModes(): Promise<SelectOption[]> {
   return [panelDefaultOption, ...list.map((m) => ({ value: m, label: m }))]
 }
 
+async function loadWifiChannels(): Promise<SelectOption[]> {
+  const list = await window.app?.listWifiChannels?.()
+  if (!Array.isArray(list)) return []
+  return list.map((c) => ({ value: c, label: String(c) }))
+}
+
+async function loadWifiCountryCodes(): Promise<SelectOption[]> {
+  const list = await window.app?.listWifiCountryCodes?.()
+  if (!Array.isArray(list)) return []
+  return list.map((c) => ({ value: c, label: c }))
+}
+
 export const generalSchema: SettingsNode<Config> = {
   route: 'general',
   label: 'General',
@@ -100,6 +112,32 @@ export const generalSchema: SettingsNode<Config> = {
               page: {
                 title: 'Wi-Fi Password',
                 labelTitle: 'settings.wifiPassword'
+              }
+            },
+            {
+              type: 'select',
+              label: 'Wi-Fi Channel',
+              labelKey: 'settings.wifiChannel',
+              path: 'wifiChannel',
+              displayValue: true,
+              options: [],
+              loadOptions: loadWifiChannels,
+              page: {
+                title: 'Wi-Fi Channel',
+                labelTitle: 'settings.wifiChannel'
+              }
+            },
+            {
+              type: 'select',
+              label: 'Wi-Fi Country',
+              labelKey: 'settings.wifiCountry',
+              path: 'country',
+              displayValue: true,
+              options: [],
+              loadOptions: loadWifiCountryCodes,
+              page: {
+                title: 'Wi-Fi Country',
+                labelTitle: 'settings.wifiCountry'
               }
             }
           ]

@@ -54,6 +54,7 @@ export const DEFAULT_CONFIG: Config = {
   gnssBeiDou: false,
   wifiType: '5ghz',
   wifiChannel: 36,
+  country: 'DE',
   micType: MicType.CarMic,
   phoneConfig: {},
   carType: CarType.Gasoline,

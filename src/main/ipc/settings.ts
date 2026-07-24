@@ -1,4 +1,5 @@
 import { listHostOutputModes } from '@main/app/hostOutput'
+import { listWifiChannels, listWifiCountryCodes } from '@main/app/wifiOptions'
 import { registerIpcHandle } from '@main/ipc/register'
 import { releaseFeedUrl, runNumberFromTitle } from '@main/ipc/update/feed'
 import { pickAssetForPlatform } from '@main/ipc/update/pickAsset'
@@ -39,6 +40,10 @@ export function registerSettingsIpc(runtimeState: runtimeStateProps) {
   registerIpcHandle('app:getVersion', () => app.getVersion())
 
   registerIpcHandle('app:listDisplayModes', () => listHostOutputModes())
+
+  registerIpcHandle('app:listWifiChannels', () => listWifiChannels(runtimeState.config.wifiType))
+
+  registerIpcHandle('app:listWifiCountryCodes', () => listWifiCountryCodes())
 
   registerIpcHandle('app:getLatestRelease', async () => {
     const nightly = runtimeState.config.updateNightly === true

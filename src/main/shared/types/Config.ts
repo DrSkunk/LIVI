@@ -103,6 +103,7 @@ export type Config = {
   wifiInterface: string
   wifiType: '2.4ghz' | '5ghz'
   wifiChannel: number
+  country: string
 
   /** AirPlay protocol version we advertise */
   carPlaySourceVersion: string

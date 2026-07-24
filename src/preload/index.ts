@@ -233,6 +233,8 @@ const appApi = {
   compositor: process.env.LIVI_COMPOSITOR === '1',
   getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   listDisplayModes: (): Promise<string[]> => ipcRenderer.invoke('app:listDisplayModes'),
+  listWifiChannels: (): Promise<number[]> => ipcRenderer.invoke('app:listWifiChannels'),
+  listWifiCountryCodes: (): Promise<string[]> => ipcRenderer.invoke('app:listWifiCountryCodes'),
   getLatestRelease: (): Promise<{ version?: string; url?: string }> =>
     ipcRenderer.invoke('app:getLatestRelease'),
   performUpdate: (imageUrl?: string): Promise<void> =>

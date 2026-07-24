@@ -186,6 +186,8 @@ declare global {
       restartApp(): Promise<void>
       getVersion(): Promise<string>
       listDisplayModes(): Promise<string[]>
+      listWifiChannels(): Promise<number[]>
+      listWifiCountryCodes(): Promise<string[]>
       getLatestRelease(): Promise<{
         version?: string
         url?: string

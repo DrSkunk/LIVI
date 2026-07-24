@@ -18,6 +18,8 @@
     "wifi": "Wi-Fi",
     "wifiFrequency": "Fréquence Wi-Fi",
     "wifiPassword": "Mot de passe Wi-Fi",
+    "wifiChannel": "Canal Wi-Fi",
+    "wifiCountry": "Pays Wi-Fi",
     "wirelessAaEnabled": "Android Auto sans-fil",
     "wirelessCpEnabled": "CarPlay sans-fil",
     "dongleSettings": "Réglages du dongle",
