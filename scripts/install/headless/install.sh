@@ -105,6 +105,13 @@ sudo systemctl enable --now seatd
 echo "→ Disabling NetworkManager-wait-online"
 sudo systemctl disable NetworkManager-wait-online.service >/dev/null 2>&1 || true
 
+echo "→ Preloading iPhone USB net drivers (so cdc_ncm binds the AV interface at cold boot)"
+sudo tee /etc/modules-load.d/livi.conf >/dev/null <<'EOF'
+cdc_ncm
+cdc_ether
+ipheth
+EOF
+
 echo "→ Enabling lingering for PipeWire user services"
 sudo loginctl enable-linger "$USER"
 
