@@ -160,7 +160,7 @@ TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes
 StandardInput=tty-fail
-StandardOutput=append:$APPIMAGE_DIR/LIVI.log
+StandardOutput=truncate:$APPIMAGE_DIR/LIVI.log
 StandardError=inherit
 Environment=ELECTRON_OZONE_PLATFORM_HINT=wayland
 Environment=LIVI_KIOSK=1
