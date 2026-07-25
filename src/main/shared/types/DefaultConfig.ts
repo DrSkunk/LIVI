@@ -1,6 +1,6 @@
 import type { Config } from '@shared/types'
 import { DEFAULT_BINDINGS } from '@shared/types'
-import { CarType, HandDriveType, MicType, PhoneWorkMode } from '@shared/types/Config'
+import { CarType, HandDriveType, PhoneWorkMode } from '@shared/types/Config'
 
 export const DEFAULT_CONFIG: Config = {
   dismissedPackages: [],
@@ -32,30 +32,18 @@ export const DEFAULT_CONFIG: Config = {
   clusterSafeAreaRight: 300,
   lastConnectedAaBtMac: '',
   lastPhoneWorkMode: PhoneWorkMode.CarPlay,
-  apkVer: '2025.03.19.1126',
   carName: 'LIVI',
   oemName: 'App',
   darkMode: true,
   nightMode: true,
   hand: HandDriveType.LHD,
-  mediaDelay: 1000,
   samplingFrequency: 1,
-  callQuality: 1,
   autoConn: true,
   UseBTPhone: false,
   disableAudioOutput: false,
-  dashboardMediaInfo: true,
-  dashboardVehicleInfo: true,
-  dashboardRouteInfo: true,
-  gps: false,
-  gnssGps: false,
-  gnssGlonass: false,
-  gnssGalileo: false,
-  gnssBeiDou: false,
   wifiType: '5ghz',
   wifiChannel: 36,
   country: 'DE',
-  micType: MicType.CarMic,
   phoneConfig: {},
   carType: CarType.Gasoline,
   evConnectorTypes: [],

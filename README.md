@@ -40,18 +40,13 @@ LIVI talks to the chip directly. Configuration (`config.json`):
 
 Without a coprocessor, native CarPlay is unavailable. Dongle-based CarPlay and all Android Auto paths work regardless.
 
+> **Legacy USB adapters:** **CPC200-CCPA** (wireless/wired) and **CPC200-CCPW** (wired)
+
 ### Example Rasperry Pi config
 ```bash
 # CP3.0, CP2.0C, CP2.0B
 dtoverlay=i2c-gpio,bus=2,i2c_gpio_sda=19,i2c_gpio_scl=26,i2c_gpio_delay_us=5
 ```
-
-## Dongle-based Connectivity
-
-- **Android Auto** (wired & wireless) on all platforms
-- **Apple CarPlay** (wired & wireless) on all platforms
-
-> **Supported USB adapters:** **CPC200-CCPA** (wireless/wired) and **CPC200-CCPW** (wired)
 
 ## Project Status
 
@@ -130,14 +125,14 @@ After this, the app will launch normally and future updates will work without ad
 
 ### USB Driver Requirement
 
-The dongle requires a compatible **WinUSB (winusb.sys)** driver on Windows.
+The Android device requires a compatible **WinUSB (winusb.sys)** driver on Windows.
 You can install it using a tool such as **Zadig** (libwdi): https://github.com/pbatard/libwdi/releases
 
 Steps:
 
-1. Plug in the dongle
+1. Plug in the Phone
 2. Start Zadig
-3. Select the dongle from the device list
+3. Select the Phone from the device list
 4. Install the **WinUSB (winusb.sys)** driver
 
 ## Build Environment
@@ -242,7 +237,7 @@ The Dashboard is currently in an early stage. While the IPC/socket telemetry pay
 ### Telemetry CLI (local)
 
 To push test data into a running LIVI, use the CLI in `scripts/tools`. The full
-field list and routing (Dash / AA / Dongle) lives in
+field list and routing lives in
 `src/main/shared/types/Telemetry.ts`.
 
 ```bash

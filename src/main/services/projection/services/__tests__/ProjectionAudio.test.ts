@@ -207,17 +207,6 @@ describe('ProjectionAudio state controls', () => {
     expect(Array.from(a.applyGain(pcm, 2))).toEqual([32767, -32768, 2000])
   })
 
-  test('getMediaDelay returns configured non-negative delay', async () => {
-    const a = createSubject({ mediaDelay: 250 })
-    expect(a.getMediaDelay()).toBe(250)
-  })
-
-  test('getMediaDelay falls back to zero for invalid values', async () => {
-    expect(createSubject({ mediaDelay: -1 }).getMediaDelay()).toBe(0)
-    expect(createSubject({ mediaDelay: Number.NaN }).getMediaDelay()).toBe(0)
-    expect(createSubject({}).getMediaDelay()).toBe(0)
-  })
-
   test('getLogicalStreamKey prioritizes call over voiceAssistant over nav over music', async () => {
     const a = createSubject()
 
@@ -363,7 +352,7 @@ describe('ProjectionAudio state controls', () => {
     expect(a.mediaActive).toBe(true)
     expect(a.audioOpenArmed).toBe(false)
     expect(a.musicGateMuted).toBe(true)
-    expect(a.nextMusicRampStartAt).toBeGreaterThanOrEqual(before + 120 - 5)
+    expect(a.nextMusicRampStartAt).toBeGreaterThanOrEqual(before - 5)
   })
 
   test('handleAudioData AudioMediaStart consumes open arm and starts media', async () => {

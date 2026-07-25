@@ -45,6 +45,7 @@ import type { CommandValue } from '@shared/types/ProjectionEnums'
 import { isClusterDisplayed, matchFittingAAResolution } from '@shared/utils'
 import EventEmitter from 'events'
 import { usb } from 'usb'
+import { DONGLE_MIC_TYPE } from './dongleConfig'
 
 const CONFIG_NUMBER = 1
 const MAX_ERROR_COUNT = 5
@@ -563,9 +564,9 @@ export class DongleDriver extends EventEmitter {
     const ui = (cfg.oemName ?? '').trim()
     const label = ui.length > 0 ? ui : cfg.carName
     const initMicRouteCommand: CommandValue =
-      cfg.micType === MicType.DongleMic
+      DONGLE_MIC_TYPE === MicType.DongleMic
         ? 'boxMici2s'
-        : cfg.micType === MicType.PhoneMic
+        : DONGLE_MIC_TYPE === MicType.PhoneMic
           ? 'phoneMic'
           : 'mic'
     const aaResolution = matchFittingAAResolution({

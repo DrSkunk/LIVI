@@ -151,8 +151,6 @@ export type Config = {
   lastConnectedAaBtMac?: string
   phoneConfig: Partial<Record<number, PhoneTypeConfig>>
 
-  apkVer: string
-
   // Theme / vehicle identity
   darkMode: boolean
   nightMode: boolean
@@ -163,11 +161,8 @@ export type Config = {
   evConnectorTypes?: EvConnectorType[]
 
   // Audio
-  mediaDelay: number
   samplingFrequency: 0 | 1
-  callQuality: 0 | 1 | 2
   UseBTPhone: boolean
-  micType: MicType
   disableAudioOutput: boolean
   huVolume: number
   huVolumeLinkSystem: boolean
@@ -181,18 +176,6 @@ export type Config = {
   audioInputDevice?: string
   audioInputDeviceLabel?: string
   visualAudioDelayMs: number
-
-  // Dashboard widgets
-  dashboardMediaInfo: boolean
-  dashboardVehicleInfo: boolean
-  dashboardRouteInfo: boolean
-
-  // GNSS forwarding
-  gps: boolean
-  gnssGps: boolean
-  gnssGlonass: boolean
-  gnssGalileo: boolean
-  gnssBeiDou: boolean
 
   // Auto-connect + auto-switch
   autoConn: boolean

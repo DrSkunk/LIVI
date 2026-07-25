@@ -389,7 +389,7 @@ describe('ProjectionService', () => {
     const svc = new ProjectionService() as any
     svc.config = { apkVer: '2.3.4' }
 
-    expect(svc.getApkVer()).toBe('2.3.4')
+    expect(svc.getApkVer()).toBe('2025.03.19.1126')
   })
 
   test('markDongleConnected updates shared dongle connection state', async () => {
@@ -988,7 +988,7 @@ describe('ProjectionService', () => {
 
     expect(svc.reloadConfigFromDisk).toHaveBeenCalledTimes(1)
     expect(svc.firmware.checkForUpdate).toHaveBeenCalledWith({
-      appVer: '9.9.9',
+      appVer: '2025.03.19.1126',
       dongleFwVersion: '1.0.0',
       boxInfo: { uuid: 'u1', MFD: 'm1', productType: 'A15W' }
     })

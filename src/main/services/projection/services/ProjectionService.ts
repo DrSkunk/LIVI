@@ -28,6 +28,7 @@ import { AaBtSockClient } from '../driver/aa/AaBtSockClient'
 import type { AaSession } from '../driver/aa/AaSession'
 import type { CpManager } from '../driver/cp/CpManager'
 import type { CpSession } from '../driver/cp/CpSession'
+import { DONGLE_APK_VER } from '../driver/dongle/dongleConfig'
 import { HelperSupervisor } from '../driver/helper/helperSupervisor'
 import type { IPhoneDriver } from '../driver/IPhoneDriver'
 import { ProjectionDriverManager } from '../drivers/ProjectionDriverManager'
@@ -1478,7 +1479,7 @@ export class ProjectionService {
   }
 
   private getApkVer(): string {
-    return this.config.apkVer
+    return DONGLE_APK_VER
   }
 
   private getDevToolsUrlCandidates(): string[] {

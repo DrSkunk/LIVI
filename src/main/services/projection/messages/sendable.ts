@@ -18,6 +18,13 @@ import {
 } from '@shared/utils'
 import { buildServerCgiScript } from '../assets/LIVI_cgi.js'
 import { buildLiviWeb } from '../assets/LIVI_web.js'
+import {
+  DONGLE_CALL_QUALITY,
+  DONGLE_DASHBOARD_INFO,
+  DONGLE_GNSS_CAPABILITY,
+  DONGLE_GPS,
+  DONGLE_MEDIA_DELAY
+} from '../driver/dongle/dongleConfig'
 import { MessageHeader, MessageType } from './common.js'
 
 // Dongle Open wire payload (projection resolution sent to the dongle).
@@ -431,28 +438,17 @@ export class SendBoxSettings extends SendableMessageWithPayload {
       height: cfg.projectionHeight
     })
 
-    const dashboardInfo =
-      (cfg.dashboardMediaInfo ? 1 : 0) |
-      (cfg.dashboardVehicleInfo ? 2 : 0) |
-      (cfg.dashboardRouteInfo ? 4 : 0)
-
-    const gnssCapability =
-      (cfg.gnssGps ? 1 : 0) |
-      (cfg.gnssGlonass ? 2 : 0) |
-      (cfg.gnssGalileo ? 4 : 0) |
-      (cfg.gnssBeiDou ? 8 : 0)
-
     const body: BoxSettingsBody = {
-      mediaDelay: cfg.mediaDelay,
+      mediaDelay: DONGLE_MEDIA_DELAY,
       syncTime: this.syncTime ?? getCurrentTimeInMs(),
       androidAutoSizeW: aaAdjusted.width,
       androidAutoSizeH: aaAdjusted.height,
       wifiChannel: channel,
       mediaSound: cfg.samplingFrequency,
-      callQuality: cfg.callQuality,
-      gps: cfg.gps ? 1 : 0,
-      DashboardInfo: dashboardInfo,
-      GNSSCapability: gnssCapability,
+      callQuality: DONGLE_CALL_QUALITY,
+      gps: DONGLE_GPS,
+      DashboardInfo: DONGLE_DASHBOARD_INFO,
+      GNSSCapability: DONGLE_GNSS_CAPABILITY,
       autoConn: cfg.autoConn ? 1 : 0,
       UseBTPhone: cfg.UseBTPhone ? 1 : 0,
       wifiName: dongleDisplayName(cfg.carName),

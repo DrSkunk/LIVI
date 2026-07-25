@@ -406,14 +406,14 @@ describe('sendable messages', () => {
     const payload = msg.getPayload()
     const body = JSON.parse(payload.toString('ascii'))
 
-    expect(body.mediaDelay).toBe(300)
+    expect(body.mediaDelay).toBe(1000)
     expect(body.syncTime).toBe(123456)
     expect(body.wifiChannel).toBe(36)
     expect(body.gps).toBe(1)
     expect(body.autoConn).toBe(1)
     expect(body.UseBTPhone).toBe(0)
-    expect(body.DashboardInfo).toBe(5)
-    expect(body.GNSSCapability).toBe(5)
+    expect(body.DashboardInfo).toBe(7)
+    expect(body.GNSSCapability).toBe(15)
     expect(body.wifiName).toBe('CarName (D)')
     expect(body.btName).toBe('CarName (D)')
     expect(body.boxName).toBe('OEM')
@@ -743,7 +743,7 @@ describe('sendable messages', () => {
 
     expect(body.boxName).toBe('CarName')
     expect(body.OemName).toBe('CarName')
-    expect(body.GNSSCapability).toBe(8)
+    expect(body.GNSSCapability).toBe(15)
   })
 
   test('SendBoxSettings uses default navi safe-area zeros when values are undefined', async () => {
@@ -900,7 +900,7 @@ describe('sendable messages', () => {
     const body = JSON.parse(msg.getPayload().toString('ascii'))
 
     expect(body.wifiChannel).toBe(1)
-    expect(body.DashboardInfo).toBe(2)
-    expect(body.GNSSCapability).toBe(2)
+    expect(body.DashboardInfo).toBe(7)
+    expect(body.GNSSCapability).toBe(15)
   })
 })

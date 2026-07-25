@@ -256,8 +256,7 @@
       </p>
       <p>
         Native CarPlay authenticates against the phone with an Apple MFi coprocessor (see below). Android
-        Auto needs no extra hardware. A legacy USB-dongle path also remains for platforms without native
-        support (see <a href="#legacy-dongle">Legacy: USB dongle</a>).
+        Auto needs no extra hardware.
       </p>
 
       <h2>MFi Authentication</h2>
@@ -268,8 +267,7 @@
         from a certified CarPlay accessory or sourced as a module) wired to the I²C bus of your board.
       </p>
       <p>
-        Without a coprocessor, native CarPlay is unavailable. Dongle-based CarPlay (the dongle carries its
-        own auth chip) and all Android Auto paths work regardless.
+        Without a coprocessor, native CarPlay is unavailable.
       </p>
 
       <h2>Build Environment</h2>
@@ -313,15 +311,6 @@
         &emsp;
         <img src="images/media.png" alt="Media" width="42%" align="top" />
       </p>
-
-      <h2 id="legacy-dongle">Legacy USB dongle</h2>
-      <p>
-        A legacy path brings CarPlay to systems without native support: a USB dongle that carries its own
-        authentication chip and handles the protocol on the hardware side. It is the option for macOS and
-        Windows or for Linux setups without an MFi coprocessor. It still works, but it is no longer the focus
-        of development.
-      </p>
-      <p>Supported dongles: CPC200 series (CCPA, CCPW).</p>
 
       <h2>Documentation</h2>
       <p>

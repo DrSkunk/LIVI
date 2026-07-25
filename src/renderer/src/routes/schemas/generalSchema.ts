@@ -3,9 +3,6 @@ import { WIFI_PASSWORD_MAX, WIFI_PASSWORD_MIN } from '@shared/types/Config'
 import {
   MAX_HEIGHT,
   MAX_WIDTH,
-  MEDIA_DELAY_MAX,
-  MEDIA_DELAY_MIN,
-  MEDIA_DELAY_STEP,
   MIN_HEIGHT,
   MIN_WIDTH
 } from '../../components/pages/settings/constants'
@@ -857,129 +854,17 @@ export const generalSchema: SettingsNode<Config> = {
     },
     {
       type: 'route',
-      route: 'dongleSettings',
-      label: 'Dongle Settings',
-      labelKey: 'settings.dongleSettings',
+      label: 'USB Dongle',
+      labelKey: 'settings.usbDongle',
+      route: 'usbDongle',
       path: '',
       children: [
         {
-          type: 'route',
+          type: 'custom',
           label: 'USB Dongle',
           labelKey: 'settings.usbDongle',
-          route: 'usbDongle',
-          path: '',
-          children: [
-            {
-              type: 'custom',
-              label: 'USB Dongle',
-              labelKey: 'settings.usbDongle',
-              path: 'carName',
-              component: USBDongle
-            }
-          ]
-        },
-        {
-          type: 'number',
-          label: 'Audio Buffer',
-          labelKey: 'settings.audioBufferSize',
-          path: 'mediaDelay',
-          step: MEDIA_DELAY_STEP,
-          min: MEDIA_DELAY_MIN,
-          max: MEDIA_DELAY_MAX,
-          default: 1000,
-          displayValue: true,
-          displayValueUnit: 'ms',
-          valueTransform: {
-            toView: (v) => v ?? 1000,
-            fromView: (v: number, prev) => (Number.isFinite(v) ? Math.round(v) : (prev ?? 1000)),
-            format: (v) => `${v} ms`
-          },
-          page: {
-            title: 'Audio Buffer',
-            labelTitle: 'settings.audioBufferSize'
-          }
-        },
-        {
-          type: 'select',
-          label: 'Microphone',
-          labelKey: 'settings.microphone',
-          path: 'micType',
-          displayValue: true,
-          options: [
-            { label: 'Car mic', labelKey: 'settings.micCar', value: 0 },
-            { label: 'Dongle mic', labelKey: 'settings.micDongle', value: 1 },
-            { label: 'Phone mic', labelKey: 'settings.micPhone', value: 2 }
-          ],
-          page: {
-            title: 'Microphone',
-            labelTitle: 'settings.microphone'
-          }
-        },
-        {
-          type: 'route',
-          route: 'dashboardInfo',
-          label: 'Dashboard Info',
-          labelKey: 'settings.DashboardInfo',
-          path: '',
-          children: [
-            {
-              type: 'checkbox',
-              label: 'Media Info',
-              labelKey: 'settings.dashboardMediaInfo',
-              path: 'dashboardMediaInfo'
-            },
-            {
-              type: 'checkbox',
-              label: 'Vehicle Info',
-              labelKey: 'settings.dashboardVehicleInfo',
-              path: 'dashboardVehicleInfo'
-            },
-            {
-              type: 'checkbox',
-              label: 'Route Info',
-              labelKey: 'settings.dashboardRouteInfo',
-              path: 'dashboardRouteInfo'
-            }
-          ]
-        },
-        {
-          type: 'route',
-          route: 'gnss',
-          label: 'GNSS',
-          labelKey: 'settings.GNSS',
-          path: '',
-          children: [
-            {
-              type: 'checkbox',
-              label: 'HU GPS Forwarding',
-              labelKey: 'settings.gps',
-              path: 'gps'
-            },
-            {
-              type: 'checkbox',
-              label: 'GPS',
-              labelKey: 'settings.gnssGps',
-              path: 'gnssGps'
-            },
-            {
-              type: 'checkbox',
-              label: 'GLONASS',
-              labelKey: 'settings.gnssGlonass',
-              path: 'gnssGlonass'
-            },
-            {
-              type: 'checkbox',
-              label: 'Galileo',
-              labelKey: 'settings.gnssGalileo',
-              path: 'gnssGalileo'
-            },
-            {
-              type: 'checkbox',
-              label: 'BeiDou',
-              labelKey: 'settings.gnssBeiDou',
-              path: 'gnssBeiDou'
-            }
-          ]
+          path: 'carName',
+          component: USBDongle
         }
       ]
     }

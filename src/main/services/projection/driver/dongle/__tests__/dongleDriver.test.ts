@@ -1588,9 +1588,7 @@ describe('DongleDriver core behavior', () => {
 
     const sent = d.send.mock.calls.map((c: any[]) => c[0])
     const labelMsg = sent.find((m: any) => m instanceof SendString)
-    const micMsg = sent.find(
-      (m: any) => m instanceof SendCommand && m.value === CommandMapping.boxMici2s
-    )
+    const micMsg = sent.find((m: any) => m instanceof SendCommand && m.value === CommandMapping.mic)
 
     expect(labelMsg).toBeInstanceOf(SendString)
     expect(micMsg).toBeInstanceOf(SendCommand)
@@ -1794,9 +1792,9 @@ describe('DongleDriver core behavior', () => {
     const sent = d.send.mock.calls.map((c: any[]) => c[0])
 
     expect(sent.some((m: any) => m instanceof SendString)).toBe(true)
-    expect(
-      sent.some((m: any) => m instanceof SendCommand && m.value === CommandMapping.phoneMic)
-    ).toBe(true)
+    expect(sent.some((m: any) => m instanceof SendCommand && m.value === CommandMapping.mic)).toBe(
+      true
+    )
   })
 
   test('onPlugged skips config-changed update when config is missing', async () => {

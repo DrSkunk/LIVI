@@ -91,18 +91,8 @@ describe('generalSchema', () => {
     expect(mfi.children.map((x) => x.path)).toEqual(['carPlayMfiI2cBus', 'carPlayMfiPowerGpio'])
   })
 
-  test('dongle settings route lives at the bottom with usb dongle, dashboard and gnss sections', () => {
-    const firmware = schema.children[10]
-    expect(firmware).toEqual(
-      expect.objectContaining({
-        type: 'route',
-        route: 'dongleSettings',
-        label: 'Dongle Settings'
-      })
-    )
-    expect(firmware.children).toHaveLength(5)
-
-    const usbDongle = firmware.children[0]
+  test('usb dongle route lives at the bottom with a single custom entry', () => {
+    const usbDongle = schema.children[10]
     expect(usbDongle).toEqual(
       expect.objectContaining({
         type: 'route',
@@ -110,67 +100,13 @@ describe('generalSchema', () => {
         labelKey: 'settings.usbDongle'
       })
     )
-
-    const audioBuffer = firmware.children[1]
-    expect(audioBuffer).toEqual(
+    expect(usbDongle.children).toHaveLength(1)
+    expect(usbDongle.children[0]).toEqual(
       expect.objectContaining({
-        type: 'number',
-        path: 'mediaDelay',
-        labelKey: 'settings.audioBufferSize'
+        type: 'custom',
+        path: 'carName'
       })
     )
-    // valueTransform: toView falls back to the default 1000, fromView rounds
-    // finite numbers and falls back to prev on NaN, format appends ' ms'.
-    const vt = (audioBuffer as { valueTransform: Record<string, (...a: unknown[]) => unknown> })
-      .valueTransform
-    expect(vt.toView(undefined)).toBe(1000)
-    expect(vt.toView(700)).toBe(700)
-    expect(vt.fromView(123.7, 999)).toBe(124)
-    expect(vt.fromView(Number.NaN, 555)).toBe(555)
-    expect(vt.fromView(Number.NaN, undefined)).toBe(1000)
-    expect(vt.format(800)).toBe('800 ms')
-
-    const microphone = firmware.children[2]
-    expect(microphone).toEqual(
-      expect.objectContaining({
-        type: 'select',
-        path: 'micType',
-        labelKey: 'settings.microphone'
-      })
-    )
-    expect(microphone.options).toEqual([
-      { label: 'Car mic', labelKey: 'settings.micCar', value: 0 },
-      { label: 'Dongle mic', labelKey: 'settings.micDongle', value: 1 },
-      { label: 'Phone mic', labelKey: 'settings.micPhone', value: 2 }
-    ])
-
-    const dashboard = firmware.children[3]
-    expect(dashboard).toEqual(
-      expect.objectContaining({
-        type: 'route',
-        route: 'dashboardInfo'
-      })
-    )
-    expect(dashboard.children.map((x) => x.path)).toEqual([
-      'dashboardMediaInfo',
-      'dashboardVehicleInfo',
-      'dashboardRouteInfo'
-    ])
-
-    const gnss = firmware.children[4]
-    expect(gnss).toEqual(
-      expect.objectContaining({
-        type: 'route',
-        route: 'gnss'
-      })
-    )
-    expect(gnss.children.map((x) => x.path)).toEqual([
-      'gps',
-      'gnssGps',
-      'gnssGlonass',
-      'gnssGalileo',
-      'gnssBeiDou'
-    ])
   })
 
   test('key bindings route contains representative binding entries', () => {

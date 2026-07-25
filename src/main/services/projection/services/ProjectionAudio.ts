@@ -526,10 +526,8 @@ export class ProjectionAudio {
       if (cmd === AudioCommand.AudioMediaStart) {
         if (msg.audioType != null) this.musicAudioType = msg.audioType
 
-        const baseDelay = this.getMediaDelay()
-        const totalDelayMs = baseDelay
         const now = Date.now()
-        const warmupUntil = now + totalDelayMs + this.musicResumeWarmupMs
+        const warmupUntil = now + this.musicResumeWarmupMs
 
         if (!this.audioOpenArmed) {
           if (!this.mediaActive) {
@@ -539,7 +537,7 @@ export class ProjectionAudio {
             this.musicFade.current = 0
             this.musicFade.target = 1
             this.musicFade.remainingSamples = 0
-            this.nextMusicRampStartAt = now + totalDelayMs
+            this.nextMusicRampStartAt = now
             this.musicWarmupUntil = warmupUntil
             this.musicGateMuted = true
           }
@@ -556,7 +554,7 @@ export class ProjectionAudio {
         this.musicFade.current = 0
         this.musicFade.target = 1
         this.musicFade.remainingSamples = 0
-        this.nextMusicRampStartAt = now + totalDelayMs
+        this.nextMusicRampStartAt = now
         this.musicWarmupUntil = warmupUntil
         this.musicGateMuted = true
 
@@ -657,7 +655,6 @@ export class ProjectionAudio {
         cmd === AudioCommand.AudioPhonecallStart
       ) {
         const cfg = this.getConfig() as Config & {
-          micType?: number
           disableAudioOutput?: boolean
         }
 
@@ -678,7 +675,7 @@ export class ProjectionAudio {
         this.musicFade.remainingSamples = 0
         this.musicGateMuted = true
 
-        if (cfg.disableAudioOutput || cfg.micType !== 0) {
+        if (cfg.disableAudioOutput) {
           this._mic?.stop()
           return
         }
@@ -873,11 +870,5 @@ export class ProjectionAudio {
       out[i] = v
     }
     return out
-  }
-
-  private getMediaDelay(): number {
-    const cfg = this.getConfig() as Config & { mediaDelay?: number }
-    const raw = cfg.mediaDelay
-    return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : 0
   }
 }

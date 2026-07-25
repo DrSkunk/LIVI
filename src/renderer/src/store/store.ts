@@ -1,4 +1,4 @@
-import type { Config, MicType } from '@shared/types'
+import type { Config } from '@shared/types'
 import { create } from 'zustand'
 
 type VolumeStreamKey = 'music' | 'nav' | 'voiceAssistant' | 'call'
@@ -50,30 +50,6 @@ const sendCarplayVolume = (stream: VolumeStreamKey, volume: number) => {
     api.ipc.setVolume(stream, clamp01(volume))
   } catch (err) {
     console.warn('projection-set-volume IPC failed', err)
-  }
-}
-
-const sendCarplayMicType = (micType: MicType) => {
-  const api = getProjectionApi()
-  if (!api?.ipc?.sendCommand) return
-
-  let cmd: string
-
-  switch (micType) {
-    case 1:
-      cmd = 'boxMic'
-      break
-    case 2:
-      cmd = 'phoneMic'
-      break
-    default:
-      cmd = 'mic'
-  }
-
-  try {
-    api.ipc.sendCommand(cmd)
-  } catch (err) {
-    console.warn('projection-set-mic IPC failed', err)
   }
 }
 
@@ -469,10 +445,6 @@ export const useLiviStore = create<CarplayStore>((set, get) => {
         }
         if (derived.callVolume !== prevDerived.callVolume) {
           sendCarplayVolume('call', derived.callVolume)
-        }
-
-        if (patch.micType !== undefined && patch.micType !== prev.micType) {
-          sendCarplayMicType(patch.micType as MicType)
         }
 
         // `nightMode` controls the projection-side UI (AA/CP/dongle). Bridge

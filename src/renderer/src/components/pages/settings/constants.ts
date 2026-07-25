@@ -1,9 +1,5 @@
 import type { Config } from '@shared/types'
 
-export const MEDIA_DELAY_MIN = 300
-export const MEDIA_DELAY_MAX = 2000
-export const MEDIA_DELAY_STEP = 50
-
 export const MIN_HEIGHT = 200
 export const MIN_WIDTH = 300
 export const MAX_WIDTH = 4096
@@ -76,18 +72,8 @@ export const requiresRestartParams: (keyof Config)[] = [
   'clusterSafeAreaLeft',
   'clusterSafeAreaRight',
 
-  'mediaDelay',
   'wifiType',
   'disableAudioOutput',
-  'dashboardMediaInfo',
-  'dashboardVehicleInfo',
-  'dashboardRouteInfo',
-  'micType',
-  'gps',
-  'gnssGps',
-  'gnssGlonass',
-  'gnssGalileo',
-  'gnssBeiDou',
   'autoConn',
   'carName',
   'oemName',

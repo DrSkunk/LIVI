@@ -94,7 +94,6 @@ describe('store', () => {
     callVolume: 0.6,
     visualAudioDelayMs: 120,
     darkMode: false,
-    micType: 0,
     dashboards: {
       dash1: { main: false, dash: false, aux: false, pos: 1 },
       dash2: { main: false, dash: false, aux: false, pos: 2 },
@@ -232,7 +231,6 @@ describe('store', () => {
           .mockResolvedValueOnce({
             ...baseSettings,
             audioVolume: 0.1,
-            micType: 2,
             nightMode: true
           }),
         save: vi.fn().mockResolvedValue(undefined)
@@ -245,7 +243,6 @@ describe('store', () => {
 
     await useLiviStore.getState().saveSettings({
       audioVolume: 0.1,
-      micType: 2,
       nightMode: true
     })
 
@@ -253,17 +250,14 @@ describe('store', () => {
 
     expect(projection.settings.save).toHaveBeenCalledWith({
       audioVolume: 0.1,
-      micType: 2,
       nightMode: true
     })
 
-    expect(projection.ipc.sendCommand).toHaveBeenCalledWith('phoneMic')
     expect(projection.ipc.sendCommand).toHaveBeenCalledWith('enableNightMode')
     expect(state.audioVolume).toBe(0.1)
     expect(state.settings).toEqual({
       ...baseSettings,
       audioVolume: 0.1,
-      micType: 2,
       nightMode: true
     })
   })
@@ -655,28 +649,6 @@ describe('store', () => {
     expect(projection.ipc.setVolume).toHaveBeenCalledWith('nav', 0)
   })
 
-  test('saveSettings sends default mic command for unsupported mic type', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({
-            ...baseSettings,
-            micType: 99
-          }),
-        save: vi.fn().mockResolvedValue(undefined)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ micType: 99 as never })
-
-    expect(projection.ipc.sendCommand).toHaveBeenCalledWith('mic')
-  })
-
   test('saveSettings sends disableNightMode for false', async () => {
     const projection = makeProjectionApi({
       settings: {
@@ -825,31 +797,6 @@ describe('store', () => {
     expect(warnSpy).toHaveBeenCalledWith('projection-set-volume IPC failed', expect.any(Error))
   })
 
-  test('saveSettings swallows projection mic ipc errors', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({ ...baseSettings, micType: 1 }),
-        save: vi.fn().mockResolvedValue(undefined)
-      },
-      ipc: {
-        sendCommand: vi.fn(() => {
-          throw new Error('mic failed')
-        })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ micType: 1 })
-
-    expect(warnSpy).toHaveBeenCalledWith('projection-set-mic IPC failed', expect.any(Error))
-  })
-
   test('saveSettings swallows projection night mode ipc errors', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const projection = makeProjectionApi({
@@ -910,31 +857,6 @@ describe('store', () => {
     expect(projection.ipc.setVolume).toHaveBeenCalledWith('nav', 0.35)
     expect(projection.ipc.setVolume).toHaveBeenCalledWith('voiceAssistant', 0.45)
     expect(projection.ipc.setVolume).toHaveBeenCalledWith('call', 0.55)
-  })
-
-  test('saveSettings does not send mic command when ipc.sendCommand is missing', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({
-            ...baseSettings,
-            micType: 1
-          }),
-        save: vi.fn().mockResolvedValue(undefined)
-      },
-      ipc: {
-        sendCommand: undefined
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ micType: 1 })
-
-    expect(projection.settings.save).toHaveBeenCalledWith({ micType: 1 })
   })
 
   test('saveSettings does not send night mode command when ipc.sendCommand is missing', async () => {

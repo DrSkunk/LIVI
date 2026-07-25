@@ -85,7 +85,8 @@ function isValidIpv4(raw: string): boolean {
 export function USBDongle() {
   const { t } = useTranslation()
   const isDongleConnected = useStatusStore((s) => s.isDongleHardwarePresent)
-  const isStreaming = useStatusStore((s) => s.isStreaming)
+  const activeProtocol = useStatusStore((s) => s.activeProtocol)
+  const isDongleSession = activeProtocol === 'dongle'
   const settings = useLiviStore((s) => s.settings)
   const saveSettings = useLiviStore((s) => s.saveSettings)
 
@@ -130,16 +131,19 @@ export function USBDongle() {
   const boxInfo = useMemo(() => normalizeBoxInfo(boxInfoRaw), [boxInfoRaw])
 
   const resolution =
-    negotiatedWidth && negotiatedHeight ? `${negotiatedWidth}×${negotiatedHeight}` : EMPTY_STRING
+    isDongleSession && negotiatedWidth && negotiatedHeight
+      ? `${negotiatedWidth}×${negotiatedHeight}`
+      : EMPTY_STRING
 
   const audioLine = useMemo(() => {
+    if (!isDongleSession) return EMPTY_STRING
     const parts: string[] = []
     if (audioCodec) parts.push(String(audioCodec))
     if (audioSampleRate) parts.push(`${audioSampleRate} Hz`)
     if (audioChannels != null) parts.push(`${audioChannels} ch`)
     if (audioBitDepth) parts.push(`${audioBitDepth} bit`)
     return parts.length ? parts.join(' • ') : EMPTY_STRING
-  }, [audioCodec, audioSampleRate, audioChannels, audioBitDepth])
+  }, [isDongleSession, audioCodec, audioSampleRate, audioChannels, audioBitDepth])
 
   const Mono: CSSProperties = {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
@@ -820,9 +824,9 @@ export function USBDongle() {
   const rowsTop = useMemo<Row[]>(
     () => [
       { label: 'Dongle', value: isDongleConnected ? 'Connected' : 'Not connected' },
-      { label: 'Phone', value: isStreaming ? 'Connected' : 'Not connected' }
+      { label: 'Phone', value: isDongleSession ? 'Connected' : 'Not connected' }
     ],
-    [isDongleConnected, isStreaming]
+    [isDongleConnected, isDongleSession]
   )
 
   const rowsUsb = useMemo<Row[]>(
