@@ -199,7 +199,7 @@ export class ProjectionService {
     hasRenderer: () => this.webContents != null,
     getHostDevList: () => this.hostDevList
   })
-  private btSubscription: { close: () => void } | null = null
+  private aaBtSubscription: { close: () => void } | null = null
   private readonly aaBtMacByInstance = new Map<string, string>()
   private readonly aaSerialByInstance = new Map<string, string>()
   private audioMonitor: AudioDeviceMonitorHandle | null = null
@@ -1915,10 +1915,10 @@ export class ProjectionService {
 
   // Open the long-lived aa-bt event subscription
   private openAaBtSubscription(): void {
-    if (this.btSubscription) return
+    if (this.aaBtSubscription) return
     const open = (): void => {
       if (!this.aaBtActive) return
-      this.btSubscription = this.bluez.subscribe(
+      this.aaBtSubscription = this.bluez.subscribe(
         (ev) => {
           if (ev.event === 'input' && ev.command) {
             this.dispatchRemoteInput(ev.command)
@@ -1938,7 +1938,7 @@ export class ProjectionService {
           }).catch(() => {})
         },
         () => {
-          this.btSubscription = null
+          this.aaBtSubscription = null
           if (this.aaBtActive) setTimeout(open, 1000)
         },
         () => this.deviceController.resendReconnectTargets()
@@ -1948,13 +1948,13 @@ export class ProjectionService {
   }
 
   private closeAaBtSubscription(): void {
-    if (!this.btSubscription) return
+    if (!this.aaBtSubscription) return
     try {
-      this.btSubscription.close()
+      this.aaBtSubscription.close()
     } catch {
       /* already closed */
     }
-    this.btSubscription = null
+    this.aaBtSubscription = null
   }
 
   private async armWiredAa(device: Device): Promise<boolean> {
