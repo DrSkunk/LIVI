@@ -203,8 +203,6 @@ export class ProjectionService {
     hasRenderer: () => this.webContents != null
   })
   private btSubscription: { close: () => void } | null = null
-  private btNameByMac = new Map<string, string>()
-  private connectedBtMac = ''
   private readonly aaBtMacByInstance = new Map<string, string>()
   private readonly aaSerialByInstance = new Map<string, string>()
   private audioMonitor: AudioDeviceMonitorHandle | null = null
@@ -221,8 +219,8 @@ export class ProjectionService {
     sessions: () => this.sessions,
     getDongleSession: () => this.sessions.byDriver(this.drivers.getDongle()),
     bluez: this.bluez,
-    getBtName: (mac) => this.btNameByMac.get(mac),
-    getConnectedBtMac: () => this.connectedBtMac,
+    getBtName: (mac) => this.btPaired.getName(mac),
+    getConnectedBtMac: () => this.btPaired.getConnectedMac(),
     getDongleConnectedMac: () => this.dongleConnectedMac,
     getDongleDevList: () => this.dongleDevList,
     emit: (p) => this.emitProjectionEvent(p),
@@ -1787,18 +1785,12 @@ export class ProjectionService {
       return
     }
 
-    const phones = devices.filter((d) => isPhoneLikeCod(d.class))
-    const cpBtMacs = this.cpClaimedBtMacs()
-    const connected =
-      phones.find((d) => d.connected && !cpBtMacs.has(d.mac.toUpperCase()))?.mac ?? ''
-    this.btNameByMac = new Map(devices.map((d) => [d.mac.toUpperCase(), d.name || '']))
+    const { connectedMac: connected, phones } = this.btPaired.ingest(devices, {
+      cpClaimedBtMacs: this.cpClaimedBtMacs(),
+      preferMac: opts.preferMac,
+      keepHostRawIfEmpty: this.hostDevList.length > 0
+    })
     for (const p of phones) if (p.name) this.deviceRegistry.noteName(p.mac, p.name)
-    const preferUp = Boolean(
-      opts.preferMac &&
-        phones.some((d) => d.connected && d.mac.toUpperCase() === opts.preferMac?.toUpperCase())
-    )
-    if (preferUp && opts.preferMac) this.connectedBtMac = opts.preferMac
-    else if (connected) this.connectedBtMac = connected
     const wasSettled = this.btInitialQueryDone
     this.btInitialQueryDone = true
     // Wired AA doesn't wake the phone over BT — treat any paired phone as in-range
@@ -1819,15 +1811,11 @@ export class ProjectionService {
         class: d.class,
         connected: d.connected
       }))
-      this.btPaired.setHostPairedRaw(
-        devices.length ? devices.map((d) => `${d.mac}${d.name ?? ''}`).join('\n') + '\n' : ''
-      )
     }
 
     if (this.aaBtActive && connected && this.config.lastConnectedAaBtMac !== connected) {
       configEvents.emit('requestSave', { lastConnectedAaBtMac: connected })
     }
-    this.btPaired.emitCombined()
     this.deviceController.emitDevices()
   }
 
