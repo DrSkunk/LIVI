@@ -1317,7 +1317,18 @@ export class ProjectionService {
       }
     )
 
-    const ipcHost: ProjectionIpcHost = {
+    registerProjectionIpc(this.buildIpcHost())
+
+    this.subscribeConfigEvents()
+    this.audioMonitor = startAudioDeviceMonitor(() => {
+      this.emitProjectionEvent({ type: 'audioDevicesChanged' })
+    })
+
+    this.codecCaps.applyGstCodecCaps()
+  }
+
+  private buildIpcHost(): ProjectionIpcHost {
+    return {
       start: () => this.start(),
       stop: () => this.stop(),
       restartSession: () => this.restartSession(),
@@ -1382,14 +1393,6 @@ export class ProjectionService {
       setAudioStreamVolume: (s, v) => this.audio.setStreamVolume(s, v),
       setAudioVisualizerEnabled: (e, id) => this.audio.setVisualizerEnabled(e, id)
     }
-    registerProjectionIpc(ipcHost)
-
-    this.subscribeConfigEvents()
-    this.audioMonitor = startAudioDeviceMonitor(() => {
-      this.emitProjectionEvent({ type: 'audioDevicesChanged' })
-    })
-
-    this.codecCaps.applyGstCodecCaps()
   }
 
   private async reloadConfigFromDisk(): Promise<void> {
