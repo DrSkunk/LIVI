@@ -148,7 +148,7 @@ describe('syncSecondaryWindows — resize + kiosk', () => {
     expect(win.setFullScreen).toHaveBeenCalledWith(true)
   })
 
-  test('applyKiosk toggles kiosk on linux/win32', () => {
+  test('applyKiosk toggles kiosk on linux', () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
     const rt = baseState({ dashScreenActive: true, kiosk: { dash: false } } as never)
     syncSecondaryWindows(rt)

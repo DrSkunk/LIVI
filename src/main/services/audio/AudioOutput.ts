@@ -48,11 +48,7 @@ export class AudioOutput {
   start(): void {
     this.killImmediate()
 
-    if (
-      process.platform !== 'darwin' &&
-      process.platform !== 'linux' &&
-      process.platform !== 'win32'
-    ) {
+    if (process.platform !== 'darwin' && process.platform !== 'linux') {
       console.error('[AudioOutput] Unsupported platform')
       return
     }
@@ -63,11 +59,7 @@ export class AudioOutput {
       return
     }
 
-    const cmd = path.join(
-      gstRoot,
-      'bin',
-      process.platform === 'win32' ? 'gst-launch-1.0.exe' : 'gst-launch-1.0'
-    )
+    const cmd = path.join(gstRoot, 'bin', 'gst-launch-1.0')
     const args = this.buildArgs()
     const env = gstEnv(gstRoot)
 
@@ -264,7 +256,7 @@ export class AudioOutput {
 
     // Sink-specific settings:
     //   realtime    → sync=false (mic/voice paths must not buffer)
-    //   pulse/wasapi music → sync=false + 300 ms ALSA/WASAPI ring + 30 ms period
+    //   pulse music → sync=false + 300 ms ALSA ring + 30 ms period
     //   osxaudiosink music → CoreAudio default
     // Music uses sync=false too: pacing is done upstream (decoder jitterbuffer +
     // clocksync), so the sink must not wait on buffer timestamps. With sync=true the
@@ -295,9 +287,8 @@ export class AudioOutput {
       'audioconvert',
       '!',
       'audioresample',
-      ...(process.platform === 'win32'
-        ? []
-        : ['!', 'audio/x-raw,format=S16LE,rate=48000,channels=2']),
+      '!',
+      'audio/x-raw,format=S16LE,rate=48000,channels=2',
       '!',
       ...outputQueueArgs,
       '!',

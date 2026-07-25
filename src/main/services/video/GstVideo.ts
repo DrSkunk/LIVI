@@ -338,22 +338,6 @@ function logGstRuntime(systemVersion?: string): void {
   }
 }
 
-// Windows has no system GStreamer
-function prepareWindowsRuntime(): void {
-  if (process.platform !== 'win32') return
-  const root = resolveGStreamerRoot()
-  if (!root) return
-  process.env.PATH = `${path.join(root, 'bin')};${process.env.PATH ?? ''}`
-  process.env.GST_PLUGIN_SYSTEM_PATH = ''
-  process.env.GST_PLUGIN_PATH = path.join(root, 'lib', 'gstreamer-1.0')
-  process.env.GST_PLUGIN_SCANNER = path.join(
-    root,
-    'libexec',
-    'gstreamer-1.0',
-    'gst-plugin-scanner.exe'
-  )
-}
-
 function prepareMacRuntime(): void {
   if (process.platform !== 'darwin' || !app.isPackaged) return
   const root = resolveGStreamerRoot()
@@ -373,7 +357,6 @@ function load(): GstAddon | null {
     return null
   }
   try {
-    prepareWindowsRuntime()
     prepareMacRuntime()
     addon = require('gst-video') as GstAddon
     logGstRuntime(addon.version())

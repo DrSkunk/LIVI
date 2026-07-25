@@ -152,20 +152,6 @@ Device found:
     expect(devices[0].id).toBe('osx-built-in-output')
   })
 
-  test('Windows wasapi-shaped output also parses', () => {
-    const win = `Device found:
-
-	name  : Speakers (Realtek High Definition Audio)
-	class : Audio/Sink
-	properties:
-		device.name = {0.0.0.00000000}.{abc-def}
-		device.description = Speakers (Realtek High Definition Audio)
-`
-    const devices = parseDeviceMonitorOutput(win, 'sink')
-    expect(devices).toHaveLength(1)
-    expect(devices[0].id).toBe('{0.0.0.00000000}.{abc-def}')
-  })
-
   test('macOS GStreamer 1.28 unique-id launch line is parsed correctly', () => {
     // Real shape from gst-device-monitor-1.0 1.28.2 on macOS:
     //   properties:
@@ -201,19 +187,6 @@ Device found:
 `
     const devices = parseDeviceMonitorOutput(linux, 'sink')
     expect(devices[0].id).toBe('alsa_output.platform-fef00700.hdmi.hdmi-stereo')
-  })
-
-  test('windows launch line gives device-name verbatim from the launch line', () => {
-    const win = `Device found:
-
-	name  : Speakers
-	class : Audio/Sink
-	properties:
-		device.name = {0.0.0.00000000}.{abc-def}
-	gst-launch-1.0 ... ! "wasapisink device-name={0.0.0.00000000}.{abc-def}"
-`
-    const devices = parseDeviceMonitorOutput(win, 'sink')
-    expect(devices[0].id).toBe('{0.0.0.00000000}.{abc-def}')
   })
 
   test('falls back to properties when no launch line is present', () => {

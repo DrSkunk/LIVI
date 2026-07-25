@@ -85,8 +85,6 @@ function isValidIpv4(raw: string): boolean {
 export function USBDongle() {
   const { t } = useTranslation()
   const isDongleConnected = useStatusStore((s) => s.isDongleHardwarePresent)
-  const activeProtocol = useStatusStore((s) => s.activeProtocol)
-  const isDongleSession = activeProtocol === 'dongle'
   const settings = useLiviStore((s) => s.settings)
   const saveSettings = useLiviStore((s) => s.saveSettings)
 
@@ -102,10 +100,6 @@ export function USBDongle() {
   // Dongle Info
   const dongleFwVersion = useLiviStore((s) => s.dongleFwVersion)
   const boxInfoRaw = useLiviStore((s) => s.boxInfo)
-
-  // Video stream (negotiated)
-  const negotiatedWidth = useLiviStore((s) => s.negotiatedWidth)
-  const negotiatedHeight = useLiviStore((s) => s.negotiatedHeight)
 
   // Audio stream
   const audioCodec = useLiviStore((s) => s.audioCodec)
@@ -130,20 +124,17 @@ export function USBDongle() {
   // Parsed box info
   const boxInfo = useMemo(() => normalizeBoxInfo(boxInfoRaw), [boxInfoRaw])
 
-  const resolution =
-    isDongleSession && negotiatedWidth && negotiatedHeight
-      ? `${negotiatedWidth}×${negotiatedHeight}`
-      : EMPTY_STRING
+  const donglePhoneConnected = Boolean(boxInfo?.btMacAddr && boxInfo.btMacAddr.trim())
 
   const audioLine = useMemo(() => {
-    if (!isDongleSession) return EMPTY_STRING
+    if (!donglePhoneConnected) return EMPTY_STRING
     const parts: string[] = []
     if (audioCodec) parts.push(String(audioCodec))
     if (audioSampleRate) parts.push(`${audioSampleRate} Hz`)
     if (audioChannels != null) parts.push(`${audioChannels} ch`)
     if (audioBitDepth) parts.push(`${audioBitDepth} bit`)
     return parts.length ? parts.join(' • ') : EMPTY_STRING
-  }, [isDongleSession, audioCodec, audioSampleRate, audioChannels, audioBitDepth])
+  }, [donglePhoneConnected, audioCodec, audioSampleRate, audioChannels, audioBitDepth])
 
   const Mono: CSSProperties = {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
@@ -824,9 +815,9 @@ export function USBDongle() {
   const rowsTop = useMemo<Row[]>(
     () => [
       { label: 'Dongle', value: isDongleConnected ? 'Connected' : 'Not connected' },
-      { label: 'Phone', value: isDongleSession ? 'Connected' : 'Not connected' }
+      { label: 'Phone', value: donglePhoneConnected ? 'Connected' : 'Not connected' }
     ],
-    [isDongleConnected, isDongleSession]
+    [isDongleConnected, donglePhoneConnected]
   )
 
   const rowsUsb = useMemo<Row[]>(
@@ -898,11 +889,8 @@ export function USBDongle() {
   )
 
   const rowsStreams = useMemo<Row[]>(
-    () => [
-      { label: 'Resolution', value: resolution, mono: true },
-      { label: 'Audio', value: audioLine, mono: true }
-    ],
-    [resolution, audioLine]
+    () => [{ label: 'Audio', value: audioLine, mono: true }],
+    [audioLine]
   )
 
   const renderRows = (rows: Row[]) => (

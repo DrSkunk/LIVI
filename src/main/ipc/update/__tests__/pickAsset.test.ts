@@ -60,15 +60,6 @@ describe('pickAssetForPlatform', () => {
     expect(result).toEqual({ url: 'https://example.com/universal' })
   })
 
-  test('returns empty object for unsupported platform', () => {
-    setPlatform('win32')
-    const result = pickAssetForPlatform([
-      { name: 'LIVI-x86_64.AppImage', browser_download_url: 'https://example.com/x64' } as never
-    ])
-
-    expect(result).toEqual({})
-  })
-
   test('picks x64/universal DMG on darwin x64', () => {
     setPlatform('darwin')
     setArch('x64')

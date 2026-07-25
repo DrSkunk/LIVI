@@ -297,36 +297,6 @@ describe('AudioOutput', () => {
     )
   })
 
-  test('start on win32 uses wasapisink, exe binary and omits audio/x-raw caps', async () => {
-    Object.defineProperty(process, 'platform', { value: 'win32' })
-    Object.defineProperty(process, 'arch', { value: 'x64' })
-    ;(fs.existsSync as Mock).mockImplementation((p: fs.PathLike) =>
-      String(p).includes('/mock/app/assets/gstreamer/windows-x64')
-    )
-
-    const proc = makeProc()
-    ;(spawn as Mock).mockReturnValue(proc)
-
-    const out = new AudioOutput({ sampleRate: 48000, channels: 2, mode: 'music' })
-    out.start()
-
-    const [cmd, args, opts] = (spawn as Mock).mock.calls[0]
-
-    expect(cmd).toBe('/mock/app/assets/gstreamer/windows-x64/bin/gst-launch-1.0.exe')
-    expect(args).toEqual(expect.arrayContaining(['wasapisink']))
-    expect(args).not.toContain('audio/x-raw,format=S16LE,rate=48000,channels=2')
-    expect(opts).toEqual(
-      expect.objectContaining({
-        env: expect.objectContaining({
-          PATH: expect.stringContaining('/mock/app/assets/gstreamer/windows-x64/bin'),
-          GST_PLUGIN_PATH: '/mock/app/assets/gstreamer/windows-x64/lib/gstreamer-1.0',
-          GST_PLUGIN_SCANNER:
-            '/mock/app/assets/gstreamer/windows-x64/libexec/gstreamer-1.0/gst-plugin-scanner.exe'
-        })
-      })
-    )
-  })
-
   test('write accepts Buffer chunks', async () => {
     const proc = makeProc()
     ;(spawn as Mock).mockReturnValue(proc)

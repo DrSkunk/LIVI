@@ -36,25 +36,22 @@ function readMainBounds(rs: runtimeStateProps): WindowBounds | undefined {
 export function createMainWindow(runtimeState: runtimeStateProps, services: ServicesProps) {
   const { projectionService } = services
   const isMac = isMacPlatform()
-  const isWin = process.platform === 'win32'
   const compositorMode = process.env.LIVI_COMPOSITOR === '1'
-  const wantKiosk = runtimeState.config.kiosk?.main === true || process.env.LIVI_KIOSK === '1'
-  const transparentWindow = compositorMode || isMac || isWin
-  const winKioskBounds = isWin && wantKiosk ? screen.getPrimaryDisplay().bounds : undefined
+  const transparentWindow = compositorMode || isMac
 
   const savedBounds = compositorMode ? undefined : sanitizeBounds(readMainBounds(runtimeState))
 
   mainWindow = new BrowserWindow({
-    width: winKioskBounds?.width ?? savedBounds?.width ?? runtimeState.config.mainScreenWidth,
-    height: winKioskBounds?.height ?? savedBounds?.height ?? runtimeState.config.mainScreenHeight,
-    x: winKioskBounds?.x ?? savedBounds?.x,
-    y: winKioskBounds?.y ?? savedBounds?.y,
-    frame: !compositorMode && !isWin,
+    width: savedBounds?.width ?? runtimeState.config.mainScreenWidth,
+    height: savedBounds?.height ?? runtimeState.config.mainScreenHeight,
+    x: savedBounds?.x,
+    y: savedBounds?.y,
+    frame: !compositorMode,
     resizable: true,
     useContentSize: true,
     kiosk: false,
     autoHideMenuBar: true,
-    transparent: compositorMode || isWin,
+    transparent: compositorMode,
     backgroundColor: transparentWindow ? '#00000000' : '#000',
     fullscreenable: true,
     simpleFullscreen: false,
@@ -69,9 +66,8 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     }
   })
 
-  // Re-apply bounds after the compositor shows the window. Skip on Windows kiosk: that window
-  // is intentionally created full-screen and must not be resized back to a saved windowed size.
-  if (savedBounds && !winKioskBounds) {
+  // Re-apply bounds after the compositor shows the window.
+  if (savedBounds) {
     mainWindow.once('ready-to-show', () => {
       if (!mainWindow || mainWindow.isDestroyed()) return
       mainWindow.setBounds({
@@ -155,9 +151,8 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     const baseW = savedBounds?.width || runtimeState.config.mainScreenWidth || 1200
     const baseH = savedBounds?.height || runtimeState.config.mainScreenHeight || 720
 
-    // Windows kiosk is created already full-screen (no resize, see winKioskBounds); everyone
-    // else starts windowed. In compositor mode the compositor owns the size (tiled toplevel).
-    if (!winKioskBounds && !compositorMode) applyWindowedContentSize(mainWindow, baseW, baseH)
+    // In compositor mode the compositor owns the size (tiled toplevel); else start windowed.
+    if (!compositorMode) applyWindowedContentSize(mainWindow, baseW, baseH)
     mainWindow.show()
 
     // Snapshot the geometry
@@ -180,12 +175,6 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
         } else if (compositorMode) {
           mainWindow.setContentSize(d.size.width, d.size.height)
           mainWindow.setFullScreen(true)
-        } else if (isWin) {
-          // Transparent window: don't resize into fullscreen (electron/electron#49173). The
-          // window was already created at the display size; just cover the full display (incl.
-          // the taskbar area) and lift above the always-on-top taskbar.
-          mainWindow.setBounds(d.bounds)
-          mainWindow.setAlwaysOnTop(true, 'screen-saver')
         } else {
           mainWindow.setKiosk(true)
           mainWindow.setContentSize(d.workAreaSize.width, d.workAreaSize.height)

@@ -311,47 +311,6 @@ describe('Microphone', () => {
     )
   })
 
-  test('start spawns gst-launch on win32 with wasapisrc and windows env', async () => {
-    const proc = makeProc()
-    ;(spawn as Mock).mockReturnValue(proc)
-
-    Object.defineProperty(process, 'platform', {
-      value: 'win32',
-      configurable: true
-    })
-    Object.defineProperty(process, 'arch', {
-      value: 'x64',
-      configurable: true
-    })
-    ;(fs.existsSync as Mock).mockImplementation((p: fs.PathLike) =>
-      String(p).includes('/mock/app/assets/gstreamer/windows-x64')
-    )
-
-    const mic = new Microphone()
-    mic.start(7)
-
-    expect(spawn).toHaveBeenCalledWith(
-      '/mock/app/assets/gstreamer/windows-x64/bin/gst-launch-1.0.exe',
-      expect.arrayContaining([
-        '-q',
-        'wasapisrc',
-        'audio/x-raw,format=PCM,rate=48000,channels=2',
-        'fdsink',
-        'fd=1'
-      ]),
-      expect.objectContaining({
-        env: expect.objectContaining({
-          PATH: expect.stringContaining('/mock/app/assets/gstreamer/windows-x64/bin;'),
-          GST_PLUGIN_SYSTEM_PATH: '',
-          GST_PLUGIN_PATH: '/mock/app/assets/gstreamer/windows-x64/lib/gstreamer-1.0',
-          GST_PLUGIN_SCANNER:
-            '/mock/app/assets/gstreamer/windows-x64/libexec/gstreamer-1.0/gst-plugin-scanner.exe'
-        }),
-        shell: false
-      })
-    )
-  })
-
   test('start handles falsy spawn result and cleans up', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     ;(spawn as Mock).mockReturnValue(null)

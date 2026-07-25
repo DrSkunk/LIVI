@@ -6,7 +6,7 @@
 
 LIVI is an open-source **Apple CarPlay and Android Auto head unit**.
 
-It is a standalone cross-platform Electron head unit with a native, zero-copy GStreamer video pipeline and hardware-accelerated decoding on Linux (including the Raspberry Pi 4 and 5), macOS and Windows, low-latency audio, multitouch + D-Pad navigation, and support for very small embedded/OEM displays.
+It is a standalone cross-platform Electron head unit with a native, zero-copy GStreamer video pipeline and hardware-accelerated decoding on Linux (including the Raspberry Pi 4 and 5) and macOS, low-latency audio, multitouch + D-Pad navigation, and support for very small embedded/OEM displays.
 
 ## Native Connectivity
 
@@ -116,24 +116,6 @@ In that case:
 4. Confirm the dialog
 
 After this, the app will launch normally and future updates will work without additional steps.
-
-## Windows (x64)
-
-> [!NOTE]
-> The Windows build is provided on a **best-effort basis**. Windows is **not a primary target platform** of this project and receives limited testing.
-> It is mainly intended for development, experimentation, and desktop testing.
-
-### USB Driver Requirement
-
-The Android device requires a compatible **WinUSB (winusb.sys)** driver on Windows.
-You can install it using a tool such as **Zadig** (libwdi): https://github.com/pbatard/libwdi/releases
-
-Steps:
-
-1. Plug in the Phone
-2. Start Zadig
-3. Select the Phone from the device list
-4. Install the **WinUSB (winusb.sys)** driver
 
 ## Build Environment
 

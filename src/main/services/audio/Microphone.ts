@@ -29,11 +29,7 @@ export default class Microphone extends EventEmitter {
   start(decodeType = 5, override?: { frequency: number; channels: number }): void {
     this.stop()
 
-    if (
-      process.platform !== 'darwin' &&
-      process.platform !== 'linux' &&
-      process.platform !== 'win32'
-    ) {
+    if (process.platform !== 'darwin' && process.platform !== 'linux') {
       console.error('[Microphone] Unsupported platform')
       return
     }
@@ -50,11 +46,7 @@ export default class Microphone extends EventEmitter {
     const gstFormat = override ? 'S16LE' : Microphone.toGstRawFormat(resolved)
     this.currentDecodeType = decodeType
 
-    const cmd = path.join(
-      gstRoot,
-      'bin',
-      process.platform === 'win32' ? 'gst-launch-1.0.exe' : 'gst-launch-1.0'
-    )
+    const cmd = path.join(gstRoot, 'bin', 'gst-launch-1.0')
 
     const sourceArgs: string[] = [audioSourceElement()]
     if (this.device) sourceArgs.push(`${audioDeviceProp()}=${this.device}`)
@@ -150,12 +142,7 @@ export default class Microphone extends EventEmitter {
         channel: channels,
         bitDepth: 16,
         format: 's16le',
-        device:
-          process.platform === 'linux'
-            ? 'pulse-default'
-            : process.platform === 'win32'
-              ? 'wasapi-default'
-              : 'default'
+        device: process.platform === 'linux' ? 'pulse-default' : 'default'
       })
     }
   }

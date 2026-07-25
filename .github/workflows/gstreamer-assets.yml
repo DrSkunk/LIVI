@@ -16,10 +16,6 @@ on:
         description: 'Build Linux arm64 bundle'
         type: boolean
         default: true
-      windows_x64:
-        description: 'Build Windows x64 bundle'
-        type: boolean
-        default: true
 
 permissions:
   contents: write
@@ -39,7 +35,6 @@ jobs:
           IN_MACOS_ARM64: ${{ inputs.macos_arm64 }}
           IN_LINUX_X64: ${{ inputs.linux_x64 }}
           IN_LINUX_ARM64: ${{ inputs.linux_arm64 }}
-          IN_WINDOWS_X64: ${{ inputs.windows_x64 }}
         run: |
           set -euo pipefail
 
@@ -52,7 +47,6 @@ jobs:
             macos_arm64: isTrue(process.env.IN_MACOS_ARM64),
             linux_x64: isTrue(process.env.IN_LINUX_X64),
             linux_arm64: isTrue(process.env.IN_LINUX_ARM64),
-            windows_x64: isTrue(process.env.IN_WINDOWS_X64),
           };
 
           const include = [];
@@ -90,17 +84,6 @@ jobs:
               'linux-arm64',
               'gstreamer-linux-arm64',
               'gstreamer-linux-arm64.tar.gz'
-            );
-          }
-
-          if (inputs.windows_x64) {
-            add(
-              'windows',
-              'windows-latest',
-              'x64',
-              'windows-x64',
-              'gstreamer-windows-x64',
-              ''
             );
           }
 
@@ -350,94 +333,6 @@ jobs:
           path: ${{ matrix.archive_name }}
           retention-days: 7
 
-      # ----------------------------
-      # Windows x64
-      # ----------------------------
-      - name: Download GStreamer runtime installer [windows-x64]
-        if: matrix.os == 'windows' && matrix.arch == 'x64'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          # GStreamer uses GNOME-style versioning: even minor = stable, odd = dev.
-          $listing = (Invoke-WebRequest -Uri 'https://gstreamer.freedesktop.org/data/pkg/windows/' -UseBasicParsing).Content
-          $versions = [regex]::Matches($listing, 'href="([0-9]+\.[0-9]+\.[0-9]+)/"') |
-            ForEach-Object { [Version]$_.Groups[1].Value } |
-            Where-Object { $_.Minor % 2 -eq 0 } |
-            Sort-Object
-          if (-not $versions -or $versions.Count -eq 0) {
-            throw 'Failed to resolve latest stable GStreamer version from windows listing'
-          }
-          $gstVersion = $versions[-1].ToString()
-          Write-Host "Resolved Windows GStreamer: $gstVersion"
-
-          $url = "https://gstreamer.freedesktop.org/data/pkg/windows/$gstVersion/msvc/gstreamer-1.0-msvc-x86_64-$gstVersion.exe"
-          curl.exe -L $url -o 'gstreamer-runtime-x86_64.exe'
-
-      - name: Install GStreamer runtime [windows-x64]
-        if: matrix.os == 'windows' && matrix.arch == 'x64'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          $p = Start-Process `
-            -FilePath '.\gstreamer-runtime-x86_64.exe' `
-            -ArgumentList @('/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') `
-            -PassThru
-
-          if (-not $p.WaitForExit(180000)) {
-            try { $p.Kill() } catch {}
-            throw 'GStreamer installer timed out after 3 minutes'
-          }
-
-          if ($p.ExitCode -ne 0) {
-            throw "GStreamer installer failed with exit code $($p.ExitCode)"
-          }
-
-      - name: Build bundle [windows-x64]
-        if: matrix.os == 'windows' && matrix.arch == 'x64'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          ./scripts/gstreamer/package-windows.ps1 "assets/gstreamer/${{ matrix.dir_name }}"
-
-      - name: Smoke test bundle [windows-x64]
-        if: matrix.os == 'windows' && matrix.arch == 'x64'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          ./scripts/gstreamer/smoke-test-windows.ps1 "assets/gstreamer/${{ matrix.dir_name }}"
-
-      - name: Write version file [windows-x64]
-        if: matrix.os == 'windows' && matrix.arch == 'x64'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $versionLine = & "assets/gstreamer/${{ matrix.dir_name }}/bin/gst-launch-1.0.exe" --version |
-            Select-String '^gst-launch-1.0 version ' |
-            Select-Object -First 1
-
-          if (-not $versionLine) {
-            throw 'Could not determine GStreamer version'
-          }
-
-          $parts = $versionLine.ToString() -split '\s+'
-          if ($parts.Length -lt 3) {
-            throw "Unexpected version output: $versionLine"
-          }
-
-          $version = $parts[2]
-          Set-Content -Path "assets/gstreamer/${{ matrix.dir_name }}/version.txt" -Value $version -NoNewline
-          Write-Host "Version: $version"
-
-      - name: Upload artifact [windows-x64]
-        if: matrix.os == 'windows' && matrix.arch == 'x64'
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: assets/gstreamer/${{ matrix.dir_name }}
-          retention-days: 7
-
   publish:
     name: Publish gstreamer assets
     needs:
@@ -503,28 +398,6 @@ jobs:
           mkdir -p assets/gstreamer
           tar -C assets/gstreamer -xzf .artifacts/linux-arm64/gstreamer-linux-arm64.tar.gz
 
-      - name: Prepare target dir [windows-x64]
-        if: contains(needs.plan.outputs.matrix, '"artifact_name":"gstreamer-windows-x64"')
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf assets/gstreamer/windows-x64
-          mkdir -p assets/gstreamer
-
-      - name: Download artifact [windows-x64]
-        if: contains(needs.plan.outputs.matrix, '"artifact_name":"gstreamer-windows-x64"')
-        uses: actions/download-artifact@v8
-        with:
-          name: gstreamer-windows-x64
-          path: .artifacts/windows-x64
-
-      - name: Copy artifact into repo [windows-x64]
-        if: contains(needs.plan.outputs.matrix, '"artifact_name":"gstreamer-windows-x64"')
-        shell: bash
-        run: |
-          set -euo pipefail
-          cp -a .artifacts/windows-x64 assets/gstreamer/windows-x64
-
       - name: Read Linux version for badge
         id: meta
         shell: bash
@@ -552,7 +425,7 @@ jobs:
 
           # One commit per platform
           changed=false
-          for plat in linux-x64 linux-arm64 macos-arm64 windows-x64; do
+          for plat in linux-x64 linux-arm64 macos-arm64; do
             dir="assets/gstreamer/${plat}"
             [[ -d "$dir" ]] || continue
             git add -f -A "$dir"

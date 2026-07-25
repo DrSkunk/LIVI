@@ -36,7 +36,6 @@
     "build:linux": "pnpm run build:linux:x64",
     "build:linux:x64": "pnpm run build:native:x64 && pnpm run build:app && pnpm run build:compositor:linux && electron-builder --linux AppImage --x64 --publish never --config",
     "build:linux:arm64": "pnpm run build:native:arm64 && pnpm run build:app && pnpm run build:compositor:linux && electron-builder --linux AppImage --arm64 --publish never --config",
-    "build:win": "pnpm run build && electron-builder --win --publish never --config",
     "test": "vitest run",
     "test:main": "vitest run --project main",
     "test:renderer": "vitest run --project renderer",
@@ -70,8 +69,7 @@
     "@node-usb/usb-darwin-arm64": "3.0.1",
     "@node-usb/usb-darwin-x64": "3.0.1",
     "@node-usb/usb-linux-arm64-gnu": "3.0.1",
-    "@node-usb/usb-linux-x64-gnu": "3.0.1",
-    "@node-usb/usb-win32-x64-msvc": "3.0.1"
+    "@node-usb/usb-linux-x64-gnu": "3.0.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.5",

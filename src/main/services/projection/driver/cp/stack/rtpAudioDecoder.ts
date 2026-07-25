@@ -64,11 +64,7 @@ export class CpRtpAudioDecoder extends EventEmitter {
       return false
     }
     this._port = await this._freePort()
-    const cmd = path.join(
-      gstRoot,
-      'bin',
-      process.platform === 'win32' ? 'gst-launch-1.0.exe' : 'gst-launch-1.0'
-    )
+    const cmd = path.join(gstRoot, 'bin', 'gst-launch-1.0')
     const proc = spawn(cmd, this._buildArgs(this._port), { env: gstEnv(gstRoot), shell: false })
     this._proc = proc
     proc.stdout.on('data', (pcm: Buffer) => {

@@ -29,8 +29,7 @@ type SendMicPcm = (pcm: Int16Array, decodeType: number) => void
 
 export class ProjectionAudio {
   // One AudioOutput per (sampleRate, channels). The OS audio sink (PulseAudio
-  // on Linux, CoreAudio on macOS, WASAPI on Windows) mixes all open streams
-  // automatically
+  // on Linux, CoreAudio on macOS) mixes all open streams automatically
   private audioPlayers = new Map<PlayerKey, AudioOutput>()
   private lastStreamLogKey: PlayerKey | null = null
   private lastCallPlaybackLog: {

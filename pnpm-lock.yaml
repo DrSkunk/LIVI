@@ -169,9 +169,6 @@ importers:
       '@node-usb/usb-linux-x64-gnu':
         specifier: 3.0.1
         version: 3.0.1
-      '@node-usb/usb-win32-x64-msvc':
-        specifier: 3.0.1
-        version: 3.0.1
 
   native/crypto: {}
 

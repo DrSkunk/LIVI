@@ -30,13 +30,6 @@ describe('gstreamer helpers — platform-correct element + prop names', () => {
     expect(audioSourceElement()).toBe('osxaudiosrc')
     expect(audioDeviceProp()).toBe('unique-id')
   })
-
-  test('win32 uses wasapisink / wasapisrc / device-name', () => {
-    setPlatform('win32')
-    expect(audioSinkElement()).toBe('wasapisink')
-    expect(audioSourceElement()).toBe('wasapisrc')
-    expect(audioDeviceProp()).toBe('device-name')
-  })
 })
 
 describe('gstEnv', () => {
@@ -57,16 +50,6 @@ describe('gstEnv', () => {
     setPlatform('darwin')
     const env = gstEnv('/opt/gst')
     expect(env.DYLD_LIBRARY_PATH).toBe('/opt/gst/lib')
-  })
-
-  test('win32 prepends bin dir to PATH with a semicolon', () => {
-    setPlatform('win32')
-    const env = gstEnv('C:/gst')
-    // PATH separator on win32 is ';'. The bin path itself uses whatever
-    // path.join uses on the host running the test (forward slashes on
-    // mac/linux test runs), so just assert the separator + bin marker.
-    expect(env.PATH).toMatch(/bin;/)
-    expect(env.PATH).toContain('C:/gst')
   })
 })
 

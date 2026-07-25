@@ -89,16 +89,14 @@ export function parseDeviceMonitorOutput(stdout: string, kind: AudioDeviceKind):
 // gst-device-monitor prints a sample launch line per device, e.g.
 //   gst-launch-1.0 ... ! osxaudiosink device=53
 //   gst-launch-1.0 ... ! 'pulsesink device=alsa_output.platform-fef00700.hdmi.hdmi-stereo'
-//   gst-launch-1.0 ... ! wasapisink device-name=\{0.0.0.00000000\}.\{abc-def\}
-// We pull whatever follows device= / device-name= and stop at the first
+// We pull whatever follows device= and stop at the first
 // unquoted whitespace, end of line, or closing quote.
 function idFromLaunchLine(block: string): string | null {
   const launch = block.match(/gst-launch-1\.0[^\n]*/m)
   if (!launch) return null
   const line = launch[0]
-  // GStreamer 1.28+ uses unique-id on osxaudio; older / pulse / wasapi use
-  // device or device-name. Catch all three.
-  const m = line.match(/\b(?:unique-id|device-name|device)=("([^"]*)"|'([^']*)'|([^\s'"]+))/)
+  // GStreamer 1.28+ uses unique-id on osxaudio; pulse uses device. Catch both.
+  const m = line.match(/\b(?:unique-id|device)=("([^"]*)"|'([^']*)'|([^\s'"]+))/)
   if (!m) return null
   return m[2] ?? m[3] ?? m[4] ?? null
 }

@@ -63,20 +63,6 @@ describe('Updater', () => {
     }
   }
 
-  test('perform emits error on unsupported platform', async () => {
-    Object.defineProperty(process, 'platform', { value: 'win32' })
-    const { Updater, sendUpdateEvent } = await loadSubject()
-
-    const updater = new Updater({ config: { updateNightly: false } } as never, {} as never)
-    await updater.perform({} as never)
-
-    expect(sendUpdateEvent).toHaveBeenCalledWith({ phase: 'start' })
-    expect(sendUpdateEvent).toHaveBeenCalledWith({
-      phase: 'error',
-      message: 'Unsupported platform'
-    })
-  })
-
   test('perform downloads direct URL and reports progress/ready', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux' })
     const { Updater, sendUpdateEvent, sendUpdateProgress, downloadWithProgress } =

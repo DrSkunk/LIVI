@@ -121,28 +121,5 @@ npmRebuild: false
 copyright: 'Copyright © 2026 Lasse Heitgres'
 publish: null
 
-win:
-  target:
-    - target: nsis
-      arch:
-        - x64
-  icon: icons/win/livi.ico
-  executableName: LIVI
-  artifactName: ${name}-${version}-windows-${arch}.${ext}
-  extraResources:
-    - from: assets/gstreamer/windows-x64
-      to: gstreamer/windows-x64
-      filter:
-        - '**/*'
-        - '!**/*.a'
-        - '!share/**'
-
-nsis:
-  oneClick: false
-  perMachine: false
-  allowToChangeInstallationDirectory: true
-  createDesktopShortcut: true
-  createStartMenuShortcut: true
-
 toolsets:
   appimage: '1.0.2'
