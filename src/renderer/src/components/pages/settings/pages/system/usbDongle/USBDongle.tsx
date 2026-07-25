@@ -593,22 +593,15 @@ export function USBDongle() {
       autoCloseTimerRef.current = null
     }
 
-    // Upload reconnect auto-close:
-    // Only close after we reached a terminal "ready" state AND we saw a disconnect->reconnect.
+    // After an upload the dongle drops off USB to flash/reboot; that disconnect (or the
+    // following reconnect) closes the dialog.
     if (fwWaitingForReconnect) {
-      const uploadFinished = fwDlg.phase === 'ready' && !fwDlg.inFlight && !fwDlg.error
-
       if (!isDongleConnected) {
         if (!fwSawDisconnect) setFwSawDisconnect(true)
+        closeFwDialog()
         return
       }
-
-      if (uploadFinished && fwSawDisconnect && isDongleConnected) {
-        setFwWaitingForReconnect(false)
-        setFwSawDisconnect(false)
-        closeFwDialog()
-      }
-
+      if (fwSawDisconnect) closeFwDialog()
       return
     }
 

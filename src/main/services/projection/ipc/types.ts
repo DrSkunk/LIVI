@@ -53,6 +53,7 @@ export interface ProjectionIpcHost {
 
   // Driver send
   send(msg: SendableMessage): Promise<boolean>
+  sendToDongle(msg: SendableMessage): Promise<boolean>
   isUsingDongle(): boolean
   isUsingAa(): boolean
   isStarted(): boolean

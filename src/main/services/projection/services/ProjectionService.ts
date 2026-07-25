@@ -1405,6 +1405,7 @@ export class ProjectionService {
       forgetDevice: (id) => this.forgetDevice(id),
       applyCodecCapabilities: (caps) => this.codecCaps.applyCodecCapabilities(caps),
       send: (msg) => this.driver.send(msg),
+      sendToDongle: (msg) => this.dongleDriver.send(msg),
       isUsingDongle: () => this.driver instanceof DongleDriver,
       isUsingAa: () => this.getActiveTransport() === 'aa',
       isStarted: () => this.started,

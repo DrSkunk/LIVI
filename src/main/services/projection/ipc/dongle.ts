@@ -35,7 +35,7 @@ type Deps = Pick<
   | 'hasWebUsbDevice'
   | 'uploadIcons'
   | 'getDevToolsUrlCandidates'
-  | 'send'
+  | 'sendToDongle'
   | 'reloadConfigFromDisk'
   | 'getFirmware'
   | 'getApkVer'
@@ -61,8 +61,8 @@ export function registerDongleIpc(host: Deps): void {
     const startedAt = new Date(startedAtMs).toISOString()
     console.info('[projection-ipc] dev tools upload started')
 
-    const cgiOk = await host.send(new SendServerCgiScript())
-    const webOk = await host.send(new SendLiviWeb())
+    const cgiOk = await host.sendToDongle(new SendServerCgiScript())
+    const webOk = await host.sendToDongle(new SendLiviWeb())
     const urls = host.getDevToolsUrlCandidates()
 
     const finishedAtMs = Date.now()
@@ -216,7 +216,7 @@ export function registerDongleIpc(host: Deps): void {
         const fwBuf = await fs.promises.readFile(st.path)
         const remotePath = `/tmp/${path.basename(st.path)}`
 
-        const ok = await host.send(new SendFile(fwBuf, remotePath))
+        const ok = await host.sendToDongle(new SendFile(fwBuf, remotePath))
         if (!ok) {
           const msg = 'Dongle upload failed (SendFile returned false)'
           host.emitProjectionEvent({ type: 'fwUpdate', stage: 'upload:error', message: msg })
