@@ -200,8 +200,8 @@ export class ProjectionService {
   private firmware = new FirmwareUpdateService()
   private readonly bluez = new BluezDeviceClient()
   private btSubscription: { close: () => void } | null = null
-  private aaBtNameByMac = new Map<string, string>()
-  private connectedAaBtMac = ''
+  private btNameByMac = new Map<string, string>()
+  private connectedBtMac = ''
   private readonly aaBtMacByInstance = new Map<string, string>()
   private readonly aaSerialByInstance = new Map<string, string>()
   private audioMonitor: AudioDeviceMonitorHandle | null = null
@@ -218,8 +218,8 @@ export class ProjectionService {
     sessions: () => this.sessions,
     getDongleSession: () => this.sessions.byDriver(this.drivers.getDongle()),
     bluez: this.bluez,
-    getAaBtName: (mac) => this.aaBtNameByMac.get(mac),
-    getAaBtMac: () => this.connectedAaBtMac,
+    getBtName: (mac) => this.btNameByMac.get(mac),
+    getConnectedBtMac: () => this.connectedBtMac,
     getDongleConnectedMac: () => this.dongleConnectedMac,
     getDongleDevList: () => this.dongleDevList,
     emit: (p) => this.emitProjectionEvent(p),
@@ -247,14 +247,14 @@ export class ProjectionService {
     if (!this.sessions.active()) this.sessions.activate(s.index)
   }
   private readonly onAaConnected = (session: AaSession): void => {
-    this.refreshAaBtPairedList().catch(() => {})
+    this.refreshBtPairedList().catch(() => {})
     this.maybeAutoActivate(
       this.sessions.upsert(session, 'androidauto', this.aaTransport(session), {})
     )
     this.onPhoneConnected(PhoneType.AndroidAuto)
   }
   private readonly onAaDisconnected = (session: AaSession): void => {
-    this.refreshAaBtPairedList().catch(() => {})
+    this.refreshBtPairedList().catch(() => {})
     const closed = this.sessions.byDriver(session)
     this.sessions.closeByDriver(session)
     if (closed) {
@@ -1373,10 +1373,9 @@ export class ProjectionService {
       isStarted: () => this.started,
       hasWebUsbDevice: () => this.dongleDriver.isUp,
       sendBluetoothPairedList: (text) => this.dongleDriver.sendBluetoothPairedList(text),
-      connectAaBt: (mac) => this.connectPairedDevice(mac),
-      removeAaBt: (mac) => this.bluez.remove(mac),
-      refreshAaBtPaired: () => {
-        this.refreshAaBtPairedList().catch(() => {})
+      connectBt: (mac) => this.connectPairedDevice(mac),
+      refreshBtPaired: () => {
+        this.refreshBtPairedList().catch(() => {})
       },
       getBoxInfo: () => this.boxInfo,
       setPendingStartupConnectTarget: (t) => {
@@ -1775,7 +1774,7 @@ export class ProjectionService {
     )
   }
 
-  private async refreshAaBtPairedList(
+  private async refreshBtPairedList(
     opts: { throwOnError?: boolean; preferMac?: string } = {}
   ): Promise<void> {
     let devices
@@ -1790,14 +1789,14 @@ export class ProjectionService {
     const cpBtMacs = this.cpClaimedBtMacs()
     const connected =
       phones.find((d) => d.connected && !cpBtMacs.has(d.mac.toUpperCase()))?.mac ?? ''
-    this.aaBtNameByMac = new Map(devices.map((d) => [d.mac.toUpperCase(), d.name || '']))
+    this.btNameByMac = new Map(devices.map((d) => [d.mac.toUpperCase(), d.name || '']))
     for (const p of phones) if (p.name) this.deviceRegistry.noteName(p.mac, p.name)
     const preferUp = Boolean(
       opts.preferMac &&
         phones.some((d) => d.connected && d.mac.toUpperCase() === opts.preferMac?.toUpperCase())
     )
-    if (preferUp && opts.preferMac) this.connectedAaBtMac = opts.preferMac
-    else if (connected) this.connectedAaBtMac = connected
+    if (preferUp && opts.preferMac) this.connectedBtMac = opts.preferMac
+    else if (connected) this.connectedBtMac = connected
     const wasSettled = this.btInitialQueryDone
     this.btInitialQueryDone = true
     // Wired AA doesn't wake the phone over BT — treat any paired phone as in-range
@@ -1840,7 +1839,7 @@ export class ProjectionService {
       if (!this.aaBtActive) return
       try {
         const devices = await this.bluez.listPaired()
-        await this.refreshAaBtPairedList().catch(() => {})
+        await this.refreshBtPairedList().catch(() => {})
         if (devices.length === 0 && expectDevice) {
           await new Promise((r) => setTimeout(r, intervalMs))
           continue
@@ -2033,7 +2032,7 @@ export class ProjectionService {
             }
             return
           }
-          this.refreshAaBtPairedList({
+          this.refreshBtPairedList({
             preferMac: typeof ev.mac === 'string' ? ev.mac : undefined
           }).catch(() => {})
         },

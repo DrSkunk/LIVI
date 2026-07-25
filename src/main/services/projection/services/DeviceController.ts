@@ -10,8 +10,8 @@ export type DeviceControllerDeps = {
   sessions: () => SessionManager
   getDongleSession: () => ProjectionSession | null
   bluez: BluezDeviceClient
-  getAaBtName: (macUpper: string) => string | undefined
-  getAaBtMac: () => string
+  getBtName: (macUpper: string) => string | undefined
+  getConnectedBtMac: () => string
   getDongleConnectedMac: () => string
   getDongleDevList: () => DevListEntry[]
   emit: (payload: ProjectionEvent) => void
@@ -185,12 +185,12 @@ export class DeviceController {
         st === 'active' ? 'active' : st === 'held' || e.presence.wifi ? 'available' : 'offline'
       let nameBt = e.btMac
       if (e.protocol === 'androidauto' && nameBt && cpBtMacs.has(nameBt.toUpperCase())) {
-        const aaBt = this.deps.getAaBtMac()
+        const aaBt = this.deps.getConnectedBtMac()
         nameBt = aaBt && !cpBtMacs.has(aaBt.toUpperCase()) ? aaBt : undefined
       }
       const view: DeviceView = {
         id,
-        name: (nameBt ? this.deps.getAaBtName(nameBt.toUpperCase()) : undefined) || e.name,
+        name: (nameBt ? this.deps.getBtName(nameBt.toUpperCase()) : undefined) || e.name,
         model: e.model,
         protocol: e.protocol,
         lastTransport: e.lastTransport,

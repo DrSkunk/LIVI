@@ -1,4 +1,4 @@
-const aaBtSockMock = {
+const bluezMock = {
   listPaired: vi.fn(
     async () => [] as Array<{ mac: string; name?: string; connected?: boolean; trusted?: boolean }>
   ),
@@ -12,7 +12,7 @@ const aaBtSockMock = {
 
 vi.mock('../../bt/BluezDeviceClient', () => ({
   BluezDeviceClient: vi.fn().mockImplementation(function () {
-    return aaBtSockMock
+    return bluezMock
   })
 }))
 
@@ -129,10 +129,10 @@ function newSvc(): {
 }
 
 beforeEach(async () => {
-  aaBtSockMock.listPaired.mockReset()
-  aaBtSockMock.connect.mockReset()
-  aaBtSockMock.remove.mockReset()
-  aaBtSockMock.subscribe.mockReset()
+  bluezMock.listPaired.mockReset()
+  bluezMock.connect.mockReset()
+  bluezMock.remove.mockReset()
+  bluezMock.subscribe.mockReset()
   configEventsMock.emit.mockReset()
   vi.spyOn(console, 'log').mockImplementation(function () {})
   vi.spyOn(console, 'warn').mockImplementation(function () {})
@@ -140,45 +140,45 @@ beforeEach(async () => {
 })
 afterEach(async () => vi.restoreAllMocks())
 
-describe('refreshAaBtPairedList', () => {
+describe('refreshBtPairedList', () => {
   test('still queries BT presence when no AA driver is active', async () => {
     const { svc } = newSvc()
-    aaBtSockMock.listPaired.mockResolvedValueOnce([])
-    await (svc as unknown as { refreshAaBtPairedList: () => Promise<void> }).refreshAaBtPairedList()
-    expect(aaBtSockMock.listPaired).toHaveBeenCalled()
+    bluezMock.listPaired.mockResolvedValueOnce([])
+    await (svc as unknown as { refreshBtPairedList: () => Promise<void> }).refreshBtPairedList()
+    expect(bluezMock.listPaired).toHaveBeenCalled()
   })
 
   test('listPaired error is swallowed unless throwOnError', async () => {
     const { svc } = newSvc()
-    aaBtSockMock.listPaired.mockImplementationOnce(async () => {
+    bluezMock.listPaired.mockImplementationOnce(async () => {
       throw new Error('sock down')
     })
     await expect(
-      (svc as unknown as { refreshAaBtPairedList: () => Promise<void> }).refreshAaBtPairedList()
+      (svc as unknown as { refreshBtPairedList: () => Promise<void> }).refreshBtPairedList()
     ).resolves.toBeUndefined()
   })
 
   test('listPaired error rethrows when throwOnError=true', async () => {
     const { svc } = newSvc()
-    aaBtSockMock.listPaired.mockImplementationOnce(async () => {
+    bluezMock.listPaired.mockImplementationOnce(async () => {
       throw new Error('sock down')
     })
     await expect(
       (
         svc as unknown as {
-          refreshAaBtPairedList: (opts: { throwOnError: boolean }) => Promise<void>
+          refreshBtPairedList: (opts: { throwOnError: boolean }) => Promise<void>
         }
-      ).refreshAaBtPairedList({ throwOnError: true })
+      ).refreshBtPairedList({ throwOnError: true })
     ).rejects.toThrow()
   })
 
   test('a new connected device is persisted via configEvents', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
-    aaBtSockMock.listPaired.mockResolvedValueOnce([
+    bluezMock.listPaired.mockResolvedValueOnce([
       { mac: 'AA:BB', name: 'Phone', connected: true, trusted: true }
     ])
-    await (svc as unknown as { refreshAaBtPairedList: () => Promise<void> }).refreshAaBtPairedList()
+    await (svc as unknown as { refreshBtPairedList: () => Promise<void> }).refreshBtPairedList()
     expect(configEventsMock.emit).toHaveBeenCalledWith(
       'requestSave',
       expect.objectContaining({ lastConnectedAaBtMac: 'AA:BB' })
@@ -187,11 +187,11 @@ describe('refreshAaBtPairedList', () => {
 
   test('builds host DevList from paired devices', async () => {
     const { svc } = newSvc()
-    aaBtSockMock.listPaired.mockResolvedValueOnce([
+    bluezMock.listPaired.mockResolvedValueOnce([
       { mac: 'AA:BB', name: 'P1', connected: false },
       { mac: 'CC:DD', name: 'P2', connected: false }
     ])
-    await (svc as unknown as { refreshAaBtPairedList: () => Promise<void> }).refreshAaBtPairedList()
+    await (svc as unknown as { refreshBtPairedList: () => Promise<void> }).refreshBtPairedList()
     const hostDevList = (svc as unknown as { hostDevList: unknown[] }).hostDevList
     expect(hostDevList).toHaveLength(2)
   })
@@ -201,23 +201,23 @@ describe('tryAutoConnect', () => {
   test('no-op without active supervisor', async () => {
     const { svc } = newSvc()
     await (svc as unknown as { tryAutoConnect: () => Promise<void> }).tryAutoConnect()
-    expect(aaBtSockMock.listPaired).not.toHaveBeenCalled()
+    expect(bluezMock.listPaired).not.toHaveBeenCalled()
   })
 
   test('bails when something is already connected', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
-    aaBtSockMock.listPaired.mockResolvedValueOnce([{ mac: 'AA:BB', connected: true }])
+    bluezMock.listPaired.mockResolvedValueOnce([{ mac: 'AA:BB', connected: true }])
     await (svc as unknown as { tryAutoConnect: () => Promise<void> }).tryAutoConnect()
-    expect(aaBtSockMock.connect).not.toHaveBeenCalled()
+    expect(bluezMock.connect).not.toHaveBeenCalled()
   })
 
   test('logs and bails when paired list is empty', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
-    aaBtSockMock.listPaired.mockResolvedValueOnce([])
+    bluezMock.listPaired.mockResolvedValueOnce([])
     await (svc as unknown as { tryAutoConnect: () => Promise<void> }).tryAutoConnect()
-    expect(aaBtSockMock.connect).not.toHaveBeenCalled()
+    expect(bluezMock.connect).not.toHaveBeenCalled()
   })
 
   test('prefers lastConnectedAaBtMac when present', async () => {
@@ -225,30 +225,30 @@ describe('tryAutoConnect', () => {
     setSupervisor({})
     ;(svc as unknown as { config: { lastConnectedAaBtMac: string } }).config.lastConnectedAaBtMac =
       'AA:BB'
-    aaBtSockMock.listPaired.mockResolvedValueOnce([
+    bluezMock.listPaired.mockResolvedValueOnce([
       { mac: 'CC:DD', connected: false, trusted: false },
       { mac: 'AA:BB', connected: false, trusted: false }
     ])
     await (svc as unknown as { tryAutoConnect: () => Promise<void> }).tryAutoConnect()
-    expect(aaBtSockMock.connect).toHaveBeenCalledWith('AA:BB')
+    expect(bluezMock.connect).toHaveBeenCalledWith('AA:BB')
   })
 
   test('falls back to first trusted device', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
-    aaBtSockMock.listPaired.mockResolvedValueOnce([
+    bluezMock.listPaired.mockResolvedValueOnce([
       { mac: 'CC:DD', connected: false, trusted: false },
       { mac: 'AA:BB', connected: false, trusted: true }
     ])
     await (svc as unknown as { tryAutoConnect: () => Promise<void> }).tryAutoConnect()
-    expect(aaBtSockMock.connect).toHaveBeenCalledWith('AA:BB')
+    expect(bluezMock.connect).toHaveBeenCalledWith('AA:BB')
   })
 
   test('connect error is swallowed', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
-    aaBtSockMock.listPaired.mockResolvedValueOnce([{ mac: 'AA:BB', trusted: true }])
-    aaBtSockMock.connect.mockImplementationOnce(async () => {
+    bluezMock.listPaired.mockResolvedValueOnce([{ mac: 'AA:BB', trusted: true }])
+    bluezMock.connect.mockImplementationOnce(async () => {
       throw new Error('busy')
     })
     await expect(
@@ -259,8 +259,8 @@ describe('tryAutoConnect', () => {
   test('connect resp.ok=false logs but does not throw', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
-    aaBtSockMock.listPaired.mockResolvedValueOnce([{ mac: 'AA:BB', trusted: true }])
-    aaBtSockMock.connect.mockResolvedValueOnce({ ok: false, error: 'no agent' })
+    bluezMock.listPaired.mockResolvedValueOnce([{ mac: 'AA:BB', trusted: true }])
+    bluezMock.connect.mockResolvedValueOnce({ ok: false, error: 'no agent' })
     await expect(
       (svc as unknown as { tryAutoConnect: () => Promise<void> }).tryAutoConnect()
     ).resolves.toBeUndefined()
@@ -271,31 +271,31 @@ describe('openAaBtSubscription / closeAaBtSubscription', () => {
   test('open is a no-op without an active supervisor', async () => {
     const { svc } = newSvc()
     ;(svc as unknown as { openAaBtSubscription: () => void }).openAaBtSubscription()
-    expect(aaBtSockMock.subscribe).not.toHaveBeenCalled()
+    expect(bluezMock.subscribe).not.toHaveBeenCalled()
   })
 
   test('open with an active supervisor creates a subscription', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
-    aaBtSockMock.subscribe.mockReturnValueOnce({ close: vi.fn() })
+    bluezMock.subscribe.mockReturnValueOnce({ close: vi.fn() })
     ;(svc as unknown as { openAaBtSubscription: () => void }).openAaBtSubscription()
-    expect(aaBtSockMock.subscribe).toHaveBeenCalledTimes(1)
+    expect(bluezMock.subscribe).toHaveBeenCalledTimes(1)
   })
 
   test('open is idempotent', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
-    aaBtSockMock.subscribe.mockReturnValueOnce({ close: vi.fn() })
+    bluezMock.subscribe.mockReturnValueOnce({ close: vi.fn() })
     ;(svc as unknown as { openAaBtSubscription: () => void }).openAaBtSubscription()
     ;(svc as unknown as { openAaBtSubscription: () => void }).openAaBtSubscription()
-    expect(aaBtSockMock.subscribe).toHaveBeenCalledTimes(1)
+    expect(bluezMock.subscribe).toHaveBeenCalledTimes(1)
   })
 
   test('close ends the subscription', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
     const closeFn = vi.fn()
-    aaBtSockMock.subscribe.mockReturnValueOnce({ close: closeFn })
+    bluezMock.subscribe.mockReturnValueOnce({ close: closeFn })
     ;(svc as unknown as { openAaBtSubscription: () => void }).openAaBtSubscription()
     ;(svc as unknown as { closeAaBtSubscription: () => void }).closeAaBtSubscription()
     expect(closeFn).toHaveBeenCalled()
@@ -311,7 +311,7 @@ describe('openAaBtSubscription / closeAaBtSubscription', () => {
   test('close swallows a throw from the underlying handle', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
-    aaBtSockMock.subscribe.mockReturnValueOnce({
+    bluezMock.subscribe.mockReturnValueOnce({
       close: () => {
         throw new Error('already closed')
       }
@@ -327,11 +327,11 @@ describe('populateAaBtPairedListInitial', () => {
   test('exits immediately on first non-empty list', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
-    aaBtSockMock.listPaired.mockResolvedValueOnce([{ mac: 'AA:BB' }])
+    bluezMock.listPaired.mockResolvedValueOnce([{ mac: 'AA:BB' }])
     await (
       svc as unknown as { populateAaBtPairedListInitial: () => Promise<void> }
     ).populateAaBtPairedListInitial()
-    expect(aaBtSockMock.listPaired).toHaveBeenCalled()
+    expect(bluezMock.listPaired).toHaveBeenCalled()
   })
 
   test('bails fast when supervisor disappears mid-loop', async () => {
@@ -340,6 +340,6 @@ describe('populateAaBtPairedListInitial', () => {
     await (
       svc as unknown as { populateAaBtPairedListInitial: () => Promise<void> }
     ).populateAaBtPairedListInitial()
-    expect(aaBtSockMock.listPaired).not.toHaveBeenCalled()
+    expect(bluezMock.listPaired).not.toHaveBeenCalled()
   })
 })

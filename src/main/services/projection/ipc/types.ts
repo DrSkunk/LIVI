@@ -12,7 +12,7 @@ import type {
 } from '../services/types'
 import type { Transport, TransportSnapshot } from '../transport/types'
 
-export type AaBtSockResponse = { ok: boolean; error?: string }
+export type BtActionResponse = { ok: boolean; error?: string }
 
 export type DongleFwResponse = {
   ok: boolean
@@ -61,9 +61,8 @@ export interface ProjectionIpcHost {
 
   // Bluetooth
   sendBluetoothPairedList(text: string): Promise<boolean>
-  connectAaBt(mac: string): Promise<AaBtSockResponse>
-  removeAaBt(mac: string): Promise<AaBtSockResponse>
-  refreshAaBtPaired(): void
+  connectBt(mac: string): Promise<BtActionResponse>
+  refreshBtPaired(): void
   getBoxInfo(): unknown
   setPendingStartupConnectTarget(t: PendingStartupConnectTarget | null): void
 

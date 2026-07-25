@@ -8,11 +8,10 @@ type Deps = Pick<
   | 'isStarted'
   | 'isUsingDongle'
   | 'isUsingAa'
-  | 'send'
+  | 'sendToDongle'
   | 'sendBluetoothPairedList'
-  | 'connectAaBt'
-  | 'removeAaBt'
-  | 'refreshAaBtPaired'
+  | 'connectBt'
+  | 'refreshBtPaired'
   | 'getBoxInfo'
   | 'setPendingStartupConnectTarget'
 >
@@ -34,8 +33,8 @@ export function registerBluetoothIpc(host: Deps): void {
 
     if (host.isUsingAa()) {
       try {
-        const resp = await host.connectAaBt(btMac)
-        if (resp.ok) host.refreshAaBtPaired()
+        const resp = await host.connectBt(btMac)
+        if (resp.ok) host.refreshBtPaired()
         return resp
       } catch (e) {
         return { ok: false, error: (e as Error).message }
@@ -59,17 +58,7 @@ export function registerBluetoothIpc(host: Deps): void {
     const btMac = String(mac ?? '').trim()
     if (!btMac) return { ok: false }
 
-    if (host.isUsingAa()) {
-      try {
-        const resp = await host.removeAaBt(btMac)
-        if (resp.ok) host.refreshAaBtPaired()
-        return resp
-      } catch (e) {
-        return { ok: false, error: (e as Error).message }
-      }
-    }
-
-    const ok = await host.send(new SendForgetBluetoothAddr(btMac))
+    const ok = await host.sendToDongle(new SendForgetBluetoothAddr(btMac))
     return { ok: Boolean(ok) }
   })
 }
