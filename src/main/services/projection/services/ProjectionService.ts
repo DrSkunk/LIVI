@@ -26,6 +26,7 @@ import {
 import { classifyNal } from '../../video/keyframe'
 import { BluezDeviceClient } from '../bt/BluezDeviceClient'
 import { BtPairedRegistry } from '../bt/BtPairedRegistry'
+import { DongleState } from '../dongle/DongleState'
 import type { AaSession } from '../driver/aa/AaSession'
 import type { CpManager } from '../driver/cp/CpManager'
 import type { CpSession } from '../driver/cp/CpSession'
@@ -82,10 +83,6 @@ type VolumeConfig = {
   navVolume?: number
   voiceAssistantVolume?: number
   callVolume?: number
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === 'object' && !Array.isArray(v)
 }
 
 /** appearanceMode → initial NIGHT_DATA bit for AA. 'auto' = no override (undefined). */
@@ -189,18 +186,18 @@ export class ProjectionService {
   private lastClusterCodecByDriver = new Map<IPhoneDriver, GstVideoCodec>()
   private clusterVisible = false
   private clusterStreamActive: boolean | null = null
-  private dongleFwVersion?: string
-  private boxInfo?: unknown
   private hostDevList: DevListEntry[] = []
-  private dongleDevList: DevListEntry[] = []
-  private dongleConnectedMac = ''
-  private lastDongleInfoEmitKey = ''
   private lastAudioMetaEmitKey = ''
   private firmware = new FirmwareUpdateService()
   private readonly bluez = new BluezDeviceClient()
   private readonly btPaired = new BtPairedRegistry({
     emit: (p) => this.emitProjectionEvent(p),
     hasRenderer: () => this.webContents != null
+  })
+  private readonly dongleState = new DongleState({
+    emit: (p) => this.emitProjectionEvent(p),
+    hasRenderer: () => this.webContents != null,
+    getHostDevList: () => this.hostDevList
   })
   private btSubscription: { close: () => void } | null = null
   private readonly aaBtMacByInstance = new Map<string, string>()
@@ -221,8 +218,8 @@ export class ProjectionService {
     bluez: this.bluez,
     getBtName: (mac) => this.btPaired.getName(mac),
     getConnectedBtMac: () => this.btPaired.getConnectedMac(),
-    getDongleConnectedMac: () => this.dongleConnectedMac,
-    getDongleDevList: () => this.dongleDevList,
+    getDongleConnectedMac: () => this.dongleState.getConnectedMac(),
+    getDongleDevList: () => this.dongleState.getDongleDevList(),
     emit: (p) => this.emitProjectionEvent(p),
     autoConnect: () => this.config.autoConn !== false,
     pushReconnectTargets: (targets) => {
@@ -622,33 +619,12 @@ export class ProjectionService {
   }
 
   private handleSoftwareVersion(msg: SoftwareVersion): void {
-    this.dongleFwVersion = msg.version
-    this.emitDongleInfoIfChanged()
+    this.dongleState.handleSoftwareVersion(msg)
   }
 
   private handleBoxInfo(msg: BoxInfo): void {
-    const settings = msg.settings as { DevList?: Array<Record<string, unknown>> }
-    if (this.setDongleDevListFromSettings(settings)) {
-      settings.DevList = this.mergedDevList() as unknown as Array<Record<string, unknown>>
-    }
-    const rawBtMac = (msg.settings as { btMacAddr?: unknown }).btMacAddr
-    if (typeof rawBtMac === 'string' && rawBtMac.trim()) {
-      this.dongleConnectedMac = rawBtMac.trim()
-    }
-    this.boxInfo = mergePreferExisting(this.boxInfo, msg.settings)
-    this.emitDongleInfoIfChanged()
+    this.dongleState.handleBoxInfo(msg)
     this.deviceController.emitDevices()
-  }
-
-  private setDongleDevListFromSettings(settings: {
-    DevList?: Array<Record<string, unknown>>
-  }): boolean {
-    if (!Array.isArray(settings.DevList)) return false
-    this.dongleDevList = settings.DevList.map((entry) => ({
-      ...(entry as DevListEntry),
-      source: 'dongle' as const
-    }))
-    return true
   }
 
   // Dongle lifecycle over always-on driver events (not the routed 'message' path),
@@ -662,26 +638,14 @@ export class ProjectionService {
     const dongle = this.drivers.getDongle()
     const hadOther = this.sessions.all().some((s) => s.driver !== dongle)
     this.sessions.closeByDriver(dongle)
-    this.dongleDevList = []
     this.btPaired.clearDongleRaw()
-    this.dongleConnectedMac = ''
-    if (isRecord(this.boxInfo)) {
-      this.boxInfo = { ...this.boxInfo, btMacAddr: '' }
-    }
-    this.emitProjectionEvent({
-      type: 'dongleInfo',
-      payload: {
-        dongleFwVersion: this.dongleFwVersion,
-        boxInfo: this.boxInfo
-      }
-    })
+    this.dongleState.clearOnDongleGone()
     if (hadOther) this.deviceController.emitDevices()
     else this.onPhoneDisconnected()
   }
 
   private onDongleInfo(info: { boxInfo?: unknown }): void {
-    const settings = info.boxInfo as { DevList?: Array<Record<string, unknown>> } | undefined
-    if (settings && this.setDongleDevListFromSettings(settings)) {
+    if (this.dongleState.applyDongleInfo(info)) {
       this.deviceController.emitDevices()
     }
   }
@@ -722,7 +686,7 @@ export class ProjectionService {
       })
 
       // Ensure the next SoftwareVersion/BoxInfo triggers a fresh emit.
-      this.lastDongleInfoEmitKey = ''
+      this.dongleState.invalidateDongleInfoKey()
 
       this.driver.requestKeyframe?.()
     }
@@ -1377,7 +1341,7 @@ export class ProjectionService {
       refreshBtPaired: () => {
         this.refreshBtPairedList().catch(() => {})
       },
-      getBoxInfo: () => this.boxInfo,
+      getBoxInfo: () => this.dongleState.getBoxInfo(),
       setPendingStartupConnectTarget: (t) => {
         this.pendingStartupConnectTarget = t
       },
@@ -1405,7 +1369,7 @@ export class ProjectionService {
       reloadConfigFromDisk: () => this.reloadConfigFromDisk(),
       getFirmware: () => this.firmware,
       getApkVer: () => this.getApkVer(),
-      getDongleFwVersion: () => this.dongleFwVersion,
+      getDongleFwVersion: () => this.dongleState.getFwVersion(),
       emitProjectionEvent: (p) => this.emitProjectionEvent(p),
       readActiveMedia: () => ({
         timestamp: new Date().toISOString(),
@@ -1516,31 +1480,6 @@ export class ProjectionService {
     this.config = { ...this.config, ...patch }
     this.deviceController.resendReconnectTargets()
     this.syncHelperSupervisor()
-  }
-
-  private emitDongleInfoIfChanged() {
-    if (!this.webContents) return
-
-    let boxKey = ''
-    if (this.boxInfo != null) {
-      try {
-        boxKey = JSON.stringify(this.boxInfo)
-      } catch {
-        boxKey = String(this.boxInfo)
-      }
-    }
-
-    const key = `${this.dongleFwVersion ?? ''}||${boxKey}`
-    if (key === this.lastDongleInfoEmitKey) return
-    this.lastDongleInfoEmitKey = key
-
-    this.emitProjectionEvent({
-      type: 'dongleInfo',
-      payload: {
-        dongleFwVersion: this.dongleFwVersion,
-        boxInfo: this.boxInfo
-      }
-    })
   }
 
   public markDongleConnected(connected: boolean): void {
@@ -1852,13 +1791,6 @@ export class ProjectionService {
   }
 
   // Host wins on MAC collision so a natively paired phone keeps no (D) suffix
-  private mergedDevList(): DevListEntry[] {
-    const norm = (id: string | undefined): string => (id ?? '').toUpperCase()
-    const hostMacs = new Set(this.hostDevList.map((e) => norm(e.id)))
-    const dongleUnique = this.dongleDevList.filter((e) => !hostMacs.has(norm(e.id)))
-    return [...this.hostDevList, ...dongleUnique]
-  }
-
   private async connectConfiguredAudioDevices(): Promise<void> {
     if (!this.aaBtActive) return
     const macs = new Set<string>()
@@ -2106,11 +2038,7 @@ export class ProjectionService {
 
         this.audio.resetForSessionStart()
 
-        this.dongleFwVersion = undefined
-        if (isRecord(this.boxInfo)) {
-          this.boxInfo = { ...this.boxInfo, btMacAddr: '' }
-        }
-        this.lastDongleInfoEmitKey = ''
+        this.dongleState.resetForTeardown()
         this.lastVideoWidth = undefined
         this.lastVideoHeight = undefined
         this.lastPluggedPhoneType = undefined
@@ -2313,9 +2241,8 @@ export class ProjectionService {
 
       if (wasDongleSession) {
         // Dongle gone — drop its stale DevList
-        this.dongleDevList = []
         this.btPaired.clearDongleRaw()
-        this.dongleConnectedMac = ''
+        this.dongleState.clearDongleSessionState()
       }
 
       this.audio.resetForSessionStop()
@@ -2326,11 +2253,7 @@ export class ProjectionService {
       this.mediaStore.reset('session-stop')
       this.navStore.reset('session-stop')
 
-      this.dongleFwVersion = undefined
-      if (isRecord(this.boxInfo)) {
-        this.boxInfo = { ...this.boxInfo, btMacAddr: '' }
-      }
-      this.lastDongleInfoEmitKey = ''
+      this.dongleState.resetForTeardown()
       this.lastVideoWidth = undefined
       this.lastVideoHeight = undefined
       this.lastPluggedPhoneType = undefined
@@ -2483,52 +2406,4 @@ export class ProjectionService {
     }
     return out
   }
-}
-
-function asObject(input: unknown): Record<string, unknown> | null {
-  if (!input) return null
-
-  if (typeof input === 'object' && input !== null) return input as Record<string, unknown>
-
-  if (typeof input === 'string') {
-    const s = input.trim()
-    if (!s) return null
-    try {
-      const parsed = JSON.parse(s)
-      if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>
-    } catch {
-      // ignore
-    }
-  }
-
-  return null
-}
-
-function isMeaningful(v: unknown): boolean {
-  if (v == null) return false
-  if (typeof v === 'string') return v.trim().length > 0
-  return true
-}
-
-function mergePreferExisting(prev: unknown, next: unknown): unknown {
-  const p = asObject(prev)
-  const n = asObject(next)
-
-  if (!p && !n) return next ?? prev
-  if (!p && n) return next
-  if (p && !n) return prev
-
-  // both objects
-  const out: Record<string, unknown> = { ...p }
-
-  for (const [k, v] of Object.entries(n!)) {
-    if (isMeaningful(v)) {
-      out[k] = v
-    } else {
-      // keep existing if present
-      if (!(k in out)) out[k] = v
-    }
-  }
-
-  return out
 }

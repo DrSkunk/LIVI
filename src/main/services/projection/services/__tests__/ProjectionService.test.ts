@@ -240,50 +240,6 @@ describe('ProjectionService', () => {
     expect((configEvents as any).off).toHaveBeenCalledWith('changed', expect.any(Function))
   })
 
-  test('emitDongleInfoIfChanged emits only for new key', async () => {
-    const svc = new ProjectionService() as any
-    const send = vi.fn()
-    svc.webContents = { send }
-    svc.dongleFwVersion = '1.0.0'
-    svc.boxInfo = { model: 'A15W' }
-
-    svc.emitDongleInfoIfChanged()
-    svc.emitDongleInfoIfChanged()
-
-    expect(send).toHaveBeenCalledTimes(1)
-    expect(send).toHaveBeenCalledWith('projection-event', {
-      type: 'dongleInfo',
-      payload: {
-        dongleFwVersion: '1.0.0',
-        boxInfo: { model: 'A15W' }
-      }
-    })
-  })
-
-  test('emitDongleInfoIfChanged does nothing without renderer', async () => {
-    const svc = new ProjectionService() as any
-    svc.webContents = null
-    svc.dongleFwVersion = '1.0.0'
-    svc.boxInfo = { model: 'A15W' }
-
-    expect(() => svc.emitDongleInfoIfChanged()).not.toThrow()
-  })
-
-  test('emitDongleInfoIfChanged emits again when key changes', async () => {
-    const svc = new ProjectionService() as any
-    const send = vi.fn()
-    svc.webContents = { send }
-
-    svc.dongleFwVersion = '1.0.0'
-    svc.boxInfo = { model: 'A15W' }
-    svc.emitDongleInfoIfChanged()
-
-    svc.boxInfo = { model: 'A15X' }
-    svc.emitDongleInfoIfChanged()
-
-    expect(send).toHaveBeenCalledTimes(2)
-  })
-
   test('getDevToolsUrlCandidates returns strict host/path combinations', async () => {
     const svc = new ProjectionService() as any
 
@@ -629,14 +585,14 @@ describe('ProjectionService', () => {
     expect(svc.driver.close).toHaveBeenCalled()
     expect(svc.audio.resetForSessionStop).toHaveBeenCalled()
     expect(svc.started).toBe(false)
-    expect(svc.lastDongleInfoEmitKey).toBe('')
+    expect(svc.dongleState.lastDongleInfoEmitKey).toBe('')
   })
 
   test('stop resets btMacAddr from boxInfo when boxInfo is a record', async () => {
     const svc = new ProjectionService() as any
     svc.started = true
     svc.stopping = false
-    svc.boxInfo = { uuid: 'u1', MFD: 'm1', productType: 'A15W', btMacAddr: 'AA:BB:CC' }
+    svc.dongleState.boxInfo = { uuid: 'u1', MFD: 'm1', productType: 'A15W', btMacAddr: 'AA:BB:CC' }
     svc.disconnectPhone = vi.fn(async () => false)
     svc.driver.close = vi.fn(async () => undefined)
     svc.audio.resetForSessionStop = vi.fn()
@@ -646,7 +602,7 @@ describe('ProjectionService', () => {
 
     await svc.stop()
 
-    expect(svc.boxInfo.btMacAddr).toBe('')
+    expect(svc.dongleState.boxInfo.btMacAddr).toBe('')
   })
 
   test('stop closes the driver and marks service stopped', async () => {
@@ -959,8 +915,8 @@ describe('ProjectionService', () => {
     const send = vi.fn()
     svc.webContents = { send }
     svc.config = { apkVer: '9.9.9' }
-    svc.dongleFwVersion = '1.0.0'
-    svc.boxInfo = { uuid: 'u1', MFD: 'm1', productType: 'A15W' }
+    svc.dongleState.dongleFwVersion = '1.0.0'
+    svc.dongleState.boxInfo = { uuid: 'u1', MFD: 'm1', productType: 'A15W' }
     svc.reloadConfigFromDisk = vi.fn(async () => undefined)
 
     svc.firmware.checkForUpdate = vi.fn(async () => ({
@@ -1105,8 +1061,8 @@ describe('ProjectionService', () => {
     const send = vi.fn()
     svc.webContents = { send }
     svc.config = { apkVer: '9.9.9' }
-    svc.dongleFwVersion = '1.0.0'
-    svc.boxInfo = { uuid: 'u1', MFD: 'm1', productType: 'A15W' }
+    svc.dongleState.dongleFwVersion = '1.0.0'
+    svc.dongleState.boxInfo = { uuid: 'u1', MFD: 'm1', productType: 'A15W' }
     svc.reloadConfigFromDisk = vi.fn(async () => undefined)
 
     svc.firmware.checkForUpdate = vi.fn(async () => ({
@@ -1200,8 +1156,8 @@ describe('ProjectionService', () => {
     const send = vi.fn()
     svc.webContents = { send }
     svc.config = { apkVer: '9.9.9' }
-    svc.dongleFwVersion = '1.0.0'
-    svc.boxInfo = { uuid: 'u1', MFD: 'm1', productType: 'A15W' }
+    svc.dongleState.dongleFwVersion = '1.0.0'
+    svc.dongleState.boxInfo = { uuid: 'u1', MFD: 'm1', productType: 'A15W' }
     svc.reloadConfigFromDisk = vi.fn(async () => undefined)
 
     svc.firmware.checkForUpdate = vi.fn(async () => ({
@@ -1266,8 +1222,8 @@ describe('ProjectionService', () => {
     const send = vi.fn()
     svc.webContents = { send }
     svc.config = { apkVer: '9.9.9' }
-    svc.dongleFwVersion = '1.0.0'
-    svc.boxInfo = { uuid: 'u1', MFD: 'm1', productType: 'A15W' }
+    svc.dongleState.dongleFwVersion = '1.0.0'
+    svc.dongleState.boxInfo = { uuid: 'u1', MFD: 'm1', productType: 'A15W' }
     svc.reloadConfigFromDisk = vi.fn(async () => undefined)
 
     svc.firmware.checkForUpdate = vi.fn(async () => ({
@@ -1833,7 +1789,7 @@ describe('ProjectionService', () => {
 
     svc.driver.emit('message', new SoftwareVersion('2025.03.19.1126'))
 
-    expect(svc.dongleFwVersion).toBe('2025.03.19.1126')
+    expect(svc.dongleState.dongleFwVersion).toBe('2025.03.19.1126')
     expect(send).toHaveBeenCalledWith('projection-event', {
       type: 'dongleInfo',
       payload: {
@@ -1847,7 +1803,7 @@ describe('ProjectionService', () => {
     const svc = new ProjectionService() as any
     const send = vi.fn()
     svc.webContents = { send }
-    svc.boxInfo = {
+    svc.dongleState.boxInfo = {
       uuid: 'u1',
       MFD: 'm1',
       productType: 'A15W',
@@ -1864,7 +1820,7 @@ describe('ProjectionService', () => {
       })
     )
 
-    expect(svc.boxInfo).toEqual({
+    expect(svc.dongleState.boxInfo).toEqual({
       uuid: 'u1',
       MFD: 'm1-new',
       productType: 'A15W',
@@ -1969,7 +1925,7 @@ describe('ProjectionService', () => {
     const svc = new ProjectionService() as any
     const send = vi.fn()
     svc.webContents = { send }
-    svc.lastDongleInfoEmitKey = 'old-key'
+    svc.dongleState.lastDongleInfoEmitKey = 'old-key'
 
     const msg = new BoxUpdateState()
     msg.status = 2
@@ -1998,7 +1954,7 @@ describe('ProjectionService', () => {
       isOta: false
     })
 
-    expect(svc.lastDongleInfoEmitKey).toBe('')
+    expect(svc.dongleState.lastDongleInfoEmitKey).toBe('')
     expect(svc.driver.requestKeyframe).toHaveBeenCalledTimes(1)
   })
 
@@ -2093,19 +2049,6 @@ describe('ProjectionService', () => {
       '[ProjectionService] failed to upload icons',
       expect.any(Error)
     )
-  })
-
-  test('emitDongleInfoIfChanged uses String(boxInfo) when JSON.stringify throws', async () => {
-    const svc = new ProjectionService() as any
-    const send = vi.fn()
-    svc.webContents = { send }
-
-    const circular: Record<string, unknown> = {}
-    circular.self = circular
-    svc.boxInfo = circular
-
-    expect(() => svc.emitDongleInfoIfChanged()).not.toThrow()
-    expect(send).toHaveBeenCalledTimes(1)
   })
 
   test('driver AudioData emits audio and audioInfo once per unique decode format', async () => {
