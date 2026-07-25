@@ -1,6 +1,6 @@
 import { registerIpcHandle } from '@main/ipc/register'
 import { type AudioDevice, listAudioDevices } from '@main/services/audio/AudioDeviceEnumerator'
-import { AaBtSockClient } from '@main/services/projection/driver/aa/AaBtSockClient'
+import { BluezDeviceClient } from '@main/services/projection/bt/BluezDeviceClient'
 
 // CoD Major 0x04 = Audio/Video (headphones, speakers, car kits)
 const BT_COD_MAJOR_AUDIO = 0x04
@@ -23,7 +23,7 @@ async function listPairedBtAudio(
   kind: 'sink' | 'source'
 ): Promise<Array<{ mac: string; name: string }>> {
   if (process.platform !== 'linux') return []
-  const client = new AaBtSockClient()
+  const client = new BluezDeviceClient()
   let paired: Array<{ mac: string; name: string; class?: number }>
   try {
     paired = await client.listPaired(2000)

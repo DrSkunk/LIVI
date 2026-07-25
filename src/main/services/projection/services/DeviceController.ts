@@ -1,5 +1,5 @@
 import type { DevListEntry } from '@shared/types'
-import type { AaBtSockClient } from '../driver/aa/AaBtSockClient'
+import type { BluezDeviceClient } from '../bt/BluezDeviceClient'
 import type { DeviceRegistry, DeviceView } from './DeviceRegistry'
 import type { ProjectionSession, SessionManager } from './SessionManager'
 import type { ProjectionEvent } from './types'
@@ -9,7 +9,7 @@ export type DeviceControllerDeps = {
   deviceRegistry: DeviceRegistry
   sessions: () => SessionManager
   getDongleSession: () => ProjectionSession | null
-  aaBtSock: AaBtSockClient
+  bluez: BluezDeviceClient
   getAaBtName: (macUpper: string) => string | undefined
   getAaBtMac: () => string
   getDongleConnectedMac: () => string
@@ -49,10 +49,10 @@ export class DeviceController {
     if (!e) return { ok: false }
     const mac = e.btMac
     if (mac) {
-      void this.deps.aaBtSock
+      void this.deps.bluez
         .disconnect(mac)
         .catch(() => {})
-        .then(() => this.deps.aaBtSock.remove(mac))
+        .then(() => this.deps.bluez.remove(mac))
         .catch((err) =>
           console.warn(`[DeviceController] forget ${mac} unpair failed: ${(err as Error).message}`)
         )
@@ -91,7 +91,7 @@ export class DeviceController {
     if (!btMac) return { ok: false }
     const uuid = wakeUuid(protocol)
     console.log(`[DeviceController] wake ${btMac} (${protocol ?? 'unknown protocol'})`)
-    void this.deps.aaBtSock
+    void this.deps.bluez
       .connect(btMac, undefined, uuid ?? undefined)
       .catch((err) =>
         console.warn(`[DeviceController] wake ${btMac} failed: ${(err as Error).message}`)

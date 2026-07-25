@@ -12,9 +12,9 @@ vi.mock('net', () => ({
   createConnection: (...args: unknown[]) => createConnection(...args)
 }))
 
-import { AaBtSockClient, AaBtSockError } from '../AaBtSockClient'
+import { BluezDeviceClient, BluezDeviceError } from '../BluezDeviceClient'
 
-function makeClient(): { client: AaBtSockClient; nextSocket: () => MockSocket } {
+function makeClient(): { client: BluezDeviceClient; nextSocket: () => MockSocket } {
   const sockets: MockSocket[] = []
   createConnection.mockReset()
   createConnection.mockImplementation(function () {
@@ -23,12 +23,12 @@ function makeClient(): { client: AaBtSockClient; nextSocket: () => MockSocket } 
     return s
   })
   return {
-    client: new AaBtSockClient('/tmp/test.sock'),
+    client: new BluezDeviceClient('/tmp/test.sock'),
     nextSocket: () => sockets.shift()!
   }
 }
 
-describe('AaBtSockClient.listPaired', () => {
+describe('BluezDeviceClient.listPaired', () => {
   test('writes "list_paired" and resolves with the devices array', async () => {
     const { client, nextSocket } = makeClient()
     const p = client.listPaired(1000)
@@ -49,11 +49,11 @@ describe('AaBtSockClient.listPaired', () => {
     const sock = nextSocket()
     sock.emit('connect')
     sock.emit('data', Buffer.from(JSON.stringify({ ok: false, error: 'no bt' }) + '\n'))
-    await expect(p).rejects.toThrow(AaBtSockError)
+    await expect(p).rejects.toThrow(BluezDeviceError)
   })
 })
 
-describe('AaBtSockClient.connect / disconnect / remove', () => {
+describe('BluezDeviceClient.connect / disconnect / remove', () => {
   test('connect writes "connect <mac>"', async () => {
     const { client, nextSocket } = makeClient()
     const p = client.connect('AA:BB', 500)
@@ -95,7 +95,7 @@ describe('AaBtSockClient.connect / disconnect / remove', () => {
   })
 })
 
-describe('AaBtSockClient — failure paths', () => {
+describe('BluezDeviceClient — failure paths', () => {
   test('rejects on socket error', async () => {
     const { client, nextSocket } = makeClient()
     const p = client.listPaired(1000)
@@ -133,7 +133,7 @@ describe('AaBtSockClient — failure paths', () => {
   })
 })
 
-describe('AaBtSockClient.subscribe', () => {
+describe('BluezDeviceClient.subscribe', () => {
   test('writes "subscribe" and forwards each newline-delimited event', () => {
     const { client, nextSocket } = makeClient()
     const events: unknown[] = []
@@ -197,7 +197,7 @@ describe('AaBtSockClient.subscribe', () => {
   })
 })
 
-describe('AaBtSockClient — request internals', () => {
+describe('BluezDeviceClient — request internals', () => {
   test('chunked data without newline is buffered until the line terminator arrives', async () => {
     const { client, nextSocket } = makeClient()
     const p = client.listPaired(1000)

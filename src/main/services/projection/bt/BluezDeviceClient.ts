@@ -1,13 +1,13 @@
 import * as net from 'net'
 
 /**
- * Client for the Python aa-bluetooth.py IPC socket.
+ * Client for the aa-bluetooth.py helper IPC socket.
  *
- * Used by ProjectionService for BlueZ-side device management:
- * list_paired / connect / disconnect / remove.
+ * Protocol-agnostic BlueZ device management (list_paired / connect / disconnect /
+ * remove), shared by every projection path (Android Auto and CarPlay alike).
  */
 
-export const AA_BT_SOCK_PATH = '/tmp/aa-bt.sock'
+export const BT_SOCK_PATH = '/tmp/aa-bt.sock'
 
 export type PairedDevice = {
   mac: string
@@ -21,15 +21,15 @@ export type PairedDevice = {
 type ListPairedResponse = { ok: true; devices: PairedDevice[] } | { ok: false; error: string }
 type ActionResponse = { ok: boolean; error?: string }
 
-export class AaBtSockError extends Error {
+export class BluezDeviceError extends Error {
   constructor(message: string) {
     super(message)
-    this.name = 'AaBtSockError'
+    this.name = 'BluezDeviceError'
   }
 }
 
-export class AaBtSockClient {
-  constructor(private readonly path: string = AA_BT_SOCK_PATH) {}
+export class BluezDeviceClient {
+  constructor(private readonly path: string = BT_SOCK_PATH) {}
 
   private request(line: string, timeoutMs = 5000): Promise<unknown> {
     return new Promise((resolve, reject) => {
@@ -48,7 +48,7 @@ export class AaBtSockClient {
         fn()
       }
       const timer = setTimeout(() => {
-        settle(() => reject(new AaBtSockError(`aa-bt sock timeout after ${timeoutMs}ms`)))
+        settle(() => reject(new BluezDeviceError(`aa-bt sock timeout after ${timeoutMs}ms`)))
       }, timeoutMs)
 
       sock.on('connect', () => {
@@ -63,16 +63,16 @@ export class AaBtSockClient {
           try {
             resolve(JSON.parse(json))
           } catch (e) {
-            reject(new AaBtSockError(`aa-bt sock bad json: ${json} (${(e as Error).message})`))
+            reject(new BluezDeviceError(`aa-bt sock bad json: ${json} (${(e as Error).message})`))
           }
         })
       })
       sock.on('error', (err: Error) => {
-        settle(() => reject(new AaBtSockError(`aa-bt sock error: ${err.message}`)))
+        settle(() => reject(new BluezDeviceError(`aa-bt sock error: ${err.message}`)))
       })
       sock.on('end', () => {
         if (!settled && !buf.includes('\n')) {
-          settle(() => reject(new AaBtSockError('aa-bt sock closed without response')))
+          settle(() => reject(new BluezDeviceError('aa-bt sock closed without response')))
         }
       })
     })
@@ -82,7 +82,7 @@ export class AaBtSockClient {
   async listPaired(timeoutMs = 5000): Promise<PairedDevice[]> {
     const resp = (await this.request('list_paired', timeoutMs)) as ListPairedResponse
     if (!resp.ok) {
-      throw new AaBtSockError(resp.error || 'list_paired failed')
+      throw new BluezDeviceError(resp.error || 'list_paired failed')
     }
     return resp.devices
   }

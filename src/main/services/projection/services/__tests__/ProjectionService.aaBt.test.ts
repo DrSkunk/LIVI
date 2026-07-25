@@ -10,8 +10,8 @@ const aaBtSockMock = {
   }))
 }
 
-vi.mock('../../driver/aa/AaBtSockClient', () => ({
-  AaBtSockClient: vi.fn().mockImplementation(function () {
+vi.mock('../../bt/BluezDeviceClient', () => ({
+  BluezDeviceClient: vi.fn().mockImplementation(function () {
     return aaBtSockMock
   })
 }))

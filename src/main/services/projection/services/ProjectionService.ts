@@ -24,7 +24,7 @@ import {
   VIDEO_PLANE_MAIN
 } from '../../video/gstHost'
 import { classifyNal } from '../../video/keyframe'
-import { AaBtSockClient } from '../driver/aa/AaBtSockClient'
+import { BluezDeviceClient } from '../bt/BluezDeviceClient'
 import type { AaSession } from '../driver/aa/AaSession'
 import type { CpManager } from '../driver/cp/CpManager'
 import type { CpSession } from '../driver/cp/CpSession'
@@ -198,8 +198,8 @@ export class ProjectionService {
   private lastDongleInfoEmitKey = ''
   private lastAudioMetaEmitKey = ''
   private firmware = new FirmwareUpdateService()
-  private readonly aaBtSock = new AaBtSockClient()
-  private aaBtSubscription: { close: () => void } | null = null
+  private readonly bluez = new BluezDeviceClient()
+  private btSubscription: { close: () => void } | null = null
   private aaBtNameByMac = new Map<string, string>()
   private connectedAaBtMac = ''
   private readonly aaBtMacByInstance = new Map<string, string>()
@@ -217,7 +217,7 @@ export class ProjectionService {
     deviceRegistry: this.deviceRegistry,
     sessions: () => this.sessions,
     getDongleSession: () => this.sessions.byDriver(this.drivers.getDongle()),
-    aaBtSock: this.aaBtSock,
+    bluez: this.bluez,
     getAaBtName: (mac) => this.aaBtNameByMac.get(mac),
     getAaBtMac: () => this.connectedAaBtMac,
     getDongleConnectedMac: () => this.dongleConnectedMac,
@@ -231,7 +231,7 @@ export class ProjectionService {
         .catch(() => {})
     },
     pushWiredPhones: (ids) => {
-      this.aaBtSock.setWiredPhones(ids).catch(() => {})
+      this.bluez.setWiredPhones(ids).catch(() => {})
     }
   })
   private aaBtActive = false
@@ -1235,7 +1235,7 @@ export class ProjectionService {
     await this.drivers.releaseAa()
     await this.drivers.releaseCp()
     try {
-      await this.aaBtSock.deauthApClients()
+      await this.bluez.deauthApClients()
     } catch {
       /* best-effort */
     }
@@ -1374,7 +1374,7 @@ export class ProjectionService {
       hasWebUsbDevice: () => this.dongleDriver.isUp,
       sendBluetoothPairedList: (text) => this.dongleDriver.sendBluetoothPairedList(text),
       connectAaBt: (mac) => this.connectPairedDevice(mac),
-      removeAaBt: (mac) => this.aaBtSock.remove(mac),
+      removeAaBt: (mac) => this.bluez.remove(mac),
       refreshAaBtPaired: () => {
         this.refreshAaBtPairedList().catch(() => {})
       },
@@ -1632,7 +1632,7 @@ export class ProjectionService {
 
         if (wasWireless) {
           // Leaving wireless: kick the phone off the AP
-          await this.aaBtSock.deauthApClients().catch(() => {})
+          await this.bluez.deauthApClients().catch(() => {})
         }
 
         if (desired.transport === 'aa' && desired.mode === 'wireless') {
@@ -1683,7 +1683,7 @@ export class ProjectionService {
   public async connectPairedDevice(mac: string): Promise<{ ok: boolean; error?: string }> {
     let devices
     try {
-      devices = await this.aaBtSock.listPaired()
+      devices = await this.bluez.listPaired()
     } catch (e) {
       return { ok: false, error: (e as Error).message }
     }
@@ -1691,7 +1691,7 @@ export class ProjectionService {
     const dev = devices.find((d) => d.mac.toUpperCase() === upper)
 
     if (!dev || !isPhoneLikeCod(dev.class)) {
-      return await this.aaBtSock.connectFull(mac)
+      return await this.bluez.connectFull(mac)
     }
 
     if (this.isSwitching) return { ok: false, error: 'switch in progress' }
@@ -1707,7 +1707,7 @@ export class ProjectionService {
         }
       }
       if (wasWireless) {
-        await this.aaBtSock.deauthApClients().catch(() => {})
+        await this.bluez.deauthApClients().catch(() => {})
       }
 
       this.applyConfigPatch({ ...this.config, lastConnectedAaBtMac: mac })
@@ -1728,7 +1728,7 @@ export class ProjectionService {
     if (process.platform !== 'linux') return
     let devices
     try {
-      devices = await this.aaBtSock.listPaired()
+      devices = await this.bluez.listPaired()
     } catch {
       return
     }
@@ -1737,7 +1737,7 @@ export class ProjectionService {
       if (!isPhoneLikeCod(d.class)) continue
       try {
         console.log(`[ProjectionService] shutdown disconnect ${d.mac}`)
-        await this.aaBtSock.disconnect(d.mac)
+        await this.bluez.disconnect(d.mac)
       } catch (e) {
         console.warn('[ProjectionService] shutdown BT disconnect threw', e)
       }
@@ -1748,7 +1748,7 @@ export class ProjectionService {
     if (process.platform !== 'linux') return
     let devices
     try {
-      devices = await this.aaBtSock.listPaired()
+      devices = await this.bluez.listPaired()
     } catch {
       return
     }
@@ -1758,7 +1758,7 @@ export class ProjectionService {
       if (!isPhoneLikeCod(d.class)) continue
       try {
         console.log(`[ProjectionService] bounce BT ${d.mac} to retrigger wireless AA`)
-        await this.aaBtSock.disconnect(d.mac)
+        await this.bluez.disconnect(d.mac)
       } catch (e) {
         console.warn('[ProjectionService] BT disconnect during bounce threw', e)
       }
@@ -1780,7 +1780,7 @@ export class ProjectionService {
   ): Promise<void> {
     let devices
     try {
-      devices = await this.aaBtSock.listPaired()
+      devices = await this.bluez.listPaired()
     } catch (e) {
       if (opts.throwOnError) throw e
       return
@@ -1839,7 +1839,7 @@ export class ProjectionService {
     while (Date.now() < deadline) {
       if (!this.aaBtActive) return
       try {
-        const devices = await this.aaBtSock.listPaired()
+        const devices = await this.bluez.listPaired()
         await this.refreshAaBtPairedList().catch(() => {})
         if (devices.length === 0 && expectDevice) {
           await new Promise((r) => setTimeout(r, intervalMs))
@@ -1902,7 +1902,7 @@ export class ProjectionService {
 
     let paired
     try {
-      paired = await this.aaBtSock.listPaired()
+      paired = await this.bluez.listPaired()
     } catch {
       return
     }
@@ -1925,7 +1925,7 @@ export class ProjectionService {
         )
         let resp: { ok: boolean; error?: string }
         try {
-          resp = await this.aaBtSock.connectFull(mac)
+          resp = await this.bluez.connectFull(mac)
         } catch (e) {
           console.warn(`[ProjectionService] audio device ${mac} connect threw`, e)
           break
@@ -1963,7 +1963,7 @@ export class ProjectionService {
 
     let devices
     try {
-      devices = await this.aaBtSock.listPaired()
+      devices = await this.bluez.listPaired()
     } catch {
       return
     }
@@ -1991,7 +1991,7 @@ export class ProjectionService {
     const tag = preferred ? '[last]' : trusted.includes(target) ? '[trusted]' : '[first]'
     console.log(`[ProjectionService] autoconnect ${tag} → ${target.mac}`)
     try {
-      const resp = await this.aaBtSock.connect(target.mac)
+      const resp = await this.bluez.connect(target.mac)
       if (!resp.ok) {
         console.log(`[ProjectionService] autoconnect: ${resp.error ?? 'failed'}`)
       }
@@ -2015,10 +2015,10 @@ export class ProjectionService {
 
   // Open the long-lived aa-bt event subscription
   private openAaBtSubscription(): void {
-    if (this.aaBtSubscription) return
+    if (this.btSubscription) return
     const open = (): void => {
       if (!this.aaBtActive) return
-      this.aaBtSubscription = this.aaBtSock.subscribe(
+      this.btSubscription = this.bluez.subscribe(
         (ev) => {
           if (ev.event === 'input' && ev.command) {
             this.dispatchRemoteInput(ev.command)
@@ -2038,7 +2038,7 @@ export class ProjectionService {
           }).catch(() => {})
         },
         () => {
-          this.aaBtSubscription = null
+          this.btSubscription = null
           if (this.aaBtActive) setTimeout(open, 1000)
         },
         () => this.deviceController.resendReconnectTargets()
@@ -2048,13 +2048,13 @@ export class ProjectionService {
   }
 
   private closeAaBtSubscription(): void {
-    if (!this.aaBtSubscription) return
+    if (!this.btSubscription) return
     try {
-      this.aaBtSubscription.close()
+      this.btSubscription.close()
     } catch {
       /* already closed */
     }
-    this.aaBtSubscription = null
+    this.btSubscription = null
   }
 
   private async armWiredAa(device: Device): Promise<boolean> {

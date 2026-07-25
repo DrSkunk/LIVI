@@ -13,8 +13,8 @@ vi.mock('@main/services/audio/AudioDeviceEnumerator', () => ({
   listAudioDevices: (...args: unknown[]) => listAudioDevices(...args)
 }))
 
-vi.mock('@main/services/projection/driver/aa/AaBtSockClient', () => ({
-  AaBtSockClient: vi.fn().mockImplementation(function () {
+vi.mock('@main/services/projection/bt/BluezDeviceClient', () => ({
+  BluezDeviceClient: vi.fn().mockImplementation(function () {
     return { listPaired: (...args: unknown[]) => listPaired(...args) }
   })
 }))
