@@ -11,6 +11,7 @@
 import { EventEmitter } from 'node:events'
 import net from 'node:net'
 import { DEBUG } from '@main/constants'
+import { gstHost, VIDEO_PLANE_CLUSTER_RECV, VIDEO_PLANE_MAIN } from '@main/services/video/gstHost'
 import { AudioCommand } from '@shared/types/ProjectionEnums'
 import { CP_BT_SOCK_PATH } from '../CpHelperSock'
 import { AudioStream, ntp64Now } from './audioStream'
@@ -135,6 +136,8 @@ interface CpSession {
   keepAlive: KeepAliveServer | null
   screen: ScreenStream | null
   clusterScreen: ScreenStream | null
+  screenNativeId: number | null
+  clusterScreenNativeId: number | null
   clusterCodecEmitted: boolean
   /** One record per audio stream (media/alt/high), created during SETUP: its media
    *  clock (for /feedback), the UDP stream, and its gst decoder (AAC-LC/OPUS, or null
@@ -181,6 +184,7 @@ export class CpStack extends EventEmitter {
   /** Throttle counter for the /feedback diagnostics log. */
   private _fbN = 0
   private _clusterWantActive = false
+  private _videoActive = false
   private _nightMode: boolean | null = null
   /** Last Siri speech-mode state, so we emit 'speech-active' only on transitions. */
   private _speechActive = false
@@ -215,6 +219,8 @@ export class CpStack extends EventEmitter {
       keepAlive: null,
       screen: null,
       clusterScreen: null,
+      screenNativeId: null,
+      clusterScreenNativeId: null,
       clusterCodecEmitted: false,
       audioMeta: [],
       iapTunnel: null,
@@ -289,6 +295,14 @@ export class CpStack extends EventEmitter {
     session.keepAlive?.stop()
     session.screen?.stop()
     session.clusterScreen?.stop()
+    if (session.screenNativeId != null) {
+      gstHost.closeVideoReceiver(session.screenNativeId)
+      session.screenNativeId = null
+    }
+    if (session.clusterScreenNativeId != null) {
+      gstHost.closeVideoReceiver(session.clusterScreenNativeId)
+      session.clusterScreenNativeId = null
+    }
     for (const m of session.audioMeta) {
       m.stream.stop()
       m.decoder?.stop()
@@ -1008,6 +1022,29 @@ export class CpStack extends EventEmitter {
       'DataStream-Output-Encryption-Key',
       32
     )
+    if (process.platform === 'linux') {
+      if (isCluster) {
+        const { port, receiverId } = await gstHost.openVideoReceiver(
+          VIDEO_PLANE_CLUSTER_RECV,
+          key,
+          true
+        )
+        session.clusterScreenNativeId = receiverId
+        if (this._videoActive) gstHost.setActiveFeeder(receiverId, true)
+        console.log(`[cpStack] SETUP screen NATIVE (cluster, dataPort=${port}, id=${streamId})`)
+        return port
+      }
+      const { port, receiverId } = await gstHost.openVideoReceiver(VIDEO_PLANE_MAIN, key)
+      session.screenNativeId = receiverId
+      if (this._videoActive) gstHost.setActiveFeeder(receiverId, true)
+      if (!session.mainStreamReady) {
+        session.mainStreamReady = true
+        if (this._clusterWantActive) this._activateClusterStream(session)
+      }
+      this.emit('main-screen-ready')
+      console.log(`[cpStack] SETUP screen NATIVE (main, dataPort=${port}, id=${streamId})`)
+      return port
+    }
     const codec = this.cfg.hevc ? 'h265' : 'h264'
     const screen = new ScreenStream(key)
     const codecEvent = isCluster ? 'cluster-video-codec' : 'video-codec'
@@ -1046,6 +1083,17 @@ export class CpStack extends EventEmitter {
       `[cpStack] SETUP screen (type ${isCluster ? 111 : 110}, dataPort=${port}, codec=${codec}, id=${streamId})`
     )
     return port
+  }
+
+  /** Mark this phone's native video receivers as the active feeders (or not) of the shared planes. */
+  setVideoActive(active: boolean): void {
+    this._videoActive = active
+    for (const session of this._sessionSock.keys()) {
+      if (session.screenNativeId != null) gstHost.setActiveFeeder(session.screenNativeId, active)
+      if (session.clusterScreenNativeId != null) {
+        gstHost.setActiveFeeder(session.clusterScreenNativeId, active)
+      }
+    }
   }
 
   /** Tell the phone to switch its CarPlay UI between day and night appearance. */

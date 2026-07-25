@@ -12,6 +12,7 @@
 #include <initializer_list>
 #include <string>
 #ifdef __linux__
+#include <errno.h>
 #include <execinfo.h>
 #include <fcntl.h>
 #include <glib-unix.h>
@@ -19,6 +20,8 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include "cp_screen_receiver.h"
+#include "cp_video_nal.h"
 #endif
 
 #if defined(__APPLE__) || defined(_WIN32)
@@ -686,7 +689,154 @@ static napi_value SetGamma(napi_env env, napi_callback_info info) {
 struct LiviHost {
   GByteArray* buf;
   GHashTable* players;  // id -> Player*
+  int out_fd;
+  GHashTable* receivers;  // id -> HostReceiver*
 };
+
+#ifdef __linux__
+#define CLUSTER_RECV_ID 0x7a000010u
+#define CLUSTER_PLANE_MIN 0x7a000011u
+#define CLUSTER_PLANE_MAX 0x7a000013u
+static bool is_cluster_plane_id(guint32 id) {
+  return id >= CLUSTER_PLANE_MIN && id <= CLUSTER_PLANE_MAX;
+}
+
+struct HostReceiver {
+  CpScreenReceiver* r;
+  LiviHost* h;
+  guint32 id;        // unique per session-screen (reverse port reply + setActiveFeeder + teardown)
+  guint32 plane_id;  // shared role id (main / cluster-recv), carried on reverse config/started
+  CpCodec codec;
+  bool have_codec;
+  bool awaiting_keyframe;
+  bool is_cluster;
+  bool active;  // only the active feeder for a plane pushes + forwards config/started
+  GByteArray* config;  // last config atom, re-forwarded on activation
+  GQueue* pending;
+};
+
+static HostReceiver* find_active_feeder(LiviHost* h, guint32 plane_id) {
+  GHashTableIter it;
+  gpointer k, v;
+  g_hash_table_iter_init(&it, h->receivers);
+  while (g_hash_table_iter_next(&it, &k, &v)) {
+    HostReceiver* hr = (HostReceiver*)v;
+    if (hr->active && hr->plane_id == plane_id) return hr;
+  }
+  return nullptr;
+}
+
+static void livi_write_all(int fd, const guint8* p, gsize n) {
+  while (n > 0) {
+    ssize_t w = write(fd, p, n);
+    if (w < 0) {
+      if (errno == EINTR) continue;
+      break;
+    }
+    p += w;
+    n -= (gsize)w;
+  }
+}
+
+static void livi_host_reply(LiviHost* h, guint8 rop, guint32 id, const guint8* rest, guint32 rlen) {
+  if (h->out_fd < 0) return;
+  guint8 head[9];
+  guint32 len = 5 + rlen;
+  memcpy(head, &len, 4);
+  head[4] = rop;
+  memcpy(head + 5, &id, 4);
+  livi_write_all(h->out_fd, head, 9);
+  if (rlen) livi_write_all(h->out_fd, rest, rlen);
+}
+
+static void recv_forward_config(HostReceiver* hr) {
+  if (!hr->config || hr->config->len == 0) return;
+  livi_host_reply(hr->h, 2, hr->plane_id, hr->config->data, hr->config->len);
+}
+
+static void recv_on_config(int codec, const guint8* atom, size_t len, void* user) {
+  HostReceiver* hr = (HostReceiver*)user;
+  hr->codec = (CpCodec)codec;
+  hr->have_codec = true;
+  if (len == 0) return;  // keepalive config with no record: keep the last real codec_data
+  g_byte_array_set_size(hr->config, 0);
+  guint8 c = (guint8)codec;
+  g_byte_array_append(hr->config, &c, 1);
+  g_byte_array_append(hr->config, atom, (guint)len);
+  if (hr->active) recv_forward_config(hr);
+}
+
+static void recv_pending_clear(HostReceiver* hr) {
+  GBytes* b;
+  while ((b = (GBytes*)g_queue_pop_head(hr->pending))) g_bytes_unref(b);
+}
+
+static bool recv_has_target(HostReceiver* hr) {
+  if (hr->is_cluster) {
+    for (guint32 id = CLUSTER_PLANE_MIN; id <= CLUSTER_PLANE_MAX; id++)
+      if (g_hash_table_lookup(hr->h->players, GUINT_TO_POINTER(id))) return true;
+    return false;
+  }
+  return g_hash_table_lookup(hr->h->players, GUINT_TO_POINTER(hr->plane_id)) != nullptr;
+}
+
+static void recv_push_targets(HostReceiver* hr, const guint8* nal, size_t len) {
+  if (hr->is_cluster) {
+    for (guint32 id = CLUSTER_PLANE_MIN; id <= CLUSTER_PLANE_MAX; id++) {
+      Player* p = (Player*)g_hash_table_lookup(hr->h->players, GUINT_TO_POINTER(id));
+      if (p) livi_push_player(p, nal, len);
+    }
+  } else {
+    Player* p = (Player*)g_hash_table_lookup(hr->h->players, GUINT_TO_POINTER(hr->plane_id));
+    if (p) livi_push_player(p, nal, len);
+  }
+}
+
+static void recv_on_frame(const guint8* nal, size_t len, void* user) {
+  HostReceiver* hr = (HostReceiver*)user;
+  if (!hr->active) return;
+  if (hr->awaiting_keyframe) {
+    if (!hr->have_codec) return;
+    CpNalKind kind = cp_classify_nal(nal, len, hr->codec);
+    if (kind == CP_NAL_DELTA) return;
+    if (kind == CP_NAL_KEYFRAME) hr->awaiting_keyframe = false;
+  }
+  if (!recv_has_target(hr)) {
+    if (g_queue_get_length(hr->pending) >= 240) {
+      recv_pending_clear(hr);
+      hr->awaiting_keyframe = true;
+      return;
+    }
+    g_queue_push_tail(hr->pending, g_bytes_new(nal, len));
+    return;
+  }
+  GBytes* b;
+  while ((b = (GBytes*)g_queue_pop_head(hr->pending))) {
+    gsize sz = 0;
+    const void* d = g_bytes_get_data(b, &sz);
+    recv_push_targets(hr, (const guint8*)d, sz);
+    g_bytes_unref(b);
+  }
+  recv_push_targets(hr, nal, len);
+}
+
+static void recv_on_started(void* user) {
+  HostReceiver* hr = (HostReceiver*)user;
+  if (!hr->active) return;
+  livi_host_reply(hr->h, 3, hr->plane_id, nullptr, 0);
+}
+
+static void host_receiver_free(HostReceiver* hr) {
+  if (!hr) return;
+  cp_screen_receiver_free(hr->r);
+  if (hr->pending) {
+    recv_pending_clear(hr);
+    g_queue_free(hr->pending);
+  }
+  if (hr->config) g_byte_array_free(hr->config, TRUE);
+  g_free(hr);
+}
+#endif
 
 static void livi_host_dispatch(LiviHost* h, guint8 op, guint32 id, const guint8* rest, gsize rlen) {
   gpointer key = GUINT_TO_POINTER(id);
@@ -709,6 +859,13 @@ static void livi_host_dispatch(LiviHost* h, guint8 op, guint32 id, const guint8*
     if (p) {
       gst_element_set_state(p->pipeline, GST_STATE_PLAYING);
       g_hash_table_insert(h->players, key, p);
+#ifdef __linux__
+      guint32 plane_key = is_cluster_plane_id(id) ? CLUSTER_RECV_ID : id;
+      HostReceiver* rearm = find_active_feeder(h, plane_key);
+      if (rearm && g_queue_get_length(rearm->pending) == 0) {
+        rearm->awaiting_keyframe = true;
+      }
+#endif
     }
   } else if (op == 2) {
     livi_push_player((Player*)g_hash_table_lookup(h->players, key), rest, rlen);
@@ -718,6 +875,14 @@ static void livi_host_dispatch(LiviHost* h, guint8 op, guint32 id, const guint8*
       g_hash_table_remove(h->players, key);
       livi_free_player(p);
     }
+#ifdef __linux__
+    guint32 plane_key = is_cluster_plane_id(id) ? CLUSTER_RECV_ID : id;
+    HostReceiver* rearm = find_active_feeder(h, plane_key);
+    if (rearm) {
+      rearm->awaiting_keyframe = true;
+      recv_pending_clear(rearm);
+    }
+#endif
   } else if (op == 4) {
     Player* p = (Player*)g_hash_table_lookup(h->players, key);
     if (p && rlen >= 5 * sizeof(double)) {
@@ -725,6 +890,71 @@ static void livi_host_dispatch(LiviHost* h, guint8 op, guint32 id, const guint8*
       memcpy(v, rest, sizeof(v));
       livi_set_gamma_player(p, v[0], v[1], v[2], v[3], v[4]);
     }
+  } else if (op == 5) {
+    // [4B planeId][1B flags: bit0=cluster][32B key]. id (header) = unique receiver id.
+#ifdef __linux__
+    if (rlen < 37) return;
+    HostReceiver* hr = g_new0(HostReceiver, 1);
+    hr->h = h;
+    hr->id = id;
+    memcpy(&hr->plane_id, rest, 4);
+    hr->is_cluster = (rest[4] & 1) != 0;
+    hr->awaiting_keyframe = true;
+    hr->active = false;
+    hr->config = g_byte_array_new();
+    hr->pending = g_queue_new();
+    CpScreenCallbacks cb;
+    cb.on_config = recv_on_config;
+    cb.on_frame = recv_on_frame;
+    cb.on_started = recv_on_started;
+    cb.user = hr;
+    uint16_t port = 0;
+    hr->r = cp_screen_receiver_new(rest + 5, &cb, &port);
+    if (!hr->r) {
+      g_byte_array_free(hr->config, TRUE);
+      g_queue_free(hr->pending);
+      g_free(hr);
+      return;
+    }
+    HostReceiver* old = (HostReceiver*)g_hash_table_lookup(h->receivers, key);
+    if (old) {
+      g_hash_table_remove(h->receivers, key);
+      host_receiver_free(old);
+    }
+    g_hash_table_insert(h->receivers, key, hr);
+    guint8 pbuf[2] = {(guint8)(port & 0xff), (guint8)(port >> 8)};
+    livi_host_reply(h, 1, id, pbuf, 2);
+#endif
+  } else if (op == 6) {
+#ifdef __linux__
+    HostReceiver* hr = (HostReceiver*)g_hash_table_lookup(h->receivers, key);
+    if (hr) {
+      g_hash_table_remove(h->receivers, key);
+      host_receiver_free(hr);
+    }
+#endif
+  } else if (op == 7) {
+    // [1B active]. id = receiver id. Make this the exclusive active feeder for its plane.
+#ifdef __linux__
+    HostReceiver* hr = (HostReceiver*)g_hash_table_lookup(h->receivers, key);
+    if (!hr) return;
+    bool active = rlen >= 1 && (rest[0] & 1);
+    if (active) {
+      GHashTableIter it;
+      gpointer kk, vv;
+      g_hash_table_iter_init(&it, h->receivers);
+      while (g_hash_table_iter_next(&it, &kk, &vv)) {
+        HostReceiver* o = (HostReceiver*)vv;
+        if (o != hr && o->plane_id == hr->plane_id) o->active = false;
+      }
+      hr->active = true;
+      hr->awaiting_keyframe = true;
+      recv_pending_clear(hr);
+      recv_forward_config(hr);
+    } else {
+      hr->active = false;
+    }
+#endif
   }
 }
 
@@ -795,6 +1025,8 @@ static void livi_host_main(const char* sockPath, const char* crashLogPath) {
   LiviHost* h = new LiviHost();
   h->buf = g_byte_array_new();
   h->players = g_hash_table_new(g_direct_hash, g_direct_equal);
+  h->out_fd = fd;
+  h->receivers = g_hash_table_new(g_direct_hash, g_direct_equal);
   g_unix_fd_add(fd, (GIOCondition)(G_IO_IN | G_IO_HUP | G_IO_ERR), livi_host_readable, h);
 
   g_main_loop_run(g_main_loop_new(NULL, FALSE));

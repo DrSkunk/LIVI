@@ -412,7 +412,7 @@ export function probeGstCodecs(): GstCodecProbe {
 // GStreamer video player. On Linux the pipeline lives in the gstHost child process and this only
 // holds an id for it; on mac/Windows it drives the in-process addon directly.
 export class GstVideo {
-  private readonly id = nextPlayerId++
+  private readonly id: number
   private started = false
   private claiming = false
   private setupGen = 0
@@ -437,9 +437,16 @@ export class GstVideo {
   constructor(
     private readonly wc: WebContents,
     private readonly role: string = 'main',
-    private readonly targetScreen: string = 'main'
+    private readonly targetScreen: string = 'main',
+    explicitId?: number
   ) {
+    this.id = explicitId ?? nextPlayerId++
     livePlayers.add(this)
+  }
+
+  prepare(codec: GstVideoCodec, codecData?: Buffer): void {
+    if (codecData) this.codecData = codecData
+    this.ensure(codec)
   }
 
   // Apply the current calibration to this player's glshader pass. Re-sent after each (re)create.

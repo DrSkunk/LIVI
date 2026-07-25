@@ -41,6 +41,9 @@ export interface IPhoneDriver extends EventEmitter {
   /** Ask the phone to emit a fresh video keyframe (IDR) so a rebuilt decoder can start. */
   requestKeyframe?(): void
 
+  /** Mark this phone's native video receivers active/inactive as the shared-plane feeders. */
+  setVideoActive?(active: boolean): void
+
   /** Request focus for the secondary (cluster) video stream. */
   requestClusterFocus?(): void
 

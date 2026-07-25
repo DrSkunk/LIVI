@@ -17,6 +17,12 @@ import {
 } from '../../audio/AudioDeviceEnumerator'
 import { StatusFileWriter } from '../../status/StatusFileWriter'
 import { GstVideo, type GstVideoCodec, probeGstCodecs } from '../../video/GstVideo'
+import {
+  clusterPlaneId,
+  gstHost,
+  VIDEO_PLANE_CLUSTER_RECV,
+  VIDEO_PLANE_MAIN
+} from '../../video/gstHost'
 import { classifyNal } from '../../video/keyframe'
 import { AaBtSockClient } from '../driver/aa/AaBtSockClient'
 import type { AaSession } from '../driver/aa/AaSession'
@@ -167,6 +173,7 @@ export class ProjectionService {
   private mainAwaitingKeyframe = true
   private clusterAwaitingKeyframe = true
   private gstVideoVisible = true
+  private videoActiveDriver: IPhoneDriver | null = null
   private videoCrop: {
     cropL: number
     cropT: number
@@ -964,6 +971,89 @@ export class ProjectionService {
     for (const plane of this.gstVideoClusters.values()) plane.setCodecData(codecData)
   }
 
+  private readonly onNativeVideoConfig = (id: number, codec: GstVideoCodec, atom: Buffer): void => {
+    if (id === VIDEO_PLANE_CLUSTER_RECV) {
+      this.onNativeClusterConfig(codec, atom)
+      return
+    }
+    if (id !== VIDEO_PLANE_MAIN) return
+    const wc = this.webContents
+    if (!wc || wc.isDestroyed?.()) return
+    this.gstVideoCodec = codec
+    this.gstVideoCodecData = atom
+    const created = !this.gstVideo
+    if (!this.gstVideo) {
+      this.gstVideo = new GstVideo(wc, 'main', 'main', VIDEO_PLANE_MAIN)
+      this.gstVideo.setVisible(this.gstVideoVisible)
+    }
+    this.gstVideo.prepare(codec, atom)
+    this.applyVideoCrop()
+    if (created) this.driver.requestKeyframe?.()
+    wc.send('projection-event', { type: 'video-codec', payload: { codec } })
+
+    const w = this.config.projectionWidth || 1920
+    const h = this.config.projectionHeight || 1080
+    if (w > 0 && h > 0 && (w !== this.lastVideoWidth || h !== this.lastVideoHeight)) {
+      this.lastVideoWidth = w
+      this.lastVideoHeight = h
+      const active = this.sessions.active()
+      if (active) {
+        active.video.main.width = w
+        active.video.main.height = h
+      }
+      this.updateVideoCrop()
+      this.emitProjectionEvent({ type: 'resolution', payload: { width: w, height: h } })
+    }
+    this.emitProjectionEvent({ type: 'projection', shown: true })
+  }
+
+  private syncVideoActiveFeeder(): void {
+    const driver = this.sessions.active()?.driver ?? null
+    if (driver === this.videoActiveDriver) return
+    this.videoActiveDriver?.setVideoActive?.(false)
+    this.videoActiveDriver = driver
+    driver?.setVideoActive?.(true)
+  }
+
+  private readonly onNativeVideoStarted = (id: number): void => {
+    if (id !== VIDEO_PLANE_MAIN) return
+    if (!this.firstFrameLogged) {
+      this.firstFrameLogged = true
+      const dt = Date.now() - APP_START_TS
+      console.log(`[Perf] AppStart→FirstFrame: ${dt} ms`)
+      this.statusFile.setStreaming(true)
+    }
+  }
+
+  private onNativeClusterConfig(codec: GstVideoCodec, atom: Buffer): void {
+    this.gstVideoClusterCodec = codec
+    this.gstVideoClusterCodecData = atom
+    this.lastClusterVideoWidth = this.config.clusterWidth || 1280
+    this.lastClusterVideoHeight = this.config.clusterHeight || 720
+    for (const wc of this.getClusterTargetWebContents()) {
+      try {
+        wc.send('projection-event', { type: 'cluster-video-codec', payload: { codec } })
+      } catch {
+        /* detached webContents */
+      }
+    }
+    let created = false
+    for (const screen of clusterTargetScreens(this.config)) {
+      let plane = this.gstVideoClusters.get(screen)
+      if (!plane) {
+        const wc = this.clusterScreenWebContents(screen)
+        if (!wc || wc.isDestroyed?.()) continue
+        plane = new GstVideo(wc, `cluster-${screen}`, screen, clusterPlaneId(screen))
+        plane.setVisible(this.clusterPlaneVisible(screen))
+        this.applyClusterCrop(plane)
+        this.gstVideoClusters.set(screen, plane)
+        created = true
+      }
+      plane.prepare(codec, atom)
+    }
+    if (created) this.driver.requestKeyframe?.()
+  }
+
   private attachCodecCapture(d: IPhoneDriver): void {
     d.on('video-codec', (c: GstVideoCodec) => {
       this.lastMainCodecByDriver.set(d, c)
@@ -1234,6 +1324,9 @@ export class ProjectionService {
       getConfig: () => this.config
     })
 
+    gstHost.onVideoReceiverConfig(this.onNativeVideoConfig)
+    gstHost.onVideoReceiverStarted(this.onNativeVideoStarted)
+
     const dongle = this.drivers.getDongle()
     dongle.on('phone-connected', () => this.onDonglePhoneConnected())
     dongle.on('phone-disconnected', () => this.onDonglePhoneDisconnected())
@@ -1242,6 +1335,7 @@ export class ProjectionService {
     this.sessions = new SessionManager({
       route: (d) => this.drivers.route(d),
       onChange: () => {
+        this.syncVideoActiveFeeder()
         this.deviceController.emitDevices()
         this.emitSessionState()
       },

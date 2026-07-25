@@ -185,6 +185,10 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
     this._stack?.forceClusterKeyframe()
   }
 
+  setVideoActive(active: boolean): void {
+    this._stack?.setVideoActive(active)
+  }
+
   /** The live CarPlay session's stable pair-verify controller id, the CP device identity. */
   getControllerId(): string | null {
     return this._stack?.activeControllerId ?? null
@@ -300,6 +304,12 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
         .disconnectBt(mac)
         .then(() => console.log(`[CpSession] BT disconnected for ${mac} — iAP2 moves to tunnel`))
         .catch((e: Error) => console.warn(`[CpSession] disconnectBt failed: ${e.message}`))
+    })
+    stack.on('main-screen-ready', () => {
+      if (!this._connected) {
+        this._connected = true
+        this.emit('connected')
+      }
     })
     stack.on('video-frame', (nal: Buffer) => {
       const cfg = this._getConfig()

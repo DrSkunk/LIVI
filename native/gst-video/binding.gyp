@@ -22,7 +22,14 @@
           }
         } ],
         [ "OS=='linux'", {
-          "sources": [ "src/gst_video.cc" ],
+          "sources": [
+            "src/gst_video.cc",
+            "src/cp_screen_receiver.cc",
+            "src/cp_video_nal.c",
+            "../crypto/livi_aead.c",
+            "../crypto/monocypher.c"
+          ],
+          "include_dirs": [ "../crypto" ],
           "cflags": [ "<!@(pkg-config --cflags gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0)" ],
           "libraries": [ "<!@(pkg-config --libs gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0)" ]
         } ],
@@ -58,7 +65,14 @@
           "target_name": "livi-gst-host",
           "type": "executable",
           "defines": [ "LIVI_GST_HOST_STANDALONE" ],
-          "sources": [ "src/gst_video.cc" ],
+          "sources": [
+            "src/gst_video.cc",
+            "src/cp_screen_receiver.cc",
+            "src/cp_video_nal.c",
+            "../crypto/livi_aead.c",
+            "../crypto/monocypher.c"
+          ],
+          "include_dirs": [ "../crypto" ],
           "cflags": [ "<!@(pkg-config --cflags gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0)" ],
           "cflags_cc": [ "-std=c++17", "-fexceptions" ],
           "libraries": [ "<!@(pkg-config --libs gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0)" ]

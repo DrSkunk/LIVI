@@ -1,4 +1,5 @@
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { chmodSync, existsSync, readFileSync, unlinkSync } from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
@@ -23,15 +24,31 @@ function frame(op: number, id: number, rest: Buffer): Buffer {
   return rest.length ? Buffer.concat([head, rest]) : head
 }
 
-// Spawns the gst-video pipeline in a standalone native gst-host binary (not the Electron
-// executable, which exports a bundled libffi that corrupts wayland marshalling) and forwards
+// Spawns the gst-video pipeline in a standalone native gst-host binary and forwards
 // calls over a unix socket.
+export const VIDEO_PLANE_MAIN = 0x7a000001
+export const VIDEO_PLANE_CLUSTER_RECV = 0x7a000010
+const CLUSTER_PLANE_BASE = 0x7a000011
+
+export function clusterPlaneId(screen: 'main' | 'dash' | 'aux'): number {
+  return CLUSTER_PLANE_BASE + (screen === 'main' ? 0 : screen === 'dash' ? 1 : 2)
+}
+
+type ReverseEvents = {
+  config: (id: number, codec: 'h264' | 'h265', atom: Buffer) => void
+  started: (id: number) => void
+}
+
 class GstHost {
   private child: ChildProcess | null = null
   private sock: net.Socket | null = null
   private starting = false
   private quitHooked = false
   private readonly queue: Buffer[] = []
+  private readonly events = new EventEmitter()
+  private readonly portWaiters = new Map<number, (port: number) => void>()
+  private recvBuf: Buffer = Buffer.alloc(0)
+  private nextReceiverId = 0x7b000000
 
   private start(): void {
     if (this.child || this.starting) return
@@ -64,8 +81,10 @@ class GstHost {
 
     const server = net.createServer((s) => {
       this.sock = s
+      this.recvBuf = Buffer.alloc(0)
       for (const b of this.queue) s.write(b)
       this.queue.length = 0
+      s.on('data', (chunk: Buffer) => this.onHostData(chunk))
       s.on('error', () => {})
       s.on('close', () => {
         if (this.sock === s) this.sock = null
@@ -108,6 +127,76 @@ class GstHost {
     this.start()
     if (this.sock?.writable) this.sock.write(buf)
     else this.queue.push(buf)
+  }
+
+  private onHostData(chunk: Buffer): void {
+    this.recvBuf = this.recvBuf.length ? Buffer.concat([this.recvBuf, chunk]) : chunk
+    for (;;) {
+      if (this.recvBuf.length < 4) break
+      const len = this.recvBuf.readUInt32LE(0)
+      if (this.recvBuf.length < 4 + len) break
+      if (len >= 5) {
+        const rop = this.recvBuf.readUInt8(4)
+        const id = this.recvBuf.readUInt32LE(5)
+        this.onReverse(rop, id, this.recvBuf.subarray(9, 4 + len))
+      }
+      this.recvBuf = this.recvBuf.subarray(4 + len)
+    }
+  }
+
+  private onReverse(rop: number, id: number, rest: Buffer): void {
+    if (rop === 1) {
+      const port = rest.length >= 2 ? rest.readUInt16LE(0) : 0
+      const waiter = this.portWaiters.get(id)
+      if (waiter) {
+        this.portWaiters.delete(id)
+        waiter(port)
+      }
+    } else if (rop === 2) {
+      const codec = rest.length && rest[0] === 1 ? 'h265' : 'h264'
+      this.events.emit('config', id, codec, Buffer.from(rest.subarray(1)))
+    } else if (rop === 3) {
+      this.events.emit('started', id)
+    }
+  }
+
+  openVideoReceiver(
+    planeId: number,
+    key: Buffer,
+    cluster = false
+  ): Promise<{ port: number; receiverId: number }> {
+    const receiverId = this.nextReceiverId++
+    return new Promise((resolve) => {
+      const done = (port: number): void => {
+        clearTimeout(timer)
+        resolve({ port, receiverId })
+      }
+      const timer = setTimeout(() => {
+        if (this.portWaiters.get(receiverId) === done) this.portWaiters.delete(receiverId)
+        resolve({ port: 0, receiverId })
+      }, 4000)
+      this.portWaiters.set(receiverId, done)
+      const head = Buffer.allocUnsafe(5)
+      head.writeUInt32LE(planeId, 0)
+      head.writeUInt8(cluster ? 1 : 0, 4)
+      this.send(frame(5, receiverId, Buffer.concat([head, key])))
+    })
+  }
+
+  setActiveFeeder(receiverId: number, active: boolean): void {
+    this.send(frame(7, receiverId, Buffer.from([active ? 1 : 0])))
+  }
+
+  closeVideoReceiver(receiverId: number): void {
+    this.send(frame(6, receiverId, Buffer.alloc(0)))
+  }
+
+  onVideoReceiverConfig(cb: ReverseEvents['config']): void {
+    this.events.on('config', cb)
+  }
+
+  onVideoReceiverStarted(cb: ReverseEvents['started']): void {
+    this.events.on('started', cb)
   }
 
   createPlayer(id: number, codec: string, codecData?: Buffer): void {
