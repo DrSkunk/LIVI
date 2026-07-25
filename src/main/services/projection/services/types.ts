@@ -56,7 +56,6 @@ export type ProjectionEventAudioInfo = {
 
 export type ProjectionEvent =
   | { type: 'dongleInfo'; payload: { dongleFwVersion: string | undefined; boxInfo: unknown } }
-  | { type: 'gnss'; payload: { text: string } }
   | {
       type: 'fwUpdate'
       stage:
@@ -114,5 +113,3 @@ export type ProjectionEvent =
       }
     }
   | { type: 'failure' }
-  | { type: 'video-codec'; payload: { codec: VideoCodec } }
-  | { type: 'cluster-video-codec'; payload: { codec: VideoCodec } }

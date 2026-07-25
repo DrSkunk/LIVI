@@ -9,7 +9,6 @@ import {
   BoxUpdateState,
   Command,
   decodeTypeMap,
-  GnssData,
   PhoneType,
   Plugged,
   SoftwareVersion
@@ -1885,19 +1884,6 @@ describe('ProjectionService', () => {
           hwVersion: '2.0'
         }
       }
-    })
-  })
-
-  test('driver GnssData message forwards gnss payload', async () => {
-    const svc = new ProjectionService() as any
-    const send = vi.fn()
-    svc.webContents = { send }
-
-    svc.driver.emit('message', new GnssData('$GPGGA,1'))
-
-    expect(send).toHaveBeenCalledWith('projection-event', {
-      type: 'gnss',
-      payload: { text: '$GPGGA,1' }
     })
   })
 

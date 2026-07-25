@@ -28,7 +28,6 @@ function freshHost() {
     isClusterRequested: vi.fn(() => false),
     setClusterVisible: vi.fn(),
     resetLastClusterVideoSize: vi.fn(),
-    getLastClusterCodec: vi.fn(() => 'h264' as 'h264' | null),
     getLastClusterVideoSize: vi.fn(() => null as { width: number; height: number } | null),
     getClusterTargetWebContents: vi.fn(() => []),
     send: vi.fn(async () => true)
@@ -58,32 +57,29 @@ describe('cluster ipc — cluster:request', () => {
     expect(r).toEqual({ ok: true, enabled: false })
   })
 
-  test('enabled=true with cluster on emits codec to each target + send focus', async () => {
+  test('enabled=true with cluster on sends focus', async () => {
     const wc = { send: vi.fn() }
     const host = freshHost()
     host.getClusterTargetWebContents.mockReturnValue([wc as never])
     registerClusterIpc(host)
     const r = await handlers.get('cluster:request')!({ sender: { id: 1 } }, true)
-    expect(wc.send).toHaveBeenCalledWith('projection-event', {
-      type: 'cluster-video-codec',
-      payload: { codec: 'h264' }
-    })
     expect(host.send).toHaveBeenCalledWith(expect.any(SendCommand))
     expect(r).toEqual({ ok: true, enabled: true })
   })
 
-  test('skips codec re-emit when no cached codec', async () => {
-    const host = freshHost()
-    host.getLastClusterCodec.mockReturnValue(null)
+  test('sends cluster resolution to each target when a size is cached', async () => {
     const wc = { send: vi.fn() }
+    const host = freshHost()
+    host.getLastClusterVideoSize.mockReturnValue({ width: 1280, height: 720 })
     host.getClusterTargetWebContents.mockReturnValue([wc as never])
     registerClusterIpc(host)
     await handlers.get('cluster:request')!({ sender: { id: 1 } }, true)
-    expect(wc.send).not.toHaveBeenCalled()
+    expect(wc.send).toHaveBeenCalledWith('cluster-video-resolution', { width: 1280, height: 720 })
   })
 
   test('thrown wc.send is swallowed', async () => {
     const host = freshHost()
+    host.getLastClusterVideoSize.mockReturnValue({ width: 1280, height: 720 })
     const wc = {
       send: vi.fn(function () {
         throw new Error('detached')

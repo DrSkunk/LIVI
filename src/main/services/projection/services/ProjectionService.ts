@@ -43,7 +43,6 @@ import {
   DEFAULT_CONFIG,
   DongleDriver,
   decodeTypeMap,
-  GnssData,
   MediaData,
   MediaType,
   type Message,
@@ -463,7 +462,6 @@ export class ProjectionService {
   private lastClusterVideoWidth?: number
   private lastClusterVideoHeight?: number
   private readonly clusterRequestedBy = new Set<number>()
-  private lastClusterCodec: 'h264' | 'h265' | 'vp9' | 'av1' | null = null
 
   // Per-channel buffers for video chunks that arrive from the phone before
   // the renderer is attached.
@@ -487,7 +485,6 @@ export class ProjectionService {
 
     if (clusterToggled && !nextClusterActive) {
       this.clusterRequestedBy.clear()
-      this.lastClusterCodec = null
       this.lastClusterVideoWidth = undefined
       this.lastClusterVideoHeight = undefined
     }
@@ -686,15 +683,6 @@ export class ProjectionService {
     if (settings && this.setDongleDevListFromSettings(settings)) {
       this.deviceController.emitDevices()
     }
-  }
-
-  private handleGnssData(msg: GnssData): void {
-    this.emitProjectionEvent({
-      type: 'gnss',
-      payload: {
-        text: msg.text
-      }
-    })
   }
 
   private handleBluetoothPairedList(msg: BluetoothPairedList): void {
@@ -910,8 +898,6 @@ export class ProjectionService {
 
     if (msg instanceof BoxInfo) return this.handleBoxInfo(msg)
 
-    if (msg instanceof GnssData) return this.handleGnssData(msg)
-
     if (!this.webContents) return
 
     if (msg instanceof BluetoothPairedList) return this.handleBluetoothPairedList(msg)
@@ -941,12 +927,9 @@ export class ProjectionService {
     this.pendingStartupConnectTarget = null
   }
 
-  // 'video-codec' — phone announces which advertised codec it picked
+  // phone announces which advertised codec it picked
   private readonly onDriverVideoCodec = (codec: 'h264' | 'h265' | 'vp9' | 'av1'): void => {
     this.gstVideoCodec = codec
-    const wc = this.webContents
-    if (!wc || wc.isDestroyed?.()) return
-    wc.send('projection-event', { type: 'video-codec', payload: { codec } })
   }
 
   // 'video-config' — CarPlay's codec_data record, in before the first frame so the plane is
@@ -985,7 +968,6 @@ export class ProjectionService {
     this.gstVideo.prepare(codec, atom)
     this.applyVideoCrop()
     if (created) this.driver.requestKeyframe?.()
-    wc.send('projection-event', { type: 'video-codec', payload: { codec } })
 
     const w = this.config.projectionWidth || 1920
     const h = this.config.projectionHeight || 1080
@@ -1026,13 +1008,6 @@ export class ProjectionService {
     this.gstVideoClusterCodecData = atom
     this.lastClusterVideoWidth = this.config.clusterWidth || 1280
     this.lastClusterVideoHeight = this.config.clusterHeight || 720
-    for (const wc of this.getClusterTargetWebContents()) {
-      try {
-        wc.send('projection-event', { type: 'cluster-video-codec', payload: { codec } })
-      } catch {
-        /* detached webContents */
-      }
-    }
     let created = false
     for (const screen of clusterTargetScreens(this.config)) {
       let plane = this.gstVideoClusters.get(screen)
@@ -1231,15 +1206,7 @@ export class ProjectionService {
 
   // Cluster channel codec selection
   private readonly onDriverClusterVideoCodec = (codec: 'h264' | 'h265' | 'vp9' | 'av1'): void => {
-    this.lastClusterCodec = codec
     this.gstVideoClusterCodec = codec
-    for (const wc of this.getClusterTargetWebContents()) {
-      try {
-        wc.send('projection-event', { type: 'cluster-video-codec', payload: { codec } })
-      } catch {
-        /* detached webContents */
-      }
-    }
   }
 
   private subscribeConfigEvents(): void {
@@ -1428,7 +1395,6 @@ export class ProjectionService {
         this.lastClusterVideoWidth = undefined
         this.lastClusterVideoHeight = undefined
       },
-      getLastClusterCodec: () => this.lastClusterCodec,
       getLastClusterVideoSize: () => {
         const w = this.lastClusterVideoWidth ?? 0
         const h = this.lastClusterVideoHeight ?? 0
@@ -2180,7 +2146,6 @@ export class ProjectionService {
         this.lastVideoWidth = undefined
         this.lastVideoHeight = undefined
         this.lastPluggedPhoneType = undefined
-        this.lastClusterCodec = null
         this.aaPlaybackInferred = 1
 
         this.mediaStore.reset('session-start')

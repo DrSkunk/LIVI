@@ -12,7 +12,6 @@ type Deps = Pick<
   | 'isClusterRequested'
   | 'setClusterVisible'
   | 'resetLastClusterVideoSize'
-  | 'getLastClusterCodec'
   | 'getLastClusterVideoSize'
   | 'getClusterTargetWebContents'
   | 'send'
@@ -29,16 +28,11 @@ export function registerClusterIpc(host: Deps): void {
       return { ok: true, enabled: false }
     }
 
-    const codec = host.getLastClusterCodec()
     const size = host.getLastClusterVideoSize()
-    if (codec || size) {
+    if (size) {
       for (const wc of host.getClusterTargetWebContents()) {
         try {
-          if (codec) {
-            wc.send('projection-event', { type: 'cluster-video-codec', payload: { codec } })
-          }
-          // The resolution is otherwise only sent on change
-          if (size) wc.send('cluster-video-resolution', { width: size.width, height: size.height })
+          wc.send('cluster-video-resolution', { width: size.width, height: size.height })
         } catch {
           /* detached webContents */
         }
