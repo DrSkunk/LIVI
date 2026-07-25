@@ -101,12 +101,6 @@ export function USBDongle() {
   const dongleFwVersion = useLiviStore((s) => s.dongleFwVersion)
   const boxInfoRaw = useLiviStore((s) => s.boxInfo)
 
-  // Audio stream
-  const audioCodec = useLiviStore((s) => s.audioCodec)
-  const audioSampleRate = useLiviStore((s) => s.audioSampleRate)
-  const audioChannels = useLiviStore((s) => s.audioChannels)
-  const audioBitDepth = useLiviStore((s) => s.audioBitDepth)
-
   // Auto-close dialog
   const autoCloseTimerRef = useRef<number | null>(null)
   const [fwWaitingForReconnect, setFwWaitingForReconnect] = useState(false)
@@ -125,16 +119,6 @@ export function USBDongle() {
   const boxInfo = useMemo(() => normalizeBoxInfo(boxInfoRaw), [boxInfoRaw])
 
   const donglePhoneConnected = Boolean(boxInfo?.btMacAddr && boxInfo.btMacAddr.trim())
-
-  const audioLine = useMemo(() => {
-    if (!donglePhoneConnected) return EMPTY_STRING
-    const parts: string[] = []
-    if (audioCodec) parts.push(String(audioCodec))
-    if (audioSampleRate) parts.push(`${audioSampleRate} Hz`)
-    if (audioChannels != null) parts.push(`${audioChannels} ch`)
-    if (audioBitDepth) parts.push(`${audioBitDepth} bit`)
-    return parts.length ? parts.join(' • ') : EMPTY_STRING
-  }, [donglePhoneConnected, audioCodec, audioSampleRate, audioChannels, audioBitDepth])
 
   const Mono: CSSProperties = {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
@@ -881,11 +865,6 @@ export function USBDongle() {
     [boxInfo]
   )
 
-  const rowsStreams = useMemo<Row[]>(
-    () => [{ label: 'Audio', value: audioLine, mono: true }],
-    [audioLine]
-  )
-
   const renderRows = (rows: Row[]) => (
     <Stack spacing={0.5}>
       {rows.map((r) => {
@@ -937,13 +916,6 @@ export function USBDongle() {
         Status
       </Typography>
       {renderRows(rowsTop)}
-
-      <Divider />
-
-      <Typography variant="subtitle2" color="text.secondary">
-        Streams
-      </Typography>
-      {renderRows(rowsStreams)}
 
       <Divider />
 

@@ -435,12 +435,7 @@ describe('store', () => {
     useLiviStore.getState().setDongleInfo({
       boxInfo: { b: 2 }
     })
-    useLiviStore.getState().setAudioInfo({
-      codec: 'aac',
-      sampleRate: 48000,
-      channels: 2,
-      bitDepth: 16
-    })
+    useLiviStore.getState().setAudioInfo({ sampleRate: 48000 })
     useLiviStore.getState().setPcmData(pcm)
 
     const state = useLiviStore.getState()
@@ -451,10 +446,7 @@ describe('store', () => {
     expect(state.usbFwVersion).toBe('1.2.3')
     expect(state.dongleFwVersion).toBe('2.0.0')
     expect(state.boxInfo).toEqual({ a: 1, b: 2 })
-    expect(state.audioCodec).toBe('aac')
     expect(state.audioSampleRate).toBe(48000)
-    expect(state.audioChannels).toBe(2)
-    expect(state.audioBitDepth).toBe(16)
     expect(state.audioPcmData).toBe(pcm)
   })
 
@@ -475,10 +467,7 @@ describe('store', () => {
       vendorId: 1,
       productId: 2,
       usbFwVersion: '1.0',
-      audioCodec: 'aac',
       audioSampleRate: 48000,
-      audioChannels: 2,
-      audioBitDepth: 16,
       audioPcmData: new Float32Array([1])
     })
 
@@ -491,10 +480,7 @@ describe('store', () => {
         vendorId: null,
         productId: null,
         usbFwVersion: null,
-        audioCodec: null,
         audioSampleRate: null,
-        audioChannels: null,
-        audioBitDepth: null,
         audioPcmData: null
       })
     )

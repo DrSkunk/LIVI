@@ -421,12 +421,7 @@ export class ProjectionAudio {
       if (!this.audioInfoSent && meta) {
         this.sendProjectionEvent({
           type: 'audioInfo',
-          payload: {
-            codec: meta.format ?? meta.mimeType,
-            sampleRate: meta.frequency,
-            channels: meta.channel,
-            bitDepth: meta.bitDepth
-          }
+          payload: { sampleRate: meta.frequency }
         })
         this.audioInfoSent = true
       }

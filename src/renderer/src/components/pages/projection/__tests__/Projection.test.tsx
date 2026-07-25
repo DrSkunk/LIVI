@@ -289,12 +289,7 @@ describe('Projection page', () => {
       })
     })
 
-    expect(liviState.setAudioInfo).toHaveBeenCalledWith({
-      codec: 'aac',
-      sampleRate: 48000,
-      channels: 2,
-      bitDepth: 16
-    })
+    expect(liviState.setAudioInfo).toHaveBeenCalledWith({ sampleRate: 48000 })
   })
 
   test('requestHostUI navigates', async () => {
@@ -357,12 +352,7 @@ describe('Projection page', () => {
       })
     })
 
-    expect(liviState.setAudioInfo).toHaveBeenCalledWith({
-      codec: 'aac',
-      sampleRate: 48000,
-      channels: 2,
-      bitDepth: 16
-    })
+    expect(liviState.setAudioInfo).toHaveBeenCalledWith({ sampleRate: 48000 })
   })
 
   test('handles phone call start (auto switch)', async () => {
@@ -760,12 +750,7 @@ describe('Projection page', () => {
       })
     })
 
-    expect(liviState.setAudioInfo).toHaveBeenCalledWith({
-      codec: 'pcm',
-      sampleRate: 44100,
-      channels: 1,
-      bitDepth: 16
-    })
+    expect(liviState.setAudioInfo).toHaveBeenCalledWith({ sampleRate: 44100 })
   })
 
   test('projection worker pcmData message calls setPcmData', async () => {

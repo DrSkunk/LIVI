@@ -164,16 +164,8 @@ export interface CarplayStore {
   setDongleInfo: (info: { dongleFwVersion?: string; boxInfo?: unknown }) => void
 
   // Audio metadata
-  audioCodec: string | null
   audioSampleRate: number | null
-  audioChannels: number | null
-  audioBitDepth: number | null
-  setAudioInfo: (info: {
-    codec: string
-    sampleRate: number
-    channels: number
-    bitDepth: number
-  }) => void
+  setAudioInfo: (info: { sampleRate: number }) => void
 
   // PCM data for FFT
   audioPcmData: Float32Array | null
@@ -504,17 +496,8 @@ export const useLiviStore = create<CarplayStore>((set, get) => {
         }
       }),
 
-    audioCodec: null,
     audioSampleRate: null,
-    audioChannels: null,
-    audioBitDepth: null,
-    setAudioInfo: ({ codec, sampleRate, channels, bitDepth }) =>
-      set({
-        audioCodec: codec,
-        audioSampleRate: sampleRate,
-        audioChannels: channels,
-        audioBitDepth: bitDepth
-      }),
+    setAudioInfo: ({ sampleRate }) => set({ audioSampleRate: sampleRate }),
 
     audioPcmData: null,
     setPcmData: (data) => set({ audioPcmData: data }),
@@ -552,10 +535,7 @@ export const useLiviStore = create<CarplayStore>((set, get) => {
         usbFwVersion: null,
         dongleFwVersion: null,
         boxInfo: null,
-        audioCodec: null,
         audioSampleRate: null,
-        audioChannels: null,
-        audioBitDepth: null,
         audioPcmData: null
       })
   }

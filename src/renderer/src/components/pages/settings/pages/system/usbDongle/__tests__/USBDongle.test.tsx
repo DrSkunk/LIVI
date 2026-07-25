@@ -14,7 +14,6 @@ type DevListItem = {
 
 const state = {
   isDongleHardwarePresent: true,
-  isStreaming: false,
   settings: { dongleToolsIp: '' },
   saveSettings: vi.fn().mockResolvedValue(undefined),
   vendorId: 0x1234,
@@ -26,13 +25,7 @@ const state = {
     MFD: 'mfd',
     productType: 'p1',
     DevList: [] as DevListItem[]
-  },
-  negotiatedWidth: 1280,
-  negotiatedHeight: 720,
-  audioCodec: 'aac',
-  audioSampleRate: 48000,
-  audioChannels: 2,
-  audioBitDepth: 16
+  }
 }
 
 vi.mock('react-i18next', () => ({
@@ -47,8 +40,7 @@ vi.mock('react-i18next', () => ({
 vi.mock('@store/store', () => ({
   useStatusStore: (selector: (s: any) => unknown) =>
     selector({
-      isDongleHardwarePresent: state.isDongleHardwarePresent,
-      isStreaming: state.isStreaming
+      isDongleHardwarePresent: state.isDongleHardwarePresent
     }),
   useLiviStore: (selector: (s: any) => unknown) =>
     selector({
@@ -58,13 +50,7 @@ vi.mock('@store/store', () => ({
       productId: state.productId,
       usbFwVersion: state.usbFwVersion,
       dongleFwVersion: state.dongleFwVersion,
-      boxInfo: state.boxInfo,
-      negotiatedWidth: state.negotiatedWidth,
-      negotiatedHeight: state.negotiatedHeight,
-      audioCodec: state.audioCodec,
-      audioSampleRate: state.audioSampleRate,
-      audioChannels: state.audioChannels,
-      audioBitDepth: state.audioBitDepth
+      boxInfo: state.boxInfo
     })
 }))
 
@@ -76,7 +62,6 @@ describe('USBDongle', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     state.isDongleHardwarePresent = true
-    state.isStreaming = false
     state.settings = { dongleToolsIp: '' }
     state.boxInfo = { uuid: 'u1', MFD: 'mfd', productType: 'p1', DevList: [] }
     state.dongleFwVersion = '2025.01.01.0001'

@@ -893,12 +893,7 @@ export class ProjectionService {
 
     this.emitProjectionEvent({
       type: 'audioInfo',
-      payload: {
-        codec: fmt.format ?? msg.decodeType ?? 'unknown',
-        sampleRate: fmt.frequency,
-        channels: fmt.channel,
-        bitDepth: fmt.bitDepth
-      }
+      payload: { sampleRate: fmt.frequency }
     })
   }
 

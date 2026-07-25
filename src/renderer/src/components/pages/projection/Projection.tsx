@@ -288,9 +288,13 @@ const CarplayComponent: React.FC<CarplayProps> = ({
           break
         }
 
-        case 'audioInfo':
-          setAudioInfo((msg as Extract<WorkerToUI, { type: 'audioInfo' }>).payload)
+        case 'audioInfo': {
+          const p = (msg as Extract<WorkerToUI, { type: 'audioInfo' }>).payload as
+            | { sampleRate?: number }
+            | undefined
+          setAudioInfo({ sampleRate: p?.sampleRate ?? 0 })
           break
+        }
 
         case 'pcmData':
           setPcmData(new Float32Array((msg as Extract<WorkerToUI, { type: 'pcmData' }>).payload))
@@ -499,24 +503,9 @@ const CarplayComponent: React.FC<CarplayProps> = ({
         }
 
         case 'audioInfo': {
-          const p = d.payload as
-            | {
-                codec?: string
-                sampleRate?: number
-                channels?: number
-                bitDepth?: number
-              }
-            | undefined
-
+          const p = d.payload as { sampleRate?: number } | undefined
           if (!p) break
-
-          setAudioInfo({
-            codec: p.codec ?? '',
-            sampleRate: p.sampleRate ?? 0,
-            channels: p.channels ?? 0,
-            bitDepth: p.bitDepth ?? 0
-          })
-
+          setAudioInfo({ sampleRate: p.sampleRate ?? 0 })
           break
         }
 

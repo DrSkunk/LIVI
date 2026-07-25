@@ -2163,12 +2163,7 @@ describe('ProjectionService', () => {
 
     expect(send).toHaveBeenCalledWith('projection-event', {
       type: 'audioInfo',
-      payload: {
-        codec: 'pcm',
-        sampleRate: 48000,
-        channels: 2,
-        bitDepth: 16
-      }
+      payload: { sampleRate: 48000 }
     })
   })
 })
