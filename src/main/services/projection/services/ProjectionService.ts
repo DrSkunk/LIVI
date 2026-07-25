@@ -25,6 +25,7 @@ import {
 } from '../../video/gstHost'
 import { classifyNal } from '../../video/keyframe'
 import { BluezDeviceClient } from '../bt/BluezDeviceClient'
+import { BtPairedRegistry } from '../bt/BtPairedRegistry'
 import type { AaSession } from '../driver/aa/AaSession'
 import type { CpManager } from '../driver/cp/CpManager'
 import type { CpSession } from '../driver/cp/CpSession'
@@ -193,12 +194,14 @@ export class ProjectionService {
   private hostDevList: DevListEntry[] = []
   private dongleDevList: DevListEntry[] = []
   private dongleConnectedMac = ''
-  private hostPairedRaw = ''
-  private donglePairedRaw = ''
   private lastDongleInfoEmitKey = ''
   private lastAudioMetaEmitKey = ''
   private firmware = new FirmwareUpdateService()
   private readonly bluez = new BluezDeviceClient()
+  private readonly btPaired = new BtPairedRegistry({
+    emit: (p) => this.emitProjectionEvent(p),
+    hasRenderer: () => this.webContents != null
+  })
   private btSubscription: { close: () => void } | null = null
   private btNameByMac = new Map<string, string>()
   private connectedBtMac = ''
@@ -662,7 +665,7 @@ export class ProjectionService {
     const hadOther = this.sessions.all().some((s) => s.driver !== dongle)
     this.sessions.closeByDriver(dongle)
     this.dongleDevList = []
-    this.donglePairedRaw = ''
+    this.btPaired.clearDongleRaw()
     this.dongleConnectedMac = ''
     if (isRecord(this.boxInfo)) {
       this.boxInfo = { ...this.boxInfo, btMacAddr: '' }
@@ -686,8 +689,7 @@ export class ProjectionService {
   }
 
   private handleBluetoothPairedList(msg: BluetoothPairedList): void {
-    this.donglePairedRaw = msg.data
-    this.emitCombinedBtPairedList()
+    this.btPaired.setDonglePairedRaw(msg.data)
   }
 
   private handleBoxUpdateProgress(msg: BoxUpdateProgress): void {
@@ -1817,15 +1819,15 @@ export class ProjectionService {
         class: d.class,
         connected: d.connected
       }))
-      this.hostPairedRaw = devices.length
-        ? devices.map((d) => `${d.mac}${d.name ?? ''}`).join('\n') + '\n'
-        : ''
+      this.btPaired.setHostPairedRaw(
+        devices.length ? devices.map((d) => `${d.mac}${d.name ?? ''}`).join('\n') + '\n' : ''
+      )
     }
 
     if (this.aaBtActive && connected && this.config.lastConnectedAaBtMac !== connected) {
       configEvents.emit('requestSave', { lastConnectedAaBtMac: connected })
     }
-    this.emitCombinedBtPairedList()
+    this.btPaired.emitCombined()
     this.deviceController.emitDevices()
   }
 
@@ -1867,27 +1869,6 @@ export class ProjectionService {
     const hostMacs = new Set(this.hostDevList.map((e) => norm(e.id)))
     const dongleUnique = this.dongleDevList.filter((e) => !hostMacs.has(norm(e.id)))
     return [...this.hostDevList, ...dongleUnique]
-  }
-
-  private emitCombinedBtPairedList(): void {
-    if (!this.webContents) return
-    const parse = (raw: string): Array<{ mac: string; line: string }> => {
-      const out: Array<{ mac: string; line: string }> = []
-      for (const line of raw.split('\n')) {
-        const trimmed = line.replace(/\r$/, '').replace(/\0+$/g, '')
-        if (trimmed.length < 17) continue
-        const mac = trimmed.slice(0, 17).toUpperCase()
-        if (!mac.includes(':')) continue
-        out.push({ mac, line: trimmed })
-      }
-      return out
-    }
-    const dongle = parse(this.donglePairedRaw)
-    const dongleMacs = new Set(dongle.map((d) => d.mac))
-    const host = parse(this.hostPairedRaw).filter((h) => !dongleMacs.has(h.mac))
-    const all = [...dongle, ...host]
-    const raw = all.length ? all.map((d) => d.line).join('\n') + '\n' : ''
-    this.emitProjectionEvent({ type: 'bluetoothPairedList', payload: raw })
   }
 
   private async connectConfiguredAudioDevices(): Promise<void> {
@@ -2345,7 +2326,7 @@ export class ProjectionService {
       if (wasDongleSession) {
         // Dongle gone — drop its stale DevList
         this.dongleDevList = []
-        this.donglePairedRaw = ''
+        this.btPaired.clearDongleRaw()
         this.dongleConnectedMac = ''
       }
 
