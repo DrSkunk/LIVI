@@ -150,7 +150,6 @@ export interface CarplayStore {
   // Display resolution
   negotiatedWidth: number | null
   negotiatedHeight: number | null
-  setNegotiatedResolution: (width: number, height: number) => void
 
   // USB descriptor
   vendorId: number | null
@@ -161,7 +160,6 @@ export interface CarplayStore {
   // USB dongle info
   dongleFwVersion: string | null
   boxInfo: unknown | null
-  setDongleInfo: (info: { dongleFwVersion?: string; boxInfo?: unknown }) => void
 
   // Audio metadata
   audioSampleRate: number | null
@@ -438,10 +436,6 @@ export const useLiviStore = create<CarplayStore>((set, get) => {
         if (derived.callVolume !== prevDerived.callVolume) {
           sendCarplayVolume('call', derived.callVolume)
         }
-
-        // `nightMode` controls the projection-side UI (AA/CP/dongle). Bridge
-        // to wire IPC. `darkMode` (LIVI UI theme) is intentionally NOT
-        // bridged — those are independent toggles.
         if (patch.nightMode !== undefined && Boolean(patch.nightMode) !== Boolean(prev.nightMode)) {
           sendCarplayNightMode(Boolean(patch.nightMode))
         }
@@ -456,8 +450,6 @@ export const useLiviStore = create<CarplayStore>((set, get) => {
 
     negotiatedWidth: null,
     negotiatedHeight: null,
-    setNegotiatedResolution: (width, height) =>
-      set({ negotiatedWidth: width, negotiatedHeight: height }),
 
     vendorId: null,
     productId: null,
@@ -471,30 +463,6 @@ export const useLiviStore = create<CarplayStore>((set, get) => {
 
     dongleFwVersion: null,
     boxInfo: null,
-    setDongleInfo: ({ dongleFwVersion, boxInfo }) =>
-      set((state) => {
-        const nextFw =
-          typeof dongleFwVersion === 'string' && dongleFwVersion.trim()
-            ? dongleFwVersion.trim()
-            : null
-
-        const mergeObjects = (a: unknown, b: unknown) => {
-          if (!a || typeof a !== 'object') return b
-          return { ...(a as Record<string, unknown>), ...(b as Record<string, unknown>) }
-        }
-
-        const nextBox =
-          boxInfo == null
-            ? state.boxInfo
-            : typeof boxInfo === 'object'
-              ? mergeObjects(state.boxInfo, boxInfo)
-              : (state.boxInfo ?? boxInfo)
-
-        return {
-          dongleFwVersion: nextFw ?? state.dongleFwVersion,
-          boxInfo: nextBox
-        }
-      }),
 
     audioSampleRate: null,
     setAudioInfo: ({ sampleRate }) => set({ audioSampleRate: sampleRate }),
@@ -555,9 +523,6 @@ export interface StatusStore {
   isStreaming: boolean
   cameraFound: boolean
   clusterDashActive: boolean
-
-  // Momentary navigation request from an external control (telemetry `view`). The nonce
-  // bumps on every request so repeating the same view re-fires the navigation.
   requestedView: string | null
   requestedViewNonce: number
 

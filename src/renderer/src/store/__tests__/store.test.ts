@@ -409,7 +409,7 @@ describe('store', () => {
     expect(ok).toBe(false)
   })
 
-  test('setNegotiatedResolution, setDeviceInfo, setDongleInfo, setAudioInfo and setPcmData update store', async () => {
+  test('setDeviceInfo, setAudioInfo and setPcmData update store', async () => {
     const projection = makeProjectionApi({
       settings: {
         get: vi.fn().mockResolvedValue(baseSettings)
@@ -422,30 +422,18 @@ describe('store', () => {
 
     const pcm = new Float32Array([0.1, 0.2])
 
-    useLiviStore.getState().setNegotiatedResolution(800, 480)
     useLiviStore.getState().setDeviceInfo({
       vendorId: 4660,
       productId: 22136,
       usbFwVersion: ' 1.2.3 '
     })
-    useLiviStore.getState().setDongleInfo({
-      dongleFwVersion: ' 2.0.0 ',
-      boxInfo: { a: 1 }
-    })
-    useLiviStore.getState().setDongleInfo({
-      boxInfo: { b: 2 }
-    })
     useLiviStore.getState().setAudioInfo({ sampleRate: 48000 })
     useLiviStore.getState().setPcmData(pcm)
 
     const state = useLiviStore.getState()
-    expect(state.negotiatedWidth).toBe(800)
-    expect(state.negotiatedHeight).toBe(480)
     expect(state.vendorId).toBe(4660)
     expect(state.productId).toBe(22136)
     expect(state.usbFwVersion).toBe('1.2.3')
-    expect(state.dongleFwVersion).toBe('2.0.0')
-    expect(state.boxInfo).toEqual({ a: 1, b: 2 })
     expect(state.audioSampleRate).toBe(48000)
     expect(state.audioPcmData).toBe(pcm)
   })
@@ -681,55 +669,6 @@ describe('store', () => {
     expect(warnSpy).toHaveBeenCalledWith('[BT] applyBluetoothPairedList failed', expect.any(Error))
     expect(useLiviStore.getState().bluetoothPairedDirty).toBe(true)
     expect(useLiviStore.getState().bluetoothPairedDeleteNeedsRestart).toBe(true)
-  })
-
-  test('setDongleInfo keeps previous fw version when next fw version is blank', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.getState().setDongleInfo({
-      dongleFwVersion: '2.0.0',
-      boxInfo: { a: 1 }
-    })
-
-    useLiviStore.getState().setDongleInfo({
-      dongleFwVersion: '   ',
-      boxInfo: null
-    })
-
-    expect(useLiviStore.getState().dongleFwVersion).toBe('2.0.0')
-    expect(useLiviStore.getState().boxInfo).toEqual({ a: 1 })
-  })
-
-  test('setDongleInfo accepts non-object boxInfo when no previous value exists and keeps existing non-object value', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.getState().setDongleInfo({
-      boxInfo: 'raw-box-info'
-    })
-
-    expect(useLiviStore.getState().boxInfo).toBe('raw-box-info')
-
-    useLiviStore.getState().setDongleInfo({
-      boxInfo: 123
-    })
-
-    expect(useLiviStore.getState().boxInfo).toBe('raw-box-info')
   })
 
   test('telemetry handler ignores non-object payloads', async () => {
@@ -1156,28 +1095,6 @@ describe('store', () => {
     expect(projection.usb.forceReset).not.toHaveBeenCalled()
   })
 
-  test('setDongleInfo replaces previous primitive boxInfo when next boxInfo is an object', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      boxInfo: 'raw-box-info'
-    })
-
-    useLiviStore.getState().setDongleInfo({
-      boxInfo: { a: 1 }
-    })
-
-    expect(useLiviStore.getState().boxInfo).toEqual({ a: 1 })
-  })
-
   test('setBluetoothPairedList trims trailing null bytes from raw list', async () => {
     const projection = makeProjectionApi({
       settings: {
@@ -1302,28 +1219,6 @@ describe('store', () => {
       { mac: '11:22:33:44:55:66', name: 'Phone B' }
     ])
     expect(useLiviStore.getState().bluetoothPairedDeleteNeedsRestart).toBe(false)
-  })
-
-  test('setDongleInfo keeps previous object boxInfo when next boxInfo is primitive', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      boxInfo: { a: 1 }
-    })
-
-    useLiviStore.getState().setDongleInfo({
-      boxInfo: 'primitive-box-info'
-    })
-
-    expect(useLiviStore.getState().boxInfo).toEqual({ a: 1 })
   })
 
   test('connectBluetoothPairedDevice returns false when ipc api is missing', async () => {
@@ -1718,28 +1613,6 @@ describe('store', () => {
 
     expect(useLiviStore.getState().settings).toEqual(nextSettings)
     expect(useLiviStore.getState().restartBaseline).toEqual(nextSettings)
-  })
-
-  test('setDongleInfo replaces null boxInfo with incoming object', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      boxInfo: null
-    })
-
-    useLiviStore.getState().setDongleInfo({
-      boxInfo: { a: 1 }
-    })
-
-    expect(useLiviStore.getState().boxInfo).toEqual({ a: 1 })
   })
 
   test('setBluetoothPairedList normalizes undefined raw input to an empty string', async () => {
