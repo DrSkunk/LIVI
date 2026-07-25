@@ -6,7 +6,7 @@ import dbus
 import dbus.service
 import iap2.carplay_bonjour as carplay_bonjour
 
-from iap2.wifi_ap import get_bt_mac
+from shared.wifi_ap import get_bt_mac
 from shared.config import BTNAME, BT_ADAPTER
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib

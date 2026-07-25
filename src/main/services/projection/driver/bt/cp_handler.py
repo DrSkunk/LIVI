@@ -82,7 +82,7 @@ from iap2.mfi_auth_coprocessor import (
 from iap2.transport.bluetooth import (
     CHANNEL as IAP_CHANNEL, IAP_CLIENT_UUID, IAP_RECORD, IAP_SERVER_UUID, IAPProfile,
 )
-from iap2.wifi_ap import get_bt_mac
+from shared.wifi_ap import get_bt_mac
 from iap2 import muxd, ncm_bridge
 
 AV_IFACE_DRIVERS = ("cdc_ncm", "ipheth")
@@ -751,7 +751,6 @@ class CpHandler:
             else:
                 self.loop.run_in_executor(None, self._ensure_carkit_link_local)
         elif not over_wifi:
-            carplay_bonjour.reset()
             self._bt_writer = writer
             if bt_mac:
                 self._remember_wireless_phone(bt_mac)
@@ -845,6 +844,7 @@ class CpHandler:
                             channel=Uint8(CHANNEL),
                         )
                         await write_csm(stream, info)
+                        carplay_bonjour.kick()
                     elif isinstance(incoming, WirelessCarPlayUpdate):
                         self._log("wireless CarPlay status:", getattr(incoming, "status", None))
                     elif isinstance(incoming, CarPlayAvailability):
@@ -914,7 +914,7 @@ class CpHandler:
         try:
             from iap2 import wifi_presence
             from shared.config import WIFI_IFACE
-            from iap2.wifi_ap import DNSMASQ_LEASE_PATH
+            from shared.wifi_ap import DNSMASQ_LEASE_PATH
             wifi_presence.start(WIFI_IFACE, DNSMASQ_LEASE_PATH, self._on_wifi_presence, self._log)
         except Exception as e:
             self._log("wifi presence start failed:", repr(e))
@@ -924,7 +924,10 @@ class CpHandler:
         livi_sock.push({"type": "wifi", "event": kind, "mac": mac, "ip": ip})
         # The phone rejoined the AP with a fresh _carplay-ctrl port; re-browse for it.
         if kind == "joined":
+            self._log("wifi joined ip=%s -> re-browsing for _carplay-ctrl" % (ip or "?"))
             carplay_bonjour.kick()
+        elif kind == "left" and ip:
+            carplay_bonjour.clear_for_ip(ip)
 
     def _register_bt_transport(self):
         bus = self.ctx.bus

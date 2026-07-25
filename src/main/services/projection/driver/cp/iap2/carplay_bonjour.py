@@ -30,6 +30,7 @@ SERVICE_NAME = "LIVI"
 _connect_lock = threading.Lock()
 _connect_states = {}
 _addr_running = set()
+_seen_endpoints = {}
 _rebrowse_fn = None
 
 
@@ -48,6 +49,19 @@ def reset():
         _addr_running.clear()
 
 
+def clear_for_ip(ip):
+    with _connect_lock:
+        for st in _connect_states.values():
+            if st.get("ip") == ip:
+                st["done"] = False
+                st.pop("ip", None)
+        for akey in list(_addr_running):
+            if akey[1].split("%", 1)[0] == ip:
+                _addr_running.discard(akey)
+        for ck in [k for k, ep in _seen_endpoints.items() if ep[0].split("%", 1)[0] == ip]:
+            _seen_endpoints.pop(ck, None)
+
+
 _kicking = False
 
 
@@ -63,13 +77,15 @@ def kick():
 def _start_kick():
     global _kicking
     if _kicking:
+        print("[cp] re-browse already running, skipping duplicate", flush=True)
         return False
     _kicking = True
     rounds = [15]
+    print("[cp] re-browsing _carplay-ctrl (%d rounds, ~%ds)" % (rounds[0], rounds[0] * 3 // 2), flush=True)
 
     def _tick():
         global _kicking
-        if (_connect_states and all(st["done"] for st in _connect_states.values())) or rounds[0] <= 0:
+        if rounds[0] <= 0:
             _kicking = False
             return False
         rounds[0] -= 1
@@ -126,6 +142,7 @@ def _connect_worker(address, port, ifname, mac_int, ckey, akey):
                 print(f"[cp] /ctrl-int/1/connect -> {first!r} via {ifname or '?'} (attempt {attempt})", flush=True)
                 with _connect_lock:
                     st["done"] = True
+                    st["ip"] = host
                 return
             except ConnectionRefusedError as e:
                 # Nothing is listening: this advertised port is stale. Stop so a
@@ -203,7 +220,6 @@ def start_service(device_id):
             _ifn = socket.if_indextoname(int(interface))
         except Exception:
             _ifn = str(interface)
-        print(f"[cp] bonjour: _carplay-ctrl ItemNew name={name} iface={_ifn} proto={protocol}", flush=True)
         try:
             (interface, protocol, name, type, domain, host, aprotocol,
              address, port, txt, flags) = server.ResolveService(
@@ -220,34 +236,32 @@ def start_service(device_id):
                 ifname = ""
             if is_v6:
                 if not address.lower().startswith("fe80"):
-                    print(f"[cp] ignoring non-link-local v6 {address}", flush=True)
                     return
                 if ifname:
                     address = f"{address}%{ifname}"
                 url_host = f"[{address}]"
             else:
                 if address.startswith("169.254."):
-                    print(f"[cp] ignoring link-local v4 {address}", flush=True)
                     return
                 url_host = address
-            print(f"[cp] found phone _carplay-ctrl {'v6' if is_v6 else 'v4'} at {url_host}:{port} txt={txt}", flush=True)
 
             # The phone's own BT MAC is advertised as id= in the service TXT; this
             # links the WiFi IP to its stable identity for the device registry.
             phone_bt = next((t[3:].strip().lower() for t in txt if t.startswith("id=")), "")
-            if phone_bt:
-                try:
-                    from iap2 import livi_sock
-                    livi_sock.push({"type": "device", "src": "bonjour",
-                                    "btMac": phone_bt, "ip": address.split("%")[0]})
-                except Exception:
-                    pass
+            ckey = phone_bt or url_host
+            endpoint = (address, int(port))
+            if _seen_endpoints.get(ckey) != endpoint:
+                _seen_endpoints[ckey] = endpoint
+                print(f"[cp] found phone _carplay-ctrl {'v6' if is_v6 else 'v4'} at {url_host}:{port} txt={txt}", flush=True)
+                if phone_bt:
+                    try:
+                        from iap2 import livi_sock
+                        livi_sock.push({"type": "device", "src": "bonjour",
+                                        "btMac": phone_bt, "ip": address.split("%")[0]})
+                    except Exception:
+                        pass
 
             mac_int = int(device_id.replace(":", ""), 16)
-            # The "device-found" probe (below, in a retry thread) is what makes the
-            # phone open the reverse control connection back to our :7000. Spawn one
-            # retry worker per discovery, guarded so re-announces don't pile up.
-            ckey = phone_bt or url_host
             st = _cstate(ckey)
             akey = (ckey, address)
             with _connect_lock:

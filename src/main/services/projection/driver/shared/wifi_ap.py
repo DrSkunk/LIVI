@@ -8,7 +8,11 @@ from .config import BT_ADAPTER, CHANNEL, COUNTRY_CODE, PASSPHRASE, SSID, WIFI_IF
 
 HOSTAPD_CONFIG_PATH = "/tmp/livi-hostapd.conf"
 DNSMASQ_CONFIG_PATH = "/tmp/livi-dnsmasq.conf"
+DNSMASQ_LEASE_PATH = "/tmp/livi-dnsmasq.leases"
+HOSTAPD_LOG_PATH = "/tmp/livi-hostapd.log"
 AP_IP = "10.10.0.1"
+
+_DBG = os.environ.get("LIVI_CP_DEBUG", os.environ.get("DEBUG", "")) not in ("", "0", "false", "False")
 
 # ── firewalld zone management ─────────────────────────────────────────────────
 #
@@ -269,6 +273,7 @@ def start_dnsmasq() -> None:
 interface={WIFI_IFACE}
 bind-interfaces
 dhcp-range=10.10.0.10,10.10.0.50,255.255.255.0,12h
+dhcp-leasefile={DNSMASQ_LEASE_PATH}
 domain-needed
 bogus-priv
 """.strip()
@@ -281,7 +286,11 @@ bogus-priv
 
 
 def start_hostapd() -> None:
-    subprocess.Popen(["sudo", "hostapd", HOSTAPD_CONFIG_PATH])
+    if _DBG:
+        subprocess.Popen(["sudo", "hostapd", HOSTAPD_CONFIG_PATH])
+    else:
+        subprocess.Popen(["sudo", "hostapd", HOSTAPD_CONFIG_PATH],
+                         stdout=open(HOSTAPD_LOG_PATH, "w"), stderr=subprocess.STDOUT)
 
 
 def _is_dhcp_listening() -> bool:

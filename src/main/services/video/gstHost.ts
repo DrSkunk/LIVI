@@ -192,10 +192,12 @@ class GstHost {
   }
 
   onVideoReceiverConfig(cb: ReverseEvents['config']): void {
+    this.events.removeAllListeners('config')
     this.events.on('config', cb)
   }
 
   onVideoReceiverStarted(cb: ReverseEvents['started']): void {
+    this.events.removeAllListeners('started')
     this.events.on('started', cb)
   }
 
