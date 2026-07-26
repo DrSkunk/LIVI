@@ -63,6 +63,29 @@ def _resolve_iface(configured: str, available: list) -> str:
     return available[0]
 
 
+def _coerce_bool(val, default: bool) -> bool:
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.strip().lower() in ("1", "true", "yes", "on")
+    return default
+
+
+def _get_bool(json_key: str, default: bool) -> bool:
+    return _coerce_bool(_JSON_CONFIG.get(json_key, None), default)
+
+
+def current_dedicated_flag() -> bool:
+    """Fresh read of wifiDedicatedInterface, bypassing the import-time cache.
+    The helper is long-lived, so teardown decisions must use the live value."""
+    try:
+        with open(_get_config_path()) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False
+    return _coerce_bool(data.get("wifiDedicatedInterface"), False)
+
+
 # Wi-Fi AP
 SSID = _get_value("LIVI_SSID", "carName", "LIVI")
 PASSPHRASE = _get_value("LIVI_PASSPHRASE", "wifiPassword", "12345678")
@@ -71,6 +94,9 @@ COUNTRY_CODE = _get_value("LIVI_COUNTRY", "country", "DE")
 WIFI_IFACE = _resolve_iface(
     _get_value("LIVI_WIFI_IFACE", "wifiInterface", "wlan0"), _list_wifi_ifaces()
 )
+# When the AP owns a dedicated interface it is brought up at boot by a systemd
+# service, so LIVI adopts the running AP instead of starting/stopping it.
+WIFI_DEDICATED = _get_bool("wifiDedicatedInterface", False)
 SECURITY_TYPE = "WPA_WPA2"
 
 # Bluetooth
