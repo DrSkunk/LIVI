@@ -154,8 +154,8 @@ describe('refreshBtPairedList', () => {
       throw new Error('sock down')
     })
     await expect(
-      (svc as unknown as { refreshBtPairedList: () => Promise<void> }).refreshBtPairedList()
-    ).resolves.toBeUndefined()
+      (svc as unknown as { refreshBtPairedList: () => Promise<number> }).refreshBtPairedList()
+    ).resolves.toBe(0)
   })
 
   test('listPaired error rethrows when throwOnError=true', async () => {

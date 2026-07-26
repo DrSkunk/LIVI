@@ -150,10 +150,7 @@ export class ProjectionService {
   private startRetryAttempt = 0
 
   private started = false
-  private stopping = false
   private shuttingDown = false
-  private isStarting = false
-  private isStopping = false
   private startPromise: Promise<void> | null = null
   private stopPromise: Promise<void> | null = null
   private firstFrameLogged = false
@@ -466,22 +463,22 @@ export class ProjectionService {
     this.syncClusterStreamFocus()
 
     // Seed AA's initial NIGHT_MODE
-    if (next.appearanceMode !== prev?.appearanceMode) {
+    if (next.appearanceMode !== prev.appearanceMode) {
       this.drivers.setAaInitialNightMode(deriveInitialNightMode(next.appearanceMode))
     }
 
     if (
       (typeof next.wirelessAaEnabled === 'boolean' &&
-        next.wirelessAaEnabled !== prev?.wirelessAaEnabled) ||
+        next.wirelessAaEnabled !== prev.wirelessAaEnabled) ||
       (typeof next.wirelessCpEnabled === 'boolean' &&
-        next.wirelessCpEnabled !== prev?.wirelessCpEnabled)
+        next.wirelessCpEnabled !== prev.wirelessCpEnabled)
     ) {
       this.syncHelperSupervisor()
       this.emitTransportState()
     }
 
-    const outChanged = next.audioOutputDevice !== prev?.audioOutputDevice
-    const inChanged = next.audioInputDevice !== prev?.audioInputDevice
+    const outChanged = next.audioOutputDevice !== prev.audioOutputDevice
+    const inChanged = next.audioInputDevice !== prev.audioInputDevice
     if (outChanged || inChanged) {
       this.audio.onAudioDeviceChanged()
       if (outChanged) this.systemSound.onDeviceChanged()
@@ -662,7 +659,7 @@ export class ProjectionService {
 
   private handlePlugged(msg: Plugged): void {
     this.onPhoneConnected(msg.phoneType)
-    if (!this.started && !this.isStarting && this.getActiveTransport() !== 'cp') {
+    if (!this.started && !this.startPromise && this.getActiveTransport() !== 'cp') {
       this.start().catch(() => {})
     }
   }
@@ -749,12 +746,7 @@ export class ProjectionService {
     }
 
     // main video stream (0x06)
-    if (!this.firstFrameLogged) {
-      this.firstFrameLogged = true
-      const dt = Date.now() - APP_START_TS
-      console.log(`[Perf] AppStart→FirstFrame: ${dt} ms`)
-      this.statusFile.setStreaming(true)
-    }
+    this.markFirstFrame()
 
     const w = msg.width
     const h = msg.height
@@ -909,14 +901,17 @@ export class ProjectionService {
     driver?.setVideoActive?.(true)
   }
 
+  private markFirstFrame(): void {
+    if (this.firstFrameLogged) return
+    this.firstFrameLogged = true
+    const dt = Date.now() - APP_START_TS
+    console.log(`[Perf] AppStart→FirstFrame: ${dt} ms`)
+    this.statusFile.setStreaming(true)
+  }
+
   private readonly onNativeVideoStarted = (id: number): void => {
     if (id !== VIDEO_PLANE_MAIN) return
-    if (!this.firstFrameLogged) {
-      this.firstFrameLogged = true
-      const dt = Date.now() - APP_START_TS
-      console.log(`[Perf] AppStart→FirstFrame: ${dt} ms`)
-      this.statusFile.setStreaming(true)
-    }
+    this.markFirstFrame()
   }
 
   private onNativeClusterConfig(codec: GstVideoCodec, atom: Buffer): void {
@@ -961,12 +956,8 @@ export class ProjectionService {
     return this.clusterRequestedBy.size > 0
   }
 
-  private clusterStreamWanted(): boolean {
-    return this.anyClusterRequested()
-  }
-
   private syncClusterStreamFocus(): void {
-    const want = this.clusterStreamWanted()
+    const want = this.anyClusterRequested()
     if (!this.planes.updateClusterStreamActive(want)) return
     this.drivers.setAaClusterStreamActive(want)
     this.drivers.setCpClusterStreamActive(want)
@@ -1466,7 +1457,7 @@ export class ProjectionService {
         await this.bluez.deauthApClients().catch(() => {})
       }
 
-      this.applyConfigPatch({ ...this.config, lastConnectedAaBtMac: mac })
+      this.applyConfigPatch({ lastConnectedAaBtMac: mac })
       this.arbiter.setOverride({ transport: 'aa', mode: 'wireless' })
 
       await this.bounceAaBtConnections()
@@ -1533,13 +1524,13 @@ export class ProjectionService {
 
   private async refreshBtPairedList(
     opts: { throwOnError?: boolean; preferMac?: string } = {}
-  ): Promise<void> {
+  ): Promise<number> {
     let devices
     try {
       devices = await this.bluez.listPaired()
     } catch (e) {
       if (opts.throwOnError) throw e
-      return
+      return 0
     }
 
     const { connectedMac: connected, phones } = this.btPaired.ingest(devices, {
@@ -1574,6 +1565,7 @@ export class ProjectionService {
       configEvents.emit('requestSave', { lastConnectedAaBtMac: connected })
     }
     this.deviceController.emitDevices()
+    return devices.length
   }
 
   private async populateAaBtPairedListInitial(): Promise<void> {
@@ -1584,17 +1576,18 @@ export class ProjectionService {
 
     while (Date.now() < deadline) {
       if (!this.aaBtActive) return
+      let count: number
       try {
-        const devices = await this.bluez.listPaired()
-        await this.refreshBtPairedList().catch(() => {})
-        if (devices.length === 0 && expectDevice) {
-          await new Promise((r) => setTimeout(r, intervalMs))
-          continue
-        }
-        return
+        count = await this.refreshBtPairedList({ throwOnError: true })
       } catch {
         await new Promise((r) => setTimeout(r, intervalMs))
+        continue
       }
+      if (count === 0 && expectDevice) {
+        await new Promise((r) => setTimeout(r, intervalMs))
+        continue
+      }
+      return
     }
     console.warn(
       '[ProjectionService] aa-bt initial populate gave up after 30s — paired-device list may be empty until the next user action triggers a refresh'
@@ -1775,10 +1768,6 @@ export class ProjectionService {
     this.aaBtSubscription = null
   }
 
-  private async armWiredAa(device: Device): Promise<boolean> {
-    return this.drivers.bringUpAaWired(device)
-  }
-
   private async maybeBringUpWiredBeside(): Promise<void> {
     const device = this.arbiter.getPhoneDevice()
     if (!device) return
@@ -1791,7 +1780,7 @@ export class ProjectionService {
     // wireless one, so the phone never tears down and re-enumerates at once.
     console.log('[ProjectionService] wired AA bring-up beside active session')
     try {
-      await this.armWiredAa(device)
+      await this.drivers.bringUpAaWired(device)
     } catch (e) {
       console.warn('[ProjectionService] wired-beside AA bring-up failed', e)
     }
@@ -1809,14 +1798,14 @@ export class ProjectionService {
 
   public async autoStartIfNeeded() {
     if (this.shuttingDown) return
-    if (this.isStopping && this.stopPromise) {
+    if (this.stopPromise) {
       try {
         await this.stopPromise
       } catch {}
     }
     if (this.shuttingDown) return
     if (this.sessions.all().length > 0) return
-    if (this.started || this.isStarting) return
+    if (this.started || this.startPromise) return
 
     const decision = this.arbiter.decideNextStart()
     if (decision.kind === 'none') return
@@ -1832,9 +1821,8 @@ export class ProjectionService {
 
   private async start() {
     if (this.started) return
-    if (this.isStarting) return this.startPromise ?? Promise.resolve()
+    if (this.startPromise) return this.startPromise
 
-    this.isStarting = true
     this.startPromise = (async () => {
       try {
         const candidate = this.arbiter.pickPreferred()
@@ -1931,7 +1919,6 @@ export class ProjectionService {
           return
         }
       } finally {
-        this.isStarting = false
         this.startPromise = null
         this.emitTransportState()
       }
@@ -1969,7 +1956,7 @@ export class ProjectionService {
         this.started = true
         if (prev) {
           this.planes.dispose()
-          if (!this.isStarting) next.driver.requestKeyframe?.()
+          if (!this.startPromise) next.driver.requestKeyframe?.()
         }
         if (!prev) this.audio.resetForSessionStart()
         this.mediaStore.hydrate(next)
@@ -1996,7 +1983,7 @@ export class ProjectionService {
       this.lastClusterVideoWidth = next.video.cluster.width
       this.lastClusterVideoHeight = next.video.cluster.height
       this.planes.updateMainCrop()
-      if (!this.isStarting) {
+      if (!this.startPromise) {
         if (!prev) this.audio.resetForSessionStart()
         next.driver.requestKeyframe?.()
       }
@@ -2006,7 +1993,7 @@ export class ProjectionService {
   }
 
   private teardownToIdle(): void {
-    if (this.stopping || this.isStopping || this.shuttingDown) return
+    if (this.stopPromise || this.shuttingDown) return
     this.planes.dispose()
     this.emitProjectionEvent({ type: 'projection', shown: false })
     this.audio.resetForSessionStop()
@@ -2025,11 +2012,9 @@ export class ProjectionService {
   }
 
   public async stop(): Promise<void> {
-    if (this.isStopping) return this.stopPromise ?? Promise.resolve()
-    if (!this.started || this.stopping) return
+    if (this.stopPromise) return this.stopPromise
+    if (!this.started) return
 
-    this.stopping = true
-    this.isStopping = true
     this.sessions.clear()
     this.arbiter.resetNativeProbeDefer()
 
@@ -2057,9 +2042,6 @@ export class ProjectionService {
         } catch (e) {
           console.warn('[ProjectionService] dongle close() failed (ignored)', e)
         }
-      }
-
-      if (wasDongleSession) {
         // Dongle gone — drop its stale DevList
         this.btPaired.clearDongleRaw()
         this.dongleState.clearDongleSessionState()
@@ -2079,8 +2061,6 @@ export class ProjectionService {
       this.lastPluggedPhoneType = undefined
       this.aaPlaybackInferred = 2
     })().finally(() => {
-      this.stopping = false
-      this.isStopping = false
       this.stopPromise = null
       this.emitTransportState()
     })
@@ -2091,7 +2071,7 @@ export class ProjectionService {
   // Bring-up can fail transiently (USB interface still busy, phone still locked). Keep retrying
   // so a connection eventually establishes, the arbiter stops us once the phone is gone.
   private scheduleStartRetry() {
-    if (this.shuttingDown || this.stopping) return
+    if (this.shuttingDown || this.stopPromise) return
     if (this.startRetryTimer) return
     const delay = Math.min(START_RETRY_CAP_MS, START_RETRY_BASE_MS * 2 ** this.startRetryAttempt)
     this.startRetryAttempt++
