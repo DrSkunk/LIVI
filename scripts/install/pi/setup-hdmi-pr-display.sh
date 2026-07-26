@@ -46,12 +46,37 @@ require_pi() {
   fi
 }
 
-# The kernel source comes from apt, in the same version as the running kernel, so it
-# is the tree the binary was built from. The config comes from the installed headers.
-fetch_and_sync() {
-  local series pkg tarball vc4src
+ensure_rpi_source() {
+  if ! command -v rpi-source >/dev/null 2>&1; then
+    sudo wget -q https://raw.githubusercontent.com/RPi-Distro/rpi-source/master/rpi-source \
+      -O /usr/local/bin/rpi-source
+    sudo chmod +x /usr/local/bin/rpi-source
+  fi
+}
 
-  series="$(uname -r | cut -d. -f1,2)"
+# rpi-update kernel
+fetch_rpi_source() {
+  KSRC="${HOME}/linux"
+  local vc4src="${KSRC}/drivers/gpu/drm/vc4/vc4_hdmi.c"
+  if [[ ! -f "$vc4src" ]]; then
+    echo "→ Fetching matching kernel source (rpi-source)"
+    ensure_rpi_source
+    rm -rf "$KSRC" "$HOME"/linux-*
+    yes '' | rpi-source --skip-gcc || true
+  fi
+  [[ -f "$vc4src" ]] || {
+    echo "kernel source not found after rpi-source (this custom kernel's source may be unpublished)" >&2
+    exit 1
+  }
+  echo "→ Resolving kernel config (non-interactive)"
+  make -C "$KSRC" olddefconfig >/dev/null
+}
+
+# Stock apt kernel
+fetch_apt() {
+  local kver series pkg tarball vc4src sym
+  kver="$(uname -r)"
+  series="$(echo "$kver" | cut -d. -f1,2)"
   pkg="linux-source-${series}"
   tarball="/usr/src/${pkg}.tar.xz"
   KSRC="${HOME}/${pkg}"
@@ -70,17 +95,39 @@ fetch_and_sync() {
   [[ -f "$vc4src" ]] || { echo "kernel source not found at $KSRC" >&2; exit 1; }
 
   echo "→ Taking the running kernel's config"
-  if [[ -f "/lib/modules/$(uname -r)/build/.config" ]]; then
-    cp "/lib/modules/$(uname -r)/build/.config" "${KSRC}/.config"
-  elif [[ -f "/boot/config-$(uname -r)" ]]; then
-    cp "/boot/config-$(uname -r)" "${KSRC}/.config"
+  if [[ -f "/lib/modules/${kver}/build/.config" ]]; then
+    cp "/lib/modules/${kver}/build/.config" "${KSRC}/.config"
+  elif [[ -f "/boot/config-${kver}" ]]; then
+    cp "/boot/config-${kver}" "${KSRC}/.config"
   else
-    echo "no kernel config found for $(uname -r)" >&2
+    echo "no kernel config found for ${kver}" >&2
     exit 1
   fi
-
   echo "→ Resolving kernel config (non-interactive)"
   make -C "$KSRC" olddefconfig >/dev/null
+
+  echo "→ Providing Module.symvers from the running kernel"
+  sym="/lib/modules/${kver}/build/Module.symvers"
+  if [[ ! -f "$sym" ]]; then
+    sudo apt-get install -y --no-install-recommends "linux-headers-${kver}" 2>/dev/null || true
+  fi
+  [[ -f "$sym" ]] || sym="/usr/src/linux-headers-${kver}/Module.symvers"
+  if [[ ! -f "$sym" ]]; then
+    echo "ERROR: no Module.symvers for ${kver}. Install the kernel headers:" >&2
+    echo "       sudo apt-get install linux-headers-${kver}" >&2
+    exit 1
+  fi
+  cp "$sym" "${KSRC}/Module.symvers"
+}
+
+fetch_and_sync() {
+  if apt-cache show "linux-headers-$(uname -r)" >/dev/null 2>&1; then
+    echo "→ Stock apt kernel detected, using apt source + headers"
+    fetch_apt
+  else
+    echo "→ Custom / rpi-update kernel, using rpi-source"
+    fetch_rpi_source
+  fi
 }
 
 # Patch vc4_hdmi.c, build only the vc4 module, install it for the running kernel.
@@ -103,7 +150,7 @@ build_vc4() {
   echo "→ Installing build dependencies"
   sudo apt-get update
   sudo apt-get install -y --no-install-recommends \
-    bc bison flex libssl-dev make gcc kmod xz-utils zstd
+    git bc bison flex libssl-dev make gcc kmod wget xz-utils zstd
 
   fetch_and_sync
   f="${KSRC}/drivers/gpu/drm/vc4/vc4_hdmi.c"
@@ -174,6 +221,16 @@ PY
 
   echo "→ Preparing module build"
   make -C "$KSRC" LOCALVERSION="$lv" modules_prepare
+
+  # The generic apt linux-source resolves to a different suffix.
+  # Force the exact release from the running kernel's headers.
+  local hdr="/lib/modules/${kver}/build"
+  [[ -f "$hdr/include/generated/utsrelease.h" ]] || hdr="/usr/src/linux-headers-${kver}"
+  if [[ -f "$hdr/include/generated/utsrelease.h" ]]; then
+    cp "$hdr/include/generated/utsrelease.h" "${KSRC}/include/generated/utsrelease.h"
+    [[ -f "$hdr/include/config/kernel.release" ]] &&
+      cp "$hdr/include/config/kernel.release" "${KSRC}/include/config/kernel.release"
+  fi
 
   echo "→ Building the vc4 module only (clean rebuild)"
   make -C "$KSRC" LOCALVERSION="$lv" M=drivers/gpu/drm/vc4 clean >/dev/null 2>&1 || true
