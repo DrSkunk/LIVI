@@ -34,7 +34,7 @@ for tool in curl xdg-user-dir pkexec; do
     sudo apt-get update
     case "$tool" in
       xdg-user-dir) sudo apt-get --yes install xdg-user-dirs ;;
-      pkexec)       sudo apt-get --yes install policykit-1 ;;
+      pkexec)       sudo apt-get --yes install pkexec ;;
       *)            sudo apt-get --yes install "$tool" ;;
     esac
   else
