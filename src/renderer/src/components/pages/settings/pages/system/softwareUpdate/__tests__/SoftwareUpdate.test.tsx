@@ -43,11 +43,11 @@ describe('SoftwareUpdate', () => {
     render(<SoftwareUpdate />)
 
     await waitFor(() => {
-      expect(screen.getByText('1.0.0')).toBeInTheDocument()
+      expect(screen.getByText(/1\.0\.0/)).toBeInTheDocument()
       expect(screen.getByText('1.1.0')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+    fireEvent.click(screen.getByRole('button', { name: 'softwareUpdate.update' }))
     expect((window as any).app.performUpdate).toHaveBeenCalledWith('https://u')
   })
 
@@ -119,25 +119,20 @@ describe('SoftwareUpdate', () => {
     vi.useRealTimers()
   })
 
-  test('handlePrimaryAction when inFlight opens the dialog', async () => {
-    // lines 135-137: inFlight → setUpDialogOpen(true)
+  test('the update row shows a spinner and refresh is disabled while in flight', async () => {
     render(<SoftwareUpdate />)
+
+    await waitFor(() => expect(screen.getByText(/1\.0\.0/)).toBeInTheDocument())
 
     // trigger in-flight state via progress event
     act(() => {
       progressCb?.({ percent: 0.2, received: 200, total: 1000 })
     })
 
-    await waitFor(() => expect(screen.getByText('1.0.0')).toBeInTheDocument())
-
-    // The main button should now be the "update" button but disabled
-    // Clicking the "Check" button (recheck) while in-flight is disabled
-    // Click the primary button while inFlight → should open dialog
-    const primaryBtn = screen.getByRole('button', { name: 'Update' })
-    fireEvent.click(primaryBtn)
-
-    // Dialog should be open (indeterminate progress visible)
+    // In-flight: the update button swaps its label for a spinner (progressbar),
+    // and the refresh button is disabled.
     expect(screen.getAllByRole('progressbar').length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'softwareUpdate.refresh' })).toBeDisabled()
   })
 
   test('getLatestRelease failure shows error message', async () => {
@@ -172,10 +167,10 @@ describe('SoftwareUpdate', () => {
     render(<SoftwareUpdate />)
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Update' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'softwareUpdate.update' })).toBeEnabled()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+    fireEvent.click(screen.getByRole('button', { name: 'softwareUpdate.update' }))
     expect((window as any).app.performUpdate).toHaveBeenCalledWith('https://nightly')
   })
 

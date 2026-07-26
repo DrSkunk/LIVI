@@ -1,22 +1,19 @@
 import {
-  Box,
   Button,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   LinearProgress,
-  Stack,
-  Switch,
   Typography
 } from '@mui/material'
 import { EMPTY_STRING } from '@renderer/constants'
 import type { Config } from '@shared/types'
 import { useLiviStore } from '@store/store'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CMP_CONFIG, INSTALL_PHASES } from './constants'
+import { SettingsButtonRow, SettingsSwitchRow, SettingsValueRow } from '../../../components'
+import { INSTALL_PHASES } from './constants'
 import { phaseMap, UpdatePhases, UpgradeText } from './types'
 import { buildTag, cmpSemver, human, parseSemver, sameNightlyBuild } from './utils'
 
@@ -152,7 +149,12 @@ export function SoftwareUpdate() {
   }, [t])
 
   const canUpdate = cmp != null && cmp !== 0 && !inFlight
-  const actionEnabled = !hasLatest || canUpdate
+  const updateButtonLabel =
+    cmp === 0
+      ? t('softwareUpdate.upToDate')
+      : isDowngrade
+        ? t('softwareUpdate.downgrade')
+        : t('softwareUpdate.update')
 
   const triggerUpdate = useCallback(() => {
     setMessage('')
@@ -161,85 +163,43 @@ export function SoftwareUpdate() {
     window.app?.performUpdate?.(latestUrl)
   }, [latestUrl, resetUpdateState])
 
-  const handlePrimaryAction = useCallback(() => {
-    if (!hasLatest) {
-      handleRecheckLatest()
-      return
-    }
-    if (inFlight) {
-      setUpDialogOpen(true)
-      return
-    }
-    if (cmp !== 0) triggerUpdate()
-  }, [hasLatest, inFlight, cmp, triggerUpdate, handleRecheckLatest])
-
-  const versionInfo = useMemo(() => {
-    if (!hasLatest || cmp == null) {
-      return { label: t('softwareUpdate.check'), status: EMPTY_STRING }
-    }
-
-    return CMP_CONFIG[cmp] ?? { label: t('softwareUpdate.update'), status: EMPTY_STRING }
-  }, [hasLatest, cmp, t])
-
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <Stack spacing={0.75}>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline' }}>
-          <Typography sx={{ minWidth: 96 }} color="text.secondary">
-            {t('softwareUpdate.installedVersion')}:
-          </Typography>
-          <Typography sx={{ fontVariantNumeric: 'tabular-nums' }}>
-            {installedVersion}
-            {isNightly ? buildTag(installedRun, installedSha) : ''}
-          </Typography>
-        </Stack>
+    <>
+      <SettingsValueRow
+        label={t('softwareUpdate.installedVersion')}
+        value={`${installedVersion}${buildTag(installedRun, installedSha)}`}
+      />
 
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline' }}>
-          <Typography sx={{ minWidth: 96 }} color="text.secondary">
-            {t('softwareUpdate.availableVersion')}:
-          </Typography>
-          <Typography sx={{ fontVariantNumeric: 'tabular-nums' }}>
-            {latestVersion}
-            {isNightly ? buildTag(latestRun, latestCommit.slice(0, 7)) : ''}
-          </Typography>
-        </Stack>
+      <SettingsValueRow
+        label={t('softwareUpdate.availableVersion')}
+        value={`${latestVersion}${isNightly ? buildTag(latestRun, latestCommit.slice(0, 7)) : ''}`}
+      />
 
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline' }}>
-          <Typography sx={{ minWidth: 96 }} color="text.secondary">
-            {t('softwareUpdate.status')}:
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {versionInfo.status}
-          </Typography>
-        </Stack>
+      <SettingsSwitchRow
+        label={t('softwareUpdate.channelNightly')}
+        checked={isNightly}
+        disabled={inFlight}
+        onChange={handleNightlyChange}
+      />
 
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          <Typography sx={{ minWidth: 96 }} color="text.secondary">
-            {t('softwareUpdate.channelNightly')}:
-          </Typography>
-          <Switch
-            checked={isNightly}
-            disabled={inFlight}
-            onChange={handleNightlyChange}
-            slotProps={{ input: { 'aria-label': t('softwareUpdate.channelNightly') } }}
-          />
-        </Stack>
-      </Stack>
+      <SettingsButtonRow
+        label={t('softwareUpdate.check')}
+        buttonLabel={t('softwareUpdate.refresh')}
+        variant="outlined"
+        onClick={handleRecheckLatest}
+        disabled={inFlight}
+      />
 
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-        <Button variant="contained" onClick={handlePrimaryAction} disabled={!actionEnabled}>
-          {versionInfo.label}
-        </Button>
-
-        {(inFlight || phase === UpdatePhases.download) && <CircularProgress size={18} />}
-
-        <Button variant="outlined" onClick={handleRecheckLatest} disabled={inFlight}>
-          {t('softwareUpdate.refresh')}
-        </Button>
-      </Stack>
+      <SettingsButtonRow
+        label={t('softwareUpdate.install')}
+        buttonLabel={updateButtonLabel}
+        onClick={triggerUpdate}
+        disabled={!canUpdate}
+        loading={inFlight}
+      />
 
       {message && (
-        <Typography variant="body2" color={error ? 'error' : 'text.secondary'}>
+        <Typography variant="body2" color={error ? 'error' : 'text.secondary'} sx={{ px: 1 }}>
           {message}
         </Typography>
       )}
@@ -315,6 +275,6 @@ export function SoftwareUpdate() {
           )}
         </DialogActions>
       </Dialog>
-    </Box>
+    </>
   )
 }
