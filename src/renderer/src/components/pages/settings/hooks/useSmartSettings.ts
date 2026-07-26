@@ -1,4 +1,4 @@
-import { useLiviStore, useStatusStore } from '@store/store'
+import { useLiviStore } from '@store/store'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { requiresRestartParams } from '../constants'
 import { getValueByPath, setValueByPath } from '../utils'
@@ -27,10 +27,6 @@ export function useSmartSettings<T extends Record<string, unknown>>(
   const saveSettings = useLiviStore((s) => s.saveSettings)
   const restartBaseline = useLiviStore((s) => s.restartBaseline)
   const markRestartBaseline = useLiviStore((s) => s.markRestartBaseline)
-  const isDongleHardwarePresent = useStatusStore((s) => s.isDongleHardwarePresent)
-  const activeProtocol = useStatusStore((s) => s.activeProtocol)
-  const wirelessAaEnabled = useLiviStore((s) => Boolean(s.settings?.wirelessAaEnabled))
-  const wirelessCpEnabled = useLiviStore((s) => Boolean(s.settings?.wirelessCpEnabled))
 
   useEffect(() => {
     setState({ ...initial })
@@ -89,19 +85,7 @@ export function useSmartSettings<T extends Record<string, unknown>>(
   const restart = async () => {
     if (!needsRestart) return false
 
-    const nativeOrWireless =
-      wirelessAaEnabled ||
-      wirelessCpEnabled ||
-      activeProtocol === 'androidauto' ||
-      activeProtocol === 'carplay'
-
-    if (nativeOrWireless) {
-      await window.projection.ipc.restart()
-    } else if (isDongleHardwarePresent) {
-      await window.projection.usb.forceReset()
-    } else {
-      return false
-    }
+    await window.projection.ipc.restart()
 
     markRestartBaseline()
     setRestartRequested(false)

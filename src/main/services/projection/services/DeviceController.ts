@@ -221,7 +221,8 @@ export class DeviceController {
         name: d.name || d.id,
         protocol: d.type === 'AndroidAuto' ? 'androidauto' : 'carplay',
         status: !dongleSession ? 'offline' : dongleActive && isConnected ? 'active' : 'available',
-        source: 'dongle'
+        source: 'dongle',
+        session: dongleSession ? ordered.indexOf(dongleSession) + 1 || undefined : undefined
       }
       out.push(view)
       lastSeenOf.set(view, 0)

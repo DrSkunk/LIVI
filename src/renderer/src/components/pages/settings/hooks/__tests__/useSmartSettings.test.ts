@@ -3,7 +3,6 @@ import { useSmartSettings } from '../useSmartSettings'
 
 const saveSettings = vi.fn()
 const markRestartBaseline = vi.fn()
-let isDongleHardwarePresent = true
 
 vi.mock('@store/store', () => ({
   useLiviStore: (selector: (s: any) => unknown) =>
@@ -11,17 +10,16 @@ vi.mock('@store/store', () => ({
       saveSettings,
       restartBaseline: { projectionWidth: 800, bindings: { back: 'KeyB' } },
       markRestartBaseline
-    }),
-  useStatusStore: (selector: (s: any) => unknown) =>
-    selector({ isDongleHardwarePresent, activeProtocol: null })
+    })
 }))
 
 describe('useSmartSettings', () => {
   beforeEach(async () => {
     saveSettings.mockReset()
     markRestartBaseline.mockReset()
-    isDongleHardwarePresent = true
-    ;(window as any).projection = { usb: { forceReset: vi.fn().mockResolvedValue(true) } }
+    ;(window as any).projection = {
+      ipc: { restart: vi.fn().mockResolvedValue(undefined) }
+    }
   })
 
   test('handleFieldChange updates state and persists settings', async () => {
@@ -50,7 +48,7 @@ describe('useSmartSettings', () => {
     expect(result.current.needsRestart).toBe(true)
   })
 
-  test('restart requires dongle connection and calls forceReset', async () => {
+  test('restart fires the generic restart when a restart is needed', async () => {
     const initial = { projectionWidth: 800 } as any
     const settings = { projectionWidth: 800 } as any
     const { result } = renderHook(() => useSmartSettings(initial, settings))
@@ -58,14 +56,8 @@ describe('useSmartSettings', () => {
     await act(async () => {
       await result.current.restart()
     })
-    expect((window as any).projection.usb.forceReset).toHaveBeenCalled()
+    expect((window as any).projection.ipc.restart).toHaveBeenCalled()
     expect(markRestartBaseline).toHaveBeenCalled()
-
-    isDongleHardwarePresent = false
-    const h2 = renderHook(() => useSmartSettings(initial, settings))
-    await act(async () => {
-      expect(await h2.result.current.restart()).toBe(false)
-    })
   })
 
   test('restart returns false when needsRestart is false', async () => {
@@ -77,7 +69,7 @@ describe('useSmartSettings', () => {
     await act(async () => {
       expect(await result.current.restart()).toBe(false)
     })
-    expect((window as any).projection.usb.forceReset).not.toHaveBeenCalled()
+    expect((window as any).projection.ipc.restart).not.toHaveBeenCalled()
   })
 
   test('needsRestartFromConfig detects when settings differ from restartBaseline', async () => {

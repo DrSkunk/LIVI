@@ -1414,6 +1414,15 @@ export class ProjectionService {
 
   // Restart the session to apply a config change that needs fresh negotiation
   public async restartSession(): Promise<void> {
+    if (this.getActiveTransport() === 'dongle') {
+      try {
+        await this.driver.disconnectPhone?.()
+      } catch (e) {
+        console.warn('[ProjectionService] restartSession: dongle disconnect threw (ignored)', e)
+      }
+      return
+    }
+
     const aaRouted = this.getActiveTransport() === 'aa'
     const wasWired = aaRouted && this.isActiveAaWired()
     const wasWireless = aaRouted && !this.isActiveAaWired()
