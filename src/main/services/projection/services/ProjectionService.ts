@@ -6,8 +6,8 @@ import { ICON_120_B64, ICON_180_B64, ICON_256_B64 } from '@shared/assets/carIcon
 import type { Config, DevListEntry } from '@shared/types'
 import { PhoneWorkMode } from '@shared/types'
 import { isInputCommand } from '@shared/types/InputCommand'
-import type { ClusterScreen, NavLocale } from '@shared/utils'
-import { aaContentArea, clusterTargetScreens, isClusterDisplayed } from '@shared/utils'
+import type { NavLocale } from '@shared/utils'
+import { clusterTargetScreens, isClusterDisplayed } from '@shared/utils'
 import { app, WebContents, webContents } from 'electron'
 import fs from 'fs'
 import path from 'path'
@@ -16,14 +16,8 @@ import {
   startAudioDeviceMonitor
 } from '../../audio/AudioDeviceEnumerator'
 import { StatusFileWriter } from '../../status/StatusFileWriter'
-import { GstVideo, type GstVideoCodec, probeGstCodecs } from '../../video/GstVideo'
-import {
-  clusterPlaneId,
-  gstHost,
-  VIDEO_PLANE_CLUSTER_RECV,
-  VIDEO_PLANE_MAIN
-} from '../../video/gstHost'
-import { classifyNal } from '../../video/keyframe'
+import { type GstVideoCodec, probeGstCodecs } from '../../video/GstVideo'
+import { gstHost, VIDEO_PLANE_CLUSTER_RECV, VIDEO_PLANE_MAIN } from '../../video/gstHost'
 import { BluezDeviceClient } from '../bt/BluezDeviceClient'
 import { BtPairedRegistry } from '../bt/BtPairedRegistry'
 import { DongleState } from '../dongle/DongleState'
@@ -73,6 +67,7 @@ import { ProjectionAudio } from './ProjectionAudio'
 import { type ProjectionSession, SessionManager, type SessionTransport } from './SessionManager'
 import { type PendingStartupConnectTarget, type ProjectionEvent } from './types'
 import { isPhoneLikeCod } from './utils/isPhoneLikeCod'
+import { VideoPlaneManager } from './VideoPlaneManager'
 
 type Device = USBDevice
 
@@ -158,34 +153,28 @@ export class ProjectionService {
   private stopping = false
   private shuttingDown = false
   private isStarting = false
-  private startPromise: Promise<void> | null = null
   private isStopping = false
+  private startPromise: Promise<void> | null = null
   private stopPromise: Promise<void> | null = null
   private firstFrameLogged = false
   private lastVideoWidth?: number
   private lastVideoHeight?: number
-  private gstVideo: GstVideo | null = null
-  private gstVideoCodec: GstVideoCodec = 'h264'
-  private gstVideoCodecData: Buffer | null = null
-  private gstVideoClusterCodecData: Buffer | null = null
-  private mainAwaitingKeyframe = true
-  private clusterAwaitingKeyframe = true
-  private gstVideoVisible = true
   private videoActiveDriver: IPhoneDriver | null = null
-  private videoCrop: {
-    cropL: number
-    cropT: number
-    visW: number
-    visH: number
-    tierW: number
-    tierH: number
-  } | null = null
-  private gstVideoClusters = new Map<ClusterScreen, GstVideo>()
-  private gstVideoClusterCodec: GstVideoCodec = 'h264'
   private lastMainCodecByDriver = new Map<IPhoneDriver, GstVideoCodec>()
   private lastClusterCodecByDriver = new Map<IPhoneDriver, GstVideoCodec>()
-  private clusterVisible = false
-  private clusterStreamActive: boolean | null = null
+  private readonly planes = new VideoPlaneManager({
+    getWebContents: () => this.webContents,
+    getConfig: () => this.config,
+    emit: (p) => this.emitProjectionEvent(p),
+    getMainVideoSize: () => ({
+      width: this.lastVideoWidth ?? 0,
+      height: this.lastVideoHeight ?? 0
+    }),
+    getClusterVideoSize: () => ({
+      width: this.lastClusterVideoWidth ?? 0,
+      height: this.lastClusterVideoHeight ?? 0
+    })
+  })
   private hostDevList: DevListEntry[] = []
   private lastAudioMetaEmitKey = ''
   private firmware = new FirmwareUpdateService()
@@ -260,9 +249,7 @@ export class ProjectionService {
     }
     this.lastMainCodecByDriver.delete(session)
     this.lastClusterCodecByDriver.delete(session)
-    // Only tear down the shared audio + media when no session is left active. A held phone
-    // dropping must not reset the ACTIVE phone's audio/UI; the active-session change (or
-    // teardown-to-idle) owns that.
+    // Only tear down the shared audio + media when no session is left active.
     if (!this.sessions.active()) {
       try {
         this.audio.resetForSessionStop()
@@ -434,19 +421,6 @@ export class ProjectionService {
     )
   }
 
-  private disposeGstPlanes(): void {
-    this.gstVideo?.dispose()
-    this.gstVideo = null
-    this.gstVideoCodec = 'h264'
-    this.gstVideoCodecData = null
-    this.mainAwaitingKeyframe = true
-    for (const plane of this.gstVideoClusters.values()) plane.dispose()
-    this.gstVideoClusters.clear()
-    this.gstVideoClusterCodec = 'h264'
-    this.gstVideoClusterCodecData = null
-    this.clusterAwaitingKeyframe = true
-  }
-
   // Hydration
   private readonly pluggedHooks: Array<(phoneType: PhoneType) => void> = []
   public addPluggedHook(fn: (phoneType: PhoneType) => void): () => void {
@@ -488,13 +462,7 @@ export class ProjectionService {
     }
 
     // Drop cluster planes for screens no longer targeted (re-spawn on demand)
-    const nextScreens = new Set(clusterTargetScreens(this.config))
-    for (const [screen, plane] of this.gstVideoClusters) {
-      if (!nextScreens.has(screen)) {
-        plane.dispose()
-        this.gstVideoClusters.delete(screen)
-      }
-    }
+    this.planes.retainScreens()
     this.syncClusterStreamFocus()
 
     // Seed AA's initial NIGHT_MODE
@@ -773,10 +741,10 @@ export class ProjectionService {
         for (const wc of clusterTargets) {
           if (!wc.isDestroyed()) wc.send('cluster-video-resolution', { width: w, height: h })
         }
-        for (const plane of this.gstVideoClusters.values()) this.applyClusterCrop(plane)
+        this.planes.recropAllClusters()
       }
 
-      if (msg.data) this.pushGstVideoCluster(msg.data)
+      if (msg.data) this.planes.pushCluster(msg.data)
       return
     }
 
@@ -798,7 +766,7 @@ export class ProjectionService {
         active.video.main.width = w
         active.video.main.height = h
       }
-      this.updateVideoCrop()
+      this.planes.updateMainCrop()
 
       this.emitProjectionEvent({
         type: 'resolution',
@@ -806,7 +774,7 @@ export class ProjectionService {
       })
     }
 
-    if (msg.data) this.pushGstVideo(msg.data)
+    if (msg.data) this.planes.pushMain(msg.data)
   }
 
   private handleAudioData(msg: AudioData): void {
@@ -893,25 +861,17 @@ export class ProjectionService {
 
   // phone announces which advertised codec it picked
   private readonly onDriverVideoCodec = (codec: 'h264' | 'h265' | 'vp9' | 'av1'): void => {
-    this.gstVideoCodec = codec
+    this.planes.setMainCodec(codec)
   }
 
   // 'video-config' — CarPlay's codec_data record, in before the first frame so the plane is
   // created for a length-prefixed source. Applied live if the plane already exists.
   private readonly onDriverVideoConfig = (codecData: Buffer): void => {
-    if (!this.gstVideoCodecData || !this.gstVideoCodecData.equals(codecData)) {
-      this.mainAwaitingKeyframe = true
-    }
-    this.gstVideoCodecData = codecData
-    this.gstVideo?.setCodecData(codecData)
+    this.planes.setMainCodecData(codecData)
   }
 
   private readonly onDriverClusterVideoConfig = (codecData: Buffer): void => {
-    if (!this.gstVideoClusterCodecData || !this.gstVideoClusterCodecData.equals(codecData)) {
-      this.clusterAwaitingKeyframe = true
-    }
-    this.gstVideoClusterCodecData = codecData
-    for (const plane of this.gstVideoClusters.values()) plane.setCodecData(codecData)
+    this.planes.setClusterCodecData(codecData)
   }
 
   private readonly onNativeVideoConfig = (id: number, codec: GstVideoCodec, atom: Buffer): void => {
@@ -922,15 +882,7 @@ export class ProjectionService {
     if (id !== VIDEO_PLANE_MAIN) return
     const wc = this.webContents
     if (!wc || wc.isDestroyed?.()) return
-    this.gstVideoCodec = codec
-    this.gstVideoCodecData = atom
-    const created = !this.gstVideo
-    if (!this.gstVideo) {
-      this.gstVideo = new GstVideo(wc, 'main', 'main', VIDEO_PLANE_MAIN)
-      this.gstVideo.setVisible(this.gstVideoVisible)
-    }
-    this.gstVideo.prepare(codec, atom)
-    this.applyVideoCrop()
+    const created = this.planes.prepareMain(codec, atom)
     if (created) this.driver.requestKeyframe?.()
 
     const w = this.config.projectionWidth || 1920
@@ -943,7 +895,7 @@ export class ProjectionService {
         active.video.main.width = w
         active.video.main.height = h
       }
-      this.updateVideoCrop()
+      this.planes.updateMainCrop()
       this.emitProjectionEvent({ type: 'resolution', payload: { width: w, height: h } })
     }
     this.emitProjectionEvent({ type: 'projection', shown: true })
@@ -968,24 +920,9 @@ export class ProjectionService {
   }
 
   private onNativeClusterConfig(codec: GstVideoCodec, atom: Buffer): void {
-    this.gstVideoClusterCodec = codec
-    this.gstVideoClusterCodecData = atom
     this.lastClusterVideoWidth = this.config.clusterWidth || 1280
     this.lastClusterVideoHeight = this.config.clusterHeight || 720
-    let created = false
-    for (const screen of clusterTargetScreens(this.config)) {
-      let plane = this.gstVideoClusters.get(screen)
-      if (!plane) {
-        const wc = this.clusterScreenWebContents(screen)
-        if (!wc || wc.isDestroyed?.()) continue
-        plane = new GstVideo(wc, `cluster-${screen}`, screen, clusterPlaneId(screen))
-        plane.setVisible(this.clusterPlaneVisible(screen))
-        this.applyClusterCrop(plane)
-        this.gstVideoClusters.set(screen, plane)
-        created = true
-      }
-      plane.prepare(codec, atom)
-    }
+    const created = this.planes.prepareClusters(codec, atom)
     if (created) this.driver.requestKeyframe?.()
   }
 
@@ -1016,64 +953,6 @@ export class ProjectionService {
     })
   }
 
-  private updateVideoCrop(): void {
-    const tw = this.lastVideoWidth ?? 0
-    const th = this.lastVideoHeight ?? 0
-    const dw = this.config.projectionWidth ?? 0
-    const dh = this.config.projectionHeight ?? 0
-    if (tw > 0 && th > 0 && dw > 0 && dh > 0) {
-      const { contentWidth, contentHeight } = aaContentArea(
-        { width: tw, height: th },
-        { width: dw, height: dh }
-      )
-      this.videoCrop = {
-        cropL: Math.max(0, (tw - contentWidth) / 2),
-        cropT: Math.max(0, (th - contentHeight) / 2),
-        visW: contentWidth,
-        visH: contentHeight,
-        tierW: tw,
-        tierH: th
-      }
-    } else {
-      this.videoCrop = null
-    }
-    this.applyVideoCrop()
-  }
-
-  private applyVideoCrop(): void {
-    const r = this.videoCrop
-    this.gstVideo?.setContentRegion(
-      r?.cropL ?? 0,
-      r?.cropT ?? 0,
-      r?.visW ?? 0,
-      r?.visH ?? 0,
-      r?.tierW ?? 0,
-      r?.tierH ?? 0
-    )
-  }
-
-  private pushGstVideo(nal: Buffer): void {
-    const wc = this.webContents
-    if (!wc || wc.isDestroyed?.()) return
-    if (this.mainAwaitingKeyframe) {
-      const kind = classifyNal(nal, this.gstVideoCodec, this.gstVideoCodecData !== null)
-      if (kind === 'delta') return
-      if (kind === 'keyframe') this.mainAwaitingKeyframe = false
-    }
-    if (!this.gstVideo) {
-      this.gstVideo = new GstVideo(wc)
-      this.gstVideo.setVisible(this.gstVideoVisible)
-      if (this.gstVideoCodecData) this.gstVideo.setCodecData(this.gstVideoCodecData)
-      this.applyVideoCrop()
-      this.emitProjectionEvent({ type: 'projection', shown: true })
-    }
-    this.gstVideo.push(this.gstVideoCodec, nal)
-  }
-
-  private clusterPlaneVisible(screen: ClusterScreen): boolean {
-    return screen === 'main' ? this.clusterVisible : true
-  }
-
   private anyClusterRequested(): boolean {
     for (const id of this.clusterRequestedBy) {
       const wc = webContents.fromId(id)
@@ -1088,89 +967,25 @@ export class ProjectionService {
 
   private syncClusterStreamFocus(): void {
     const want = this.clusterStreamWanted()
-    if (want === this.clusterStreamActive) return
-    this.clusterStreamActive = want
+    if (!this.planes.updateClusterStreamActive(want)) return
     this.drivers.setAaClusterStreamActive(want)
     this.drivers.setCpClusterStreamActive(want)
   }
 
-  // The window a cluster plane belongs to: main → main window, dash/aux → ... window
-  // mac embeds the video into this window's native view. Linux ignores the handle and
-  // places the plane on the target compositor screen instead
-  private clusterScreenWebContents(screen: ClusterScreen): WebContents | null {
-    if (screen === 'main') return this.webContents ?? null
-    const w = getSecondaryWindow(screen)
-    return w && !w.isDestroyed() ? w.webContents : null
-  }
-
-  private applyClusterCrop(plane: GstVideo): void {
-    const tw = this.lastClusterVideoWidth ?? 0
-    const th = this.lastClusterVideoHeight ?? 0
-    const dw = this.config.clusterWidth ?? 0
-    const dh = this.config.clusterHeight ?? 0
-    if (tw > 0 && th > 0 && dw > 0 && dh > 0) {
-      const { contentWidth, contentHeight } = aaContentArea(
-        { width: tw, height: th },
-        { width: dw, height: dh }
-      )
-      plane.setContentRegion(
-        Math.max(0, (tw - contentWidth) / 2),
-        Math.max(0, (th - contentHeight) / 2),
-        contentWidth,
-        contentHeight,
-        tw,
-        th
-      )
-    } else {
-      plane.setContentRegion(0, 0, 0, 0, 0, 0)
-    }
-  }
-
-  private pushGstVideoCluster(nal: Buffer): void {
-    // Focus-stopped: ignore in-flight tail frames. Safe for the decoder because the
-    // resume (PROJECTED indication) always restarts the stream at a fresh keyframe.
-    if (this.clusterStreamActive === false) return
-    if (this.clusterAwaitingKeyframe) {
-      const kind = classifyNal(
-        nal,
-        this.gstVideoClusterCodec,
-        this.gstVideoClusterCodecData !== null
-      )
-      if (kind === 'delta') return
-      if (kind === 'keyframe') this.clusterAwaitingKeyframe = false
-    }
-    // one plane per configured screen, all fed the same cluster stream
-    for (const screen of clusterTargetScreens(this.config)) {
-      let plane = this.gstVideoClusters.get(screen)
-      if (!plane) {
-        const wc = this.clusterScreenWebContents(screen)
-        if (!wc || wc.isDestroyed?.()) continue
-        plane = new GstVideo(wc, `cluster-${screen}`, screen)
-        plane.setVisible(this.clusterPlaneVisible(screen))
-        if (this.gstVideoClusterCodecData) plane.setCodecData(this.gstVideoClusterCodecData)
-        this.applyClusterCrop(plane) // fit to the configured cluster-stream AR
-        this.gstVideoClusters.set(screen, plane)
-      }
-      plane.push(this.gstVideoClusterCodec, nal)
-    }
-  }
-
   // Renderer reports whether the projection screen is currently shown
   public setVideoVisible(visible: boolean): void {
-    this.gstVideoVisible = visible
-    this.gstVideo?.setVisible(visible)
+    this.planes.setVideoVisible(visible)
   }
 
   // Cluster plane visibility (cluster:request) drives the main-screen plane only
   public setClusterVisible(visible: boolean): void {
-    this.clusterVisible = visible
-    this.gstVideoClusters.get('main')?.setVisible(visible)
+    this.planes.setClusterVisible(visible)
     this.syncClusterStreamFocus()
   }
 
   // Cluster channel codec selection
   private readonly onDriverClusterVideoCodec = (codec: 'h264' | 'h265' | 'vp9' | 'av1'): void => {
-    this.gstVideoClusterCodec = codec
+    this.planes.setClusterCodec(codec)
   }
 
   private subscribeConfigEvents(): void {
@@ -2061,7 +1876,7 @@ export class ProjectionService {
           console.log(
             `[ProjectionService] started in CP mode (${candidate?.mode === 'wired' ? 'wired' : 'wireless'})`
           )
-          this.clusterStreamActive = null
+          this.planes.resetClusterStreamActive()
           this.syncClusterStreamFocus()
           return
         }
@@ -2089,7 +1904,7 @@ export class ProjectionService {
                 this.clearStartRetry()
                 console.log('[ProjectionService] started in AA mode (wired)')
                 // Fresh AAStack defaults to an active cluster stream, re-apply visibility state
-                this.clusterStreamActive = null
+                this.planes.resetClusterStreamActive()
                 this.syncClusterStreamFocus()
               } else {
                 console.warn(
@@ -2110,7 +1925,7 @@ export class ProjectionService {
             this.started = true
             this.clearStartRetry()
             // Fresh AAStack defaults to an active cluster stream, re-apply visibility state
-            this.clusterStreamActive = null
+            this.planes.resetClusterStreamActive()
             this.syncClusterStreamFocus()
           }
           return
@@ -2153,7 +1968,7 @@ export class ProjectionService {
       if (next.protocol === 'dongle') {
         this.started = true
         if (prev) {
-          this.disposeGstPlanes()
+          this.planes.dispose()
           if (!this.isStarting) next.driver.requestKeyframe?.()
         }
         if (!prev) this.audio.resetForSessionStart()
@@ -2161,24 +1976,26 @@ export class ProjectionService {
         this.navStore.hydrate(next)
         return
       }
-      this.disposeGstPlanes()
+      this.planes.dispose()
       this.mediaStore.hydrate(next)
       this.navStore.hydrate(next)
       const mc = next.video.main.codec ?? this.lastMainCodecByDriver.get(next.driver)
       const cc = next.video.cluster.codec ?? this.lastClusterCodecByDriver.get(next.driver)
-      if (mc) this.gstVideoCodec = mc
-      if (cc) this.gstVideoClusterCodec = cc
       // Restore the length-prefixed codec_data for this session (null for byte-stream sources).
-      this.gstVideoCodecData = next.video.main.codecData ?? null
-      this.gstVideoClusterCodecData = next.video.cluster.codecData ?? null
+      this.planes.restoreCodecs(
+        mc,
+        cc,
+        next.video.main.codecData ?? null,
+        next.video.cluster.codecData ?? null
+      )
       console.log(
-        `[SESSIONS] codec-restore #${next.index} ${next.protocol}: session=${next.video.main.codec ?? '-'} map=${this.lastMainCodecByDriver.get(next.driver) ?? '-'} → gstVideoCodec=${this.gstVideoCodec}`
+        `[SESSIONS] codec-restore #${next.index} ${next.protocol}: session=${next.video.main.codec ?? '-'} map=${this.lastMainCodecByDriver.get(next.driver) ?? '-'} → gstVideoCodec=${this.planes.getMainCodec()}`
       )
       this.lastVideoWidth = next.video.main.width
       this.lastVideoHeight = next.video.main.height
       this.lastClusterVideoWidth = next.video.cluster.width
       this.lastClusterVideoHeight = next.video.cluster.height
-      this.updateVideoCrop()
+      this.planes.updateMainCrop()
       if (!this.isStarting) {
         if (!prev) this.audio.resetForSessionStart()
         next.driver.requestKeyframe?.()
@@ -2190,7 +2007,7 @@ export class ProjectionService {
 
   private teardownToIdle(): void {
     if (this.stopping || this.isStopping || this.shuttingDown) return
-    this.disposeGstPlanes()
+    this.planes.dispose()
     this.emitProjectionEvent({ type: 'projection', shown: false })
     this.audio.resetForSessionStop()
     this.started = false
@@ -2250,7 +2067,7 @@ export class ProjectionService {
 
       this.audio.resetForSessionStop()
 
-      this.disposeGstPlanes()
+      this.planes.dispose()
 
       this.started = false
       this.mediaStore.reset('session-stop')
