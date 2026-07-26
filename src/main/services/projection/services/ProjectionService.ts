@@ -38,6 +38,7 @@ import {
   Command,
   DEFAULT_CONFIG,
   DongleDriver,
+  DuckAudio,
   decodeTypeMap,
   MediaData,
   MediaType,
@@ -839,6 +840,16 @@ export class ProjectionService {
     const isActive = session != null && session === this.sessions.active()
     if (msg instanceof MediaData) this.mediaStore.handle(driver, session, msg, isActive)
     else if (msg instanceof NavigationData) this.navStore.handle(driver, session, msg, isActive)
+    else if (msg instanceof DuckAudio) {
+      if (session) {
+        session.audio.duckLevel = msg.level
+        session.audio.duckRampMs = msg.durationMs
+      }
+      if (isActive) {
+        if (msg.level >= 1) this.audio.unduck(msg.durationMs)
+        else this.audio.duck(msg.level, msg.durationMs)
+      }
+    }
   }
 
   private readonly onDriverFailure = (): void => {
@@ -1952,6 +1963,7 @@ export class ProjectionService {
     this.emitSessionState()
     if (next) {
       console.log(`[ProjectionService] active session -> #${next.index} ${next.protocol}`)
+      this.audio.restoreDuck(next.audio.duckLevel, next.audio.duckRampMs)
       if (next.protocol === 'dongle') {
         this.started = true
         if (prev) {

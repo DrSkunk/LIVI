@@ -117,7 +117,7 @@ describe('ProjectionAudio state controls', () => {
     a.audioPlayers.set('k', { stop: vi.fn() })
     a.voiceAssistantActive = true
     a.phonecallActive = true
-    a.navActive = true
+    a.duckLevel = 0.2
     a.mediaActive = true
     a.audioOpenArmed = true
     a.musicRampActive = true
@@ -131,7 +131,7 @@ describe('ProjectionAudio state controls', () => {
 
     expect(a.voiceAssistantActive).toBe(false)
     expect(a.phonecallActive).toBe(false)
-    expect(a.navActive).toBe(false)
+    expect(a.duckLevel).toBe(1)
     expect(a.mediaActive).toBe(false)
     expect(a.audioOpenArmed).toBe(false)
     expect(a.musicRampActive).toBe(false)
@@ -149,7 +149,7 @@ describe('ProjectionAudio state controls', () => {
     a.audioPlayers.set('k', { stop: vi.fn() })
     a.voiceAssistantActive = true
     a.phonecallActive = true
-    a.navActive = true
+    a.duckLevel = 0.2
     a.mediaActive = true
     a.audioOpenArmed = true
     a.musicRampActive = true
@@ -163,7 +163,7 @@ describe('ProjectionAudio state controls', () => {
 
     expect(a.voiceAssistantActive).toBe(false)
     expect(a.phonecallActive).toBe(false)
-    expect(a.navActive).toBe(false)
+    expect(a.duckLevel).toBe(1)
     expect(a.mediaActive).toBe(false)
     expect(a.audioOpenArmed).toBe(false)
     expect(a.musicRampActive).toBe(false)
@@ -207,13 +207,13 @@ describe('ProjectionAudio state controls', () => {
     expect(Array.from(a.applyGain(pcm, 2))).toEqual([32767, -32768, 2000])
   })
 
-  test('getLogicalStreamKey prioritizes call over voiceAssistant over nav over music', async () => {
+  test('getLogicalStreamKey routes nav by audioType, prioritizes call over voiceAssistant', async () => {
     const a = createSubject()
 
     expect(a.getLogicalStreamKey({})).toBe('music')
 
-    a.navActive = true
-    expect(a.getLogicalStreamKey({})).toBe('nav')
+    a.navAudioType = 4
+    expect(a.getLogicalStreamKey({ audioType: 4 })).toBe('nav')
 
     a.voiceAssistantActive = true
     expect(a.getLogicalStreamKey({})).toBe('voiceAssistant')
@@ -381,34 +381,25 @@ describe('ProjectionAudio state controls', () => {
     expect(a.lastMusicPlayerKey).toBeNull()
   })
 
-  test('handleAudioData nav start activates nav and prepares ducking', async () => {
+  test('handleAudioData nav start learns nav routing and raises the UI hint', async () => {
     const a = createSubject()
-    a.mediaActive = true
-    a.voiceAssistantActive = false
-    a.phonecallActive = false
 
-    a.handleAudioData({ command: 6 })
+    a.handleAudioData({ command: 6, audioType: 4 })
 
-    expect(a.navActive).toBe(true)
-    expect(a.navHoldUntil).toBe(0)
-    expect(a.musicRampActive).toBe(true)
-    expect(a.musicFade.target).toBe(a.navDuckingTarget)
+    expect(a.navAudioType).toBe(4)
+    expect(a.uiNavHintActive).toBe(true)
   })
 
-  test('handleAudioData nav stop clears nav and removes nav-only player when media inactive', async () => {
+  test('handleAudioData nav stop removes nav-only player when media inactive', async () => {
     const a = createSubject()
     a.mediaActive = false
-    a.navActive = true
     a.lastNavPlayerKey = 'nav-key'
     a.stopPlayerByKey = vi.fn()
 
-    const before = Date.now()
     a.handleAudioData({ command: 8 })
 
-    expect(a.navActive).toBe(false)
     expect(a.stopPlayerByKey).toHaveBeenCalledWith('nav-key')
     expect(a.lastNavPlayerKey).toBeNull()
-    expect(a.navHoldUntil).toBeGreaterThanOrEqual(before)
   })
 
   test('handleAudioData AudioOutputStop stops remembered players when no call or voiceAssistant is active', async () => {
@@ -576,14 +567,12 @@ describe('ProjectionAudio state controls', () => {
 
   test('handleAudioData AudioNaviStop with mediaActive=true does not stop nav player', async () => {
     const a = createSubject()
-    a.navActive = true
     a.mediaActive = true // music still playing — let the OS sink drain nav tail naturally
     a.lastNavPlayerKey = 'nav-key'
     a.stopPlayerByKey = vi.fn()
 
     a.handleAudioData({ command: 8 }) // AudioNaviStop
 
-    expect(a.navActive).toBe(false)
     // With mediaActive=true, stopPlayerByKey should NOT be called (else branch)
     expect(a.stopPlayerByKey).not.toHaveBeenCalled()
     expect(a.lastNavPlayerKey).toBe('nav-key')
@@ -757,9 +746,9 @@ describe('ProjectionAudio state controls', () => {
       expect(a.musicRampActive).toBe(false)
     })
 
-    test('ducks music down while nav is active (starts a ramp)', () => {
+    test('ducks music down after duck() is called (starts a ramp)', () => {
       const { a, player } = musicSubject()
-      a.navActive = true
+      a.duck(0.2, 500)
       a.handleAudioData({ data: new Int16Array([1000, -1000, 500, -500]), decodeType: 1 })
       expect(a.musicRampActive).toBe(true)
       expect(a.musicFade.target).toBe(0.2)

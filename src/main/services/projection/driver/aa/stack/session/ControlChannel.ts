@@ -191,10 +191,10 @@ export class ControlChannel extends EventEmitter {
     // caused the phone to close TCP immediately after AudioFocusResponse — every
     // session looked like a "verifier", but the real cause was this bug.
     // With the corrected mapping, phone proceeds to send CHANNEL_OPEN_REQUESTs.
+    let focusType = 0
     try {
       // Decode: payload[0] = tag (0x08 = field1/varint), payload[1] = type value
       console.log(`[ControlChannel] AudioFocusRequest raw: ${payload.toString('hex')}`)
-      let focusType = 0
       if (payload.length >= 2 && payload[0] === 0x08) {
         focusType = payload[1]!
       }
@@ -236,7 +236,7 @@ export class ControlChannel extends EventEmitter {
     } catch (e) {
       console.warn('[ControlChannel] audio focus response error:', e)
     }
-    this.emit('audio-focus-request', {})
+    this.emit('audio-focus-request', focusType)
   }
 
   private _onNavigationFocusRequest(payload: Buffer): void {

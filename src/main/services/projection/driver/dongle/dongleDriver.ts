@@ -4,10 +4,12 @@ import type { PendingStartupConnectTarget } from '@main/services/projection/serv
 import { CARLINKIT_PIDS, CARLINKIT_VID, isCarlinkitDongle } from '@main/services/usb/constants'
 import { HeaderBuildError, MessageHeader } from '@projection/messages/common'
 import {
+  AudioData,
   BluetoothPeerConnected,
   BoxInfo,
   type BoxInfoSettings,
   DongleReady,
+  DuckAudio,
   Opened,
   PhoneType,
   Plugged,
@@ -42,6 +44,7 @@ import { asDomUSBDevice } from '@projection/services/utils/asDomUSBDevice'
 import type { Config } from '@shared/types'
 import { InputCommand, MicType, PhoneWorkMode } from '@shared/types'
 import type { CommandValue } from '@shared/types/ProjectionEnums'
+import { AudioCommand } from '@shared/types/ProjectionEnums'
 import { isClusterDisplayed, matchFittingAAResolution } from '@shared/utils'
 import EventEmitter from 'events'
 import { usb } from 'usb'
@@ -490,6 +493,34 @@ export class DongleDriver extends EventEmitter {
   }
 
   // entral message dispatch
+  private _duckNavActive = false
+  private _duckVoiceActive = false
+
+  private translateDuck(cmd: number): void {
+    switch (cmd) {
+      case AudioCommand.AudioNaviStart:
+      case AudioCommand.AudioTurnByTurnStart:
+        this._duckNavActive = true
+        break
+      case AudioCommand.AudioNaviStop:
+      case AudioCommand.AudioTurnByTurnStop:
+        this._duckNavActive = false
+        break
+      case AudioCommand.AudioVoiceAssistantStart:
+      case AudioCommand.AudioPhonecallStart:
+        this._duckVoiceActive = true
+        break
+      case AudioCommand.AudioVoiceAssistantStop:
+      case AudioCommand.AudioPhonecallStop:
+        this._duckVoiceActive = false
+        break
+      default:
+        return
+    }
+    const level = this._duckVoiceActive ? 0 : this._duckNavActive ? 0.2 : 1
+    this.emit('message', new DuckAudio(level, level < 1 ? 500 : 1500))
+  }
+
   private async handleMessage(msg: unknown) {
     if (msg instanceof VendorSessionInfo) {
       try {
@@ -537,6 +568,10 @@ export class DongleDriver extends EventEmitter {
 
     // Everything else: emit raw first
     this.emit('message', msg)
+
+    if (msg instanceof AudioData && msg.command != null) {
+      this.translateDuck(msg.command)
+    }
 
     if (msg instanceof BluetoothPeerConnected) {
       // intentionally no-op

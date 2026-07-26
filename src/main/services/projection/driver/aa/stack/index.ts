@@ -103,6 +103,7 @@ export class AAStack extends EventEmitter {
     session.on('mic-start', (channelId: number) => this.emit('mic-start', channelId))
     session.on('mic-stop', (channelId: number) => this.emit('mic-stop', channelId))
     session.on('voice-session', (active: boolean) => this.emit('voice-session', active))
+    session.on('audio-focus', (focusType: number) => this.emit('audio-focus', focusType))
     session.on('host-ui-requested', () => this.emit('host-ui-requested'))
     session.on(
       'device-info',

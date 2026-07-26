@@ -4,7 +4,7 @@ import type { AaSession } from '../driver/aa/AaSession'
 import { CpManager } from '../driver/cp/CpManager'
 import type { CpSession } from '../driver/cp/CpSession'
 import type { IPhoneDriver } from '../driver/IPhoneDriver'
-import { DongleDriver, MediaData, type Message, NavigationData } from '../messages'
+import { DongleDriver, DuckAudio, MediaData, type Message, NavigationData } from '../messages'
 import type { Transport } from '../transport/types'
 
 export type DriverEventHandlers = {
@@ -260,7 +260,7 @@ export class ProjectionDriverManager {
   private attachMetaListener(d: IPhoneDriver): void {
     if (this.metaListeners.has(d)) return
     const fn = (msg: Message): void => {
-      if (msg instanceof MediaData || msg instanceof NavigationData) {
+      if (msg instanceof MediaData || msg instanceof NavigationData || msg instanceof DuckAudio) {
         this.deps.handlers.onMetaMessage(d, msg)
       }
     }

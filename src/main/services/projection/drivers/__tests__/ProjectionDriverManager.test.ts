@@ -64,6 +64,7 @@ vi.mock('../../driver/cp/CpManager', () => ({
 
 vi.mock('../../messages', () => ({
   DongleDriver: MockDongleDriver,
+  DuckAudio: class DuckAudio {},
   MediaData: class MediaData {},
   NavigationData: class NavigationData {}
 }))

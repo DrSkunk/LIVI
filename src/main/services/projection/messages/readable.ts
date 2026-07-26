@@ -1,7 +1,7 @@
 import { decodeTypeMap } from '@shared/types/AudioDecode'
 import { PhoneType } from '@shared/types/Config'
 import { AudioCommand, CommandMapping } from '@shared/types/ProjectionEnums'
-import { MessageHeader } from './common.js'
+import { MessageHeader, MessageType } from './common.js'
 
 export abstract class Message {
   header: MessageHeader
@@ -14,6 +14,17 @@ export abstract class Message {
 export class DongleReady extends Message {
   constructor(header: MessageHeader) {
     super(header)
+  }
+}
+
+export class DuckAudio extends Message {
+  level: number
+  durationMs: number
+
+  constructor(level: number, durationMs: number) {
+    super(new MessageHeader(0, MessageType.DuckAudio))
+    this.level = Math.max(0, Math.min(1, level))
+    this.durationMs = Math.max(0, durationMs)
   }
 }
 

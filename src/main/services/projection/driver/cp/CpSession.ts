@@ -30,7 +30,7 @@ import {
   buildMediaJsonMessage,
   buildNaviJsonMessage
 } from '../../messages/metaBuilders'
-import { AudioData, Command } from '../../messages/readable'
+import { AudioData, Command, DuckAudio } from '../../messages/readable'
 import {
   type SendableMessage,
   SendCommand,
@@ -279,6 +279,9 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
     })
     stack.on('audio-active', (prof: CpAudioProfile, active: boolean) => {
       this.emit('message', buildCpAudioCommand(prof, active))
+    })
+    stack.on('duck', (level: number, durationMs: number) => {
+      this.emit('message', new DuckAudio(level, durationMs))
     })
     stack.on('mic-active', (active: boolean, sampleRate: number, channels: number) => {
       if (active) this._startMicCapture(sampleRate, channels)

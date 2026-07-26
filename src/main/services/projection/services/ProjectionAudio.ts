@@ -54,7 +54,6 @@ export class ProjectionAudio {
   // Voice-assistant / phonecall / nav state
   private voiceAssistantActive = false
   private phonecallActive = false
-  private navActive = false
 
   // UI hint state
   private uiCallIncoming = false
@@ -69,19 +68,10 @@ export class ProjectionAudio {
   private readonly musicRampDownMs = 500
   private readonly musicRampUpMs = 1500
 
-  // Music ducking target while nav is active (20%)
-  private readonly navDuckingTarget = 0.2
-
-  // Debounce time after nav stop before ramping music back to 1.0
-  private readonly navResumeDelayMs = 1500
-
   // If we see a long gap between music chunks, we hard-reset the music
   // AudioOutput to flush stale buffer state.
   private readonly musicGapResetMs = process.platform === 'darwin' ? 1000 : 500
   private lastMusicDataAt = 0
-
-  // After nav stop: delay restoring music until this timestamp
-  private navHoldUntil = 0
 
   // When to start the next music ramp
   private nextMusicRampStartAt = 0
@@ -94,6 +84,9 @@ export class ProjectionAudio {
   // can resync.
   private readonly musicResumeWarmupMs = 1000
   private musicWarmupUntil = 0
+
+  private duckLevel = 1
+  private duckRampMs = this.musicRampUpMs
 
   // Wire-tag of music / nav stream (learned from *Start commands).
   private musicAudioType: number | null = null
@@ -159,8 +152,8 @@ export class ProjectionAudio {
 
     this.voiceAssistantActive = false
     this.phonecallActive = false
-    this.navActive = false
-    this.navHoldUntil = 0
+    this.duckLevel = 1
+    this.duckRampMs = this.musicRampUpMs
     this.mediaActive = false
     this.audioOpenArmed = false
     this.musicRampActive = false
@@ -216,6 +209,26 @@ export class ProjectionAudio {
     return from > to ? this.musicRampDownMs : this.musicRampUpMs
   }
 
+  public duck(level: number, durationMs: number): void {
+    this.duckLevel = Math.max(0, Math.min(1, level))
+    this.duckRampMs = Math.max(0, durationMs)
+  }
+
+  public unduck(durationMs: number): void {
+    this.duckLevel = 1
+    this.duckRampMs = Math.max(0, durationMs)
+  }
+
+  public restoreDuck(level: number, durationMs: number): void {
+    this.duckLevel = Math.max(0, Math.min(1, level))
+    this.duckRampMs = Math.max(0, durationMs)
+    this.musicGateMuted = false
+    this.musicRampActive = false
+    this.musicFade = { current: this.duckLevel, target: this.duckLevel, remainingSamples: 0 }
+    this.nextMusicRampStartAt = 0
+    this.musicWarmupUntil = 0
+  }
+
   // Main entrypoint from ProjectionService for audio messages.
   public handleAudioData(msg: AudioData) {
     const meta = this.audioMeta(msg)
@@ -266,29 +279,17 @@ export class ProjectionAudio {
           if (this.musicGateMuted) {
             this.musicGateMuted = false
             fade.current = 0
-            fade.target = this.navActive ? this.navDuckingTarget : 1
+            fade.target = this.duckLevel
             fade.remainingSamples = 0
             const rampMs = this.getRampMsForTransition(fade.current, fade.target)
             fade.remainingSamples = Math.max(1, Math.round((rampMs / 1000) * sampleRate * channels))
             this.musicRampActive = true
           }
 
-          // Ducking: navActive lowers, navHoldUntil debounces restore.
-          const canDuckNow = this.navActive
-          const canRestoreNow =
-            !this.navActive && (this.navHoldUntil === 0 || now >= this.navHoldUntil)
-
-          let desiredTarget: number
-          if (canDuckNow) {
-            desiredTarget = this.navDuckingTarget
-          } else if (canRestoreNow) {
-            desiredTarget = 1
-          } else {
-            desiredTarget = fade.target
-          }
+          const desiredTarget = this.duckLevel
 
           if (fade.target !== desiredTarget) {
-            const rampMs = this.getRampMsForTransition(fade.current, desiredTarget)
+            const rampMs = this.duckRampMs
             fade.target = desiredTarget
             fade.remainingSamples = Math.max(1, Math.round((rampMs / 1000) * sampleRate * channels))
             this.musicRampActive = true
@@ -446,15 +447,7 @@ export class ProjectionAudio {
           this.uiNavHintActive = true
           this.emitAttention('nav', true)
         }
-        this.navActive = true
-        this.navHoldUntil = 0
         if (msg.audioType != null) this.navAudioType = msg.audioType
-
-        if (this.mediaActive && !this.voiceAssistantActive && !this.phonecallActive) {
-          this.musicRampActive = true
-          this.musicFade.target = this.navDuckingTarget
-          this.musicFade.remainingSamples = 0
-        }
         return
       }
 
@@ -541,11 +534,6 @@ export class ProjectionAudio {
       }
 
       if (cmd === AudioCommand.AudioNaviStop || cmd === AudioCommand.AudioTurnByTurnStop) {
-        this.navActive = false
-        // Carlinkit fires cmd=7 then cmd=16 ~2s apart — arm timer once.
-        if (this.navHoldUntil === 0) {
-          this.navHoldUntil = Date.now() + this.navResumeDelayMs
-        }
         if (!this.mediaActive && this.lastNavPlayerKey) {
           this.stopPlayerByKey(this.lastNavPlayerKey)
           this.lastNavPlayerKey = null
@@ -620,15 +608,6 @@ export class ProjectionAudio {
           this.phonecallActive = true
           this.voiceAssistantActive = false
         }
-
-        // While voice is active, keep music muted via gate.
-        this.musicRampActive = false
-        this.nextMusicRampStartAt = 0
-        this.musicWarmupUntil = 0
-        this.musicFade.current = 0
-        this.musicFade.target = 1
-        this.musicFade.remainingSamples = 0
-        this.musicGateMuted = true
 
         if (cfg.disableAudioOutput) {
           this._mic?.stop()
@@ -788,7 +767,6 @@ export class ProjectionAudio {
     if (this.navAudioType != null && msg.audioType === this.navAudioType) return 'nav'
     if (this.phonecallActive) return 'call'
     if (this.voiceAssistantActive) return 'voiceAssistant'
-    if (this.navActive) return 'nav'
     return 'music'
   }
 

@@ -73,7 +73,8 @@ export enum MessageType {
   UpdateState = 0xbb,
   SoftwareVersion = 0xcc,
   EnableCrypt = 0xf0,
-  DebugTrace = 0xff
+  DebugTrace = 0xff,
+  DuckAudio = 0x1000
 }
 
 export class HeaderBuildError extends Error {}

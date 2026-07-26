@@ -641,6 +641,9 @@ export class Session extends EventEmitter {
     this._nav.on('nav-state', (s: NavigationStateUpdate) => this.emit('nav-state', s))
     this._nav.on('nav-position', (p: NavigationPositionUpdate) => this.emit('nav-position', p))
     this._control.on('voice-session', (active: boolean) => this.emit('voice-session', active))
+    this._control.on('audio-focus-request', (focusType: number) =>
+      this.emit('audio-focus', focusType)
+    )
     this._control.on(
       'battery',
       (b: { level?: number; critical: boolean; timeRemaining?: number }) => {

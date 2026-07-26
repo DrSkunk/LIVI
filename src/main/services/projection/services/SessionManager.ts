@@ -32,6 +32,7 @@ export interface ProjectionSession {
   driver: IPhoneDriver
   state: SessionState
   video: { main: KeyframeCache; cluster: KeyframeCache }
+  audio: { duckLevel: number; duckRampMs: number }
   media: PersistedMediaPayload | null
   nav: PersistedNavigationPayload | null
 }
@@ -147,6 +148,7 @@ export class SessionManager {
         driver,
         state: 'held',
         video: { main: {}, cluster: {} },
+        audio: { duckLevel: 1, duckRampMs: 1500 },
         media: null,
         nav: null
       }

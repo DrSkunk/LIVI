@@ -539,6 +539,20 @@ export class CpStack extends EventEmitter {
       if (Buffer.isBuffer(d)) {
         session.iapRelay?.write(d)
       }
+    } else if (type === 'duckAudio') {
+      const params = (body.params ?? {}) as Record<string, PlistValue>
+      const durationMs = Number(params.durationMs ?? 0)
+      const volumeDb = Number(params.volume ?? 0)
+      const level = Math.max(0, Math.min(1, 10 ** (volumeDb / 20)))
+      console.log(
+        `[cpStack] duckAudio volume=${volumeDb}dB (level=${level.toFixed(3)}) durationMs=${durationMs}`
+      )
+      this.emit('duck', level, durationMs)
+    } else if (type === 'unduckAudio') {
+      const params = (body.params ?? {}) as Record<string, PlistValue>
+      const durationMs = Number(params.durationMs ?? 0)
+      console.log(`[cpStack] unduckAudio durationMs=${durationMs}`)
+      this.emit('duck', 1, durationMs)
     } else if (type) {
       // Unrouted command: log the whole body so a new message type can be identified.
       const j = JSON.stringify(body, (_k, v) => (typeof v === 'bigint' ? Number(v) : v))

@@ -52,6 +52,7 @@ vi.mock('../../messages', async () => {
     },
     VideoData: class {},
     AudioData: class {},
+    DuckAudio: class {},
     MediaData: class MediaData {},
     NavigationData: class NavigationData {},
     MediaType: { Data: 1 },

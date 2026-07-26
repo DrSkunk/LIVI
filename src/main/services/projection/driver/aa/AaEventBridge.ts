@@ -8,12 +8,8 @@ import {
 import {
   AudioData,
   Command,
-  DongleReady,
+  DuckAudio,
   type Message,
-  NavigationMetaType,
-  PhoneType,
-  Plugged,
-  Unplugged,
   VideoData
 } from '@projection/messages/readable'
 import { AudioCommand, CommandMapping } from '@shared/types/ProjectionEnums'
@@ -228,6 +224,12 @@ export class AaEventBridge {
       const cmd = audioLifecycleCommand(channel, false)
       console.log(`[AaEventBridge] audio-stop ${channel} → AudioCommand=${AudioCommand[cmd]}`)
       deps.emitMessage(buildAudioCommandMessage(channel, cmd) as Message)
+    })
+
+    aa.on('audio-focus', (focusType: number) => {
+      const msg = focusType === 3 ? new DuckAudio(0.2, 500) : new DuckAudio(1, 1500)
+      console.log(`[AaEventBridge] audio-focus type=${focusType} → duck level=${msg.level}`)
+      deps.emitMessage(msg as Message)
     })
 
     aa.on('mic-start', () => deps.startMic('mic-start'))
