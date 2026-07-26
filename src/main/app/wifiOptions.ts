@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { existsSync, readdirSync } from 'node:fs'
 
 function run(cmd: string, args: string[]): string | null {
   if (process.platform !== 'linux') return null
@@ -6,6 +7,29 @@ function run(cmd: string, args: string[]): string | null {
     return execFileSync(cmd, args, { encoding: 'utf8', timeout: 3000 })
   } catch {
     return null
+  }
+}
+
+// Net devices that expose a wireless directory in sysfs are the Wi-Fi interfaces.
+export function listWifiInterfaces(): string[] {
+  if (process.platform !== 'linux') return []
+  try {
+    return readdirSync('/sys/class/net')
+      .filter((iface) => existsSync(`/sys/class/net/${iface}/wireless`))
+      .sort()
+  } catch {
+    return []
+  }
+}
+
+export function listBtAdapters(): string[] {
+  if (process.platform !== 'linux') return []
+  try {
+    return readdirSync('/sys/class/bluetooth')
+      .filter((n) => /^hci\d+$/.test(n))
+      .sort()
+  } catch {
+    return []
   }
 }
 

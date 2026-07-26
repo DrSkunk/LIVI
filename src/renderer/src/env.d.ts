@@ -188,6 +188,8 @@ declare global {
       listDisplayModes(): Promise<string[]>
       listWifiChannels(): Promise<number[]>
       listWifiCountryCodes(): Promise<string[]>
+      listWifiInterfaces(): Promise<string[]>
+      listBtAdapters(): Promise<string[]>
       getLatestRelease(): Promise<{
         version?: string
         url?: string

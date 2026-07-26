@@ -34,6 +34,18 @@ async function loadWifiCountryCodes(): Promise<SelectOption[]> {
   return list.map((c) => ({ value: c, label: c }))
 }
 
+async function loadWifiInterfaces(): Promise<SelectOption[]> {
+  const list = await window.app?.listWifiInterfaces?.()
+  if (!Array.isArray(list)) return []
+  return list.map((i) => ({ value: i, label: i }))
+}
+
+async function loadBtAdapters(): Promise<SelectOption[]> {
+  const list = await window.app?.listBtAdapters?.()
+  if (!Array.isArray(list)) return []
+  return list.map((i) => ({ value: i, label: i }))
+}
+
 export const generalSchema: SettingsNode<Config> = {
   route: 'general',
   label: 'General',
@@ -135,6 +147,32 @@ export const generalSchema: SettingsNode<Config> = {
               page: {
                 title: 'Wi-Fi Country',
                 labelTitle: 'settings.wifiCountry'
+              }
+            },
+            {
+              type: 'select',
+              label: 'Wi-Fi Interface',
+              labelKey: 'settings.wifiInterface',
+              path: 'wifiInterface',
+              displayValue: true,
+              options: [],
+              loadOptions: loadWifiInterfaces,
+              page: {
+                title: 'Wi-Fi Interface',
+                labelTitle: 'settings.wifiInterface'
+              }
+            },
+            {
+              type: 'select',
+              label: 'Bluetooth Interface',
+              labelKey: 'settings.btAdapter',
+              path: 'btAdapter',
+              displayValue: true,
+              options: [],
+              loadOptions: loadBtAdapters,
+              page: {
+                title: 'Bluetooth Interface',
+                labelTitle: 'settings.btAdapter'
               }
             }
           ]

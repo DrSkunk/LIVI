@@ -40,17 +40,44 @@ def _get_value(key: str, json_key: str, default: str) -> str:
     return default
 
 
+def _list_wifi_ifaces() -> list:
+    try:
+        base = "/sys/class/net"
+        return sorted(
+            n for n in os.listdir(base) if os.path.exists(os.path.join(base, n, "wireless"))
+        )
+    except OSError:
+        return []
+
+
+def _list_bt_adapters() -> list:
+    try:
+        return sorted(n for n in os.listdir("/sys/class/bluetooth") if n.startswith("hci"))
+    except OSError:
+        return []
+
+
+def _resolve_iface(configured: str, available: list) -> str:
+    if configured in available or not available:
+        return configured
+    return available[0]
+
+
 # Wi-Fi AP
 SSID = _get_value("LIVI_SSID", "carName", "LIVI")
 PASSPHRASE = _get_value("LIVI_PASSPHRASE", "wifiPassword", "12345678")
 CHANNEL = int(_get_value("LIVI_CHANNEL", "wifiChannel", "36"))
 COUNTRY_CODE = _get_value("LIVI_COUNTRY", "country", "DE")
-WIFI_IFACE = _get_value("LIVI_WIFI_IFACE", "wifiInterface", "wlan0")
+WIFI_IFACE = _resolve_iface(
+    _get_value("LIVI_WIFI_IFACE", "wifiInterface", "wlan0"), _list_wifi_ifaces()
+)
 SECURITY_TYPE = "WPA_WPA2"
 
 # Bluetooth
 BTNAME = _get_value("LIVI_BTNAME", "carName", "LIVI")
-BT_ADAPTER = _get_value("LIVI_BT_ADAPTER", "btAdapter", "hci0")
+BT_ADAPTER = _resolve_iface(
+    _get_value("LIVI_BT_ADAPTER", "btAdapter", "hci0"), _list_bt_adapters()
+)
 
 # CarPlay MFi authentication coprocessor over i2c
 MFI_I2C_BUS = int(_get_value("LIVI_CP_MFI_I2C_BUS", "carPlayMfiI2cBus", "2"))

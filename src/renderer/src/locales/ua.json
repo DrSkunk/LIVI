@@ -20,6 +20,8 @@
     "wifiPassword": "Пароль Wi-Fi",
     "wifiChannel": "Канал Wi-Fi",
     "wifiCountry": "Країна Wi-Fi",
+    "wifiInterface": "Інтерфейс Wi-Fi",
+    "btAdapter": "Інтерфейс Bluetooth",
     "wirelessAaEnabled": "Бездротовий Android Auto",
     "wirelessCpEnabled": "Бездротовий CarPlay",
     "dongleSettings": "Налаштування донгла",

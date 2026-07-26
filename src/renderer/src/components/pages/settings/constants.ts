@@ -73,6 +73,8 @@ export const requiresRestartParams: (keyof Config)[] = [
   'clusterSafeAreaRight',
 
   'wifiType',
+  'wifiInterface',
+  'btAdapter',
   'disableAudioOutput',
   'autoConn',
   'carName',
