@@ -31,7 +31,6 @@ export class ProjectionAudio {
   // One AudioOutput per (sampleRate, channels). The OS audio sink (PulseAudio
   // on Linux, CoreAudio on macOS) mixes all open streams automatically
   private audioPlayers = new Map<PlayerKey, AudioOutput>()
-  private lastStreamLogKey: PlayerKey | null = null
   private lastCallPlaybackLog: {
     sampleRate?: number
     channels?: number
@@ -146,41 +145,15 @@ export class ProjectionAudio {
 
   // Called from ProjectionService when a new projection session starts
   public resetForSessionStart() {
-    this.stopAllAudioPlayers()
-    this._mic?.stop()
-
-    this.voiceAssistantActive = false
-    this.phonecallActive = false
-    this.navActive = false
-    this.navHoldUntil = 0
-    this.mediaActive = false
-    this.audioOpenArmed = false
-    this.musicRampActive = false
-    this.nextMusicRampStartAt = 0
-    this.musicFade = { current: 1, target: 1, remainingSamples: 0 }
-    this.lastMusicDataAt = 0
-    this.musicGateMuted = false
-    this.musicWarmupUntil = 0
-    this.musicAudioType = null
-    this.navAudioType = null
-
-    this.lastStreamLogKey = null
-    this.lastCallPlaybackLog = null
-    this.lastMusicPlayerKey = null
-    this.lastNavPlayerKey = null
-    this.lastVoiceAssistantPlayerKey = null
-    this.lastCallPlayerKey = null
-
-    this.audioInfoSent = false
-    this.currentMicDecodeType = null
-
-    this.uiCallIncoming = false
-    this.uiVoiceAssistantHintActive = false
-    this.uiNavHintActive = false
+    this.resetAudioState()
   }
 
   // Called from ProjectionService when a projection session stops
   public resetForSessionStop() {
+    this.resetAudioState()
+  }
+
+  private resetAudioState() {
     this.stopAllAudioPlayers()
     this._mic?.stop()
 
@@ -199,7 +172,6 @@ export class ProjectionAudio {
     this.musicAudioType = null
     this.navAudioType = null
 
-    this.lastStreamLogKey = null
     this.lastCallPlaybackLog = null
     this.lastMusicPlayerKey = null
     this.lastNavPlayerKey = null
@@ -233,7 +205,7 @@ export class ProjectionAudio {
     const v = Math.max(0, Math.min(1, Number.isFinite(volume) ? volume : 0))
     const prev = this.volumes[stream]
 
-    if (prev !== undefined && Math.abs(prev - v) < 0.0001) {
+    if (Math.abs(prev - v) < 0.0001) {
       return
     }
 
@@ -258,19 +230,17 @@ export class ProjectionAudio {
       let player = this.getAudioOutputForStream(logicalKey, audioTypeKey, msg)
       if (!player) return
 
-      const volume = this.volumes[logicalKey] ?? 1.0
+      const volume = this.volumes[logicalKey]
 
-      if (meta) {
-        const keyForStream: PlayerKey = `${logicalKey}:at${audioTypeKey}:${meta.frequency}:${meta.channel}`
-        if (logicalKey === 'music') {
-          this.lastMusicPlayerKey = keyForStream
-        } else if (logicalKey === 'nav') {
-          this.lastNavPlayerKey = keyForStream
-        } else if (logicalKey === 'voiceAssistant') {
-          this.lastVoiceAssistantPlayerKey = keyForStream
-        } else if (logicalKey === 'call') {
-          this.lastCallPlayerKey = keyForStream
-        }
+      const keyForStream: PlayerKey = `${logicalKey}:at${audioTypeKey}:${meta.frequency}:${meta.channel}`
+      if (logicalKey === 'music') {
+        this.lastMusicPlayerKey = keyForStream
+      } else if (logicalKey === 'nav') {
+        this.lastNavPlayerKey = keyForStream
+      } else if (logicalKey === 'voiceAssistant') {
+        this.lastVoiceAssistantPlayerKey = keyForStream
+      } else if (logicalKey === 'call') {
+        this.lastCallPlayerKey = keyForStream
       }
 
       const baseGain = this.gainFromVolume(volume)
@@ -325,10 +295,8 @@ export class ProjectionAudio {
           }
 
           if (
-            (this.musicRampActive &&
-              fade.remainingSamples === 0 &&
-              Math.abs(fade.current - fade.target) > 1e-3) ||
-            (!this.musicRampActive && Math.abs(fade.current - fade.target) > 1e-3)
+            Math.abs(fade.current - fade.target) > 1e-3 &&
+            (!this.musicRampActive || fade.remainingSamples === 0)
           ) {
             const rampMs = this.getRampMsForTransition(fade.current, fade.target)
             this.musicRampActive = true
@@ -401,7 +369,7 @@ export class ProjectionAudio {
       player.write(pcm)
 
       // Mono only for FFT visualization (optional)
-      if (this.visualizerWindows.size > 0 && meta && msg.data) {
+      if (this.visualizerWindows.size > 0 && msg.data) {
         const inSampleRate = meta.frequency ?? 48000
         const inChannels = meta.channel ?? 2
 
@@ -418,7 +386,7 @@ export class ProjectionAudio {
         }
       }
 
-      if (!this.audioInfoSent && meta) {
+      if (!this.audioInfoSent) {
         this.sendProjectionEvent({
           type: 'audioInfo',
           payload: { sampleRate: meta.frequency }
@@ -466,17 +434,6 @@ export class ProjectionAudio {
         }
       }
 
-      if (cmd === AudioCommand.AudioVoiceAssistantStop) {
-        this.voiceAssistantActive = false
-      }
-
-      if (cmd === AudioCommand.AudioNaviStart || cmd === AudioCommand.AudioTurnByTurnStart) {
-        if (!this.uiNavHintActive) {
-          this.uiNavHintActive = true
-          this.emitAttention('nav', true)
-        }
-      }
-
       if (cmd === AudioCommand.AudioNaviStop || cmd === AudioCommand.AudioTurnByTurnStop) {
         if (this.uiNavHintActive) {
           this.uiNavHintActive = false
@@ -485,6 +442,10 @@ export class ProjectionAudio {
       }
 
       if (cmd === AudioCommand.AudioNaviStart || cmd === AudioCommand.AudioTurnByTurnStart) {
+        if (!this.uiNavHintActive) {
+          this.uiNavHintActive = true
+          this.emitAttention('nav', true)
+        }
         this.navActive = true
         this.navHoldUntil = 0
         if (msg.audioType != null) this.navAudioType = msg.audioType
@@ -748,7 +709,6 @@ export class ProjectionAudio {
       }
     }
     this.audioPlayers.clear()
-    this.lastStreamLogKey = null
     this.lastCallPlaybackLog = null
     this.lastMusicPlayerKey = null
     this.lastNavPlayerKey = null
@@ -770,13 +730,10 @@ export class ProjectionAudio {
   }
 
   private createAndStartAudioPlayer(
-    logicalKey: LogicalStreamKey,
-    audioType: number,
+    key: PlayerKey,
     sampleRate: number,
     channels: number
   ): AudioOutput {
-    const key: PlayerKey = `${logicalKey}:at${audioType}:${sampleRate}:${channels}`
-
     const player = new AudioOutput({
       sampleRate,
       channels,
@@ -820,11 +777,7 @@ export class ProjectionAudio {
           `[ProjectionAudio] new player logicalKey=${logicalKey} audioType=${audioType} rate=${sampleRate} channels=${channels}`
         )
       }
-      player = this.createAndStartAudioPlayer(logicalKey, audioType, sampleRate, channels)
-    }
-
-    if (this.lastStreamLogKey !== key) {
-      this.lastStreamLogKey = key
+      player = this.createAndStartAudioPlayer(key, sampleRate, channels)
     }
 
     return player
