@@ -9,9 +9,12 @@ const GUARD_PATH = `${GUARD_DIR}/gvfs-phone-guard.sh`
 const SUDOERS_FILE = '/etc/sudoers.d/99-LIVI-gvfs'
 const SENTINEL_VERSION = 'v1'
 
+const MONITOR_DIR = '/usr/share/gvfs/remote-volume-monitors'
+const PHONE_MONITORS = ['afc', 'gphoto2', 'mtp']
+
 const GUARD_SCRIPT = `#!/bin/bash
 set -u
-D=/usr/share/gvfs/remote-volume-monitors
+D=${MONITOR_DIR}
 action="\${1:-}"
 for m in afc gphoto2 mtp; do
   case "$action" in
@@ -23,6 +26,12 @@ done
 [ "$action" = disable ] && pkill -f "gvfs-afc-volume|gvfs-gphoto2|gvfs-mtp-volume|gvfsd-afc" 2>/dev/null
 exit 0
 `
+
+function phoneMonitorsPresent(): boolean {
+  return PHONE_MONITORS.some(
+    (m) => existsSync(`${MONITOR_DIR}/${m}.monitor`) || existsSync(`${MONITOR_DIR}/${m}.livi-off`)
+  )
+}
 
 function sentinelPath(): string {
   return join(app.getPath('userData'), `gvfs-guard-${SENTINEL_VERSION}.installed`)
@@ -101,6 +110,8 @@ function installViaPkexec(): Promise<void> {
 export async function checkAndInstallGvfsGuard(window: BrowserWindow): Promise<void> {
   if (process.platform !== 'linux') return
   if (isInstalled()) return
+  if (process.env.LIVI_KIOSK === '1') return
+  if (!phoneMonitorsPresent()) return
   if (!pkexecAvailable()) {
     console.warn('[gvfsGuard] pkexec not available — cannot install phone-guard')
     return
@@ -108,12 +119,8 @@ export async function checkAndInstallGvfsGuard(window: BrowserWindow): Promise<v
 
   const { response } = await dialog.showMessageBox(window, {
     type: 'question',
-    title: 'LIVI — Permission Required',
-    message: 'Allow LIVI to hide a plugged-in phone from the desktop file manager while running?',
-    detail:
-      `A small helper (${GUARD_PATH}) and a sudoers rule (${SUDOERS_FILE}) will be installed. ` +
-      `The phone volume monitors are only disabled while LIVI runs and are restored when it ` +
-      `exits, so the phone stays accessible on the desktop without LIVI.`,
+    title: 'LIVI',
+    message: 'Hide connected phones from the file manager?',
     buttons: ['Install', 'Skip'],
     defaultId: 0,
     cancelId: 1

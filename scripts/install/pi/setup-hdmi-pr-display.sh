@@ -117,7 +117,9 @@ fetch_apt() {
     echo "       sudo apt-get install linux-headers-${kver}" >&2
     exit 1
   fi
-  cp "$sym" "${KSRC}/Module.symvers"
+  if ! [[ "$sym" -ef "${KSRC}/Module.symvers" ]]; then
+    cp "$sym" "${KSRC}/Module.symvers"
+  fi
 }
 
 fetch_and_sync() {
@@ -227,9 +229,15 @@ PY
   local hdr="/lib/modules/${kver}/build"
   [[ -f "$hdr/include/generated/utsrelease.h" ]] || hdr="/usr/src/linux-headers-${kver}"
   if [[ -f "$hdr/include/generated/utsrelease.h" ]]; then
-    cp "$hdr/include/generated/utsrelease.h" "${KSRC}/include/generated/utsrelease.h"
-    [[ -f "$hdr/include/config/kernel.release" ]] &&
-      cp "$hdr/include/config/kernel.release" "${KSRC}/include/config/kernel.release"
+    if [[ "$hdr/include/generated/utsrelease.h" -ef "${KSRC}/include/generated/utsrelease.h" ]]; then
+      echo "   headers are the kernel source itself, nothing to sync"
+    else
+      cp "$hdr/include/generated/utsrelease.h" "${KSRC}/include/generated/utsrelease.h"
+      if [[ -f "$hdr/include/config/kernel.release" ]] &&
+         ! [[ "$hdr/include/config/kernel.release" -ef "${KSRC}/include/config/kernel.release" ]]; then
+        cp "$hdr/include/config/kernel.release" "${KSRC}/include/config/kernel.release"
+      fi
+    fi
   fi
 
   echo "→ Building the vc4 module only (clean rebuild)"
