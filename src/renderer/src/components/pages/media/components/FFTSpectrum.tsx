@@ -27,15 +27,10 @@ export const normalizePcmBuffer = (pcm: Float32Array | ArrayLike<number>) => {
 
 export const FFTSpectrum = () => {
   const theme = useTheme()
-  const isDark = theme.palette.mode === 'dark'
-
   const barColor =
     getComputedStyle(document.body).getPropertyValue('--ui-highlight').trim() ||
     theme.palette.primary.main
 
-  const gridFill = alpha(theme.palette.text.primary, isDark ? 0.12 : 0.06)
-  const gridLine = alpha(theme.palette.text.primary, 0.35)
-  const majorLine = alpha(theme.palette.text.primary, 0.45)
   const labelColor = alpha(theme.palette.text.secondary, 0.9)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -121,19 +116,6 @@ export const FFTSpectrum = () => {
 
     ctx.clearRect(0, 0, cw, ch)
 
-    ctx.fillStyle = gridFill
-    ctx.fillRect(xOff, 0, specW, usableH)
-
-    ctx.lineWidth = 0.5
-    ;[0.25, 0.5, 0.75].forEach((f) => {
-      const y = usableH * f
-      ctx.strokeStyle = gridLine
-      ctx.beginPath()
-      ctx.moveTo(xOff, y)
-      ctx.lineTo(xOff + specW, y)
-      ctx.stroke()
-    })
-
     const freqs = [MIN_FREQ, 100, 1000, 10000, MAX_FREQ]
     const logMin = Math.log10(MIN_FREQ)
     const logMax = Math.log10(MAX_FREQ)
@@ -143,14 +125,6 @@ export const FFTSpectrum = () => {
       freq,
       x: xOff + ((Math.log10(freq) - logMin) / logDen) * specW
     }))
-
-    positions.forEach(({ x }) => {
-      ctx.strokeStyle = majorLine
-      ctx.beginPath()
-      ctx.moveTo(x, 0)
-      ctx.lineTo(x, usableH)
-      ctx.stroke()
-    })
 
     if (showLabels) {
       ctx.font = `${labelFont}px sans-serif`
@@ -176,7 +150,7 @@ export const FFTSpectrum = () => {
         }
       }
     }
-  }, [dimensions, sampleRate, gridFill, gridLine, majorLine, labelColor])
+  }, [dimensions, sampleRate, labelColor])
 
   useEffect(() => {
     let rafId = 0

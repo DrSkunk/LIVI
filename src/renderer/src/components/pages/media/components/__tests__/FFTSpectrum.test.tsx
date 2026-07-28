@@ -288,7 +288,7 @@ describe('FFTSpectrum', () => {
     })
   })
 
-  test('draws background grid and frequency labels', async () => {
+  test('draws frequency labels and no grid lines', async () => {
     render(<FFTSpectrum />)
 
     await waitFor(() => {
@@ -301,8 +301,7 @@ describe('FFTSpectrum', () => {
 
     await waitFor(() => {
       expect(clearRectMock).toHaveBeenCalled()
-      expect(fillRectMock).toHaveBeenCalled()
-      expect(strokeMock).toHaveBeenCalled()
+      expect(strokeMock).not.toHaveBeenCalled()
       expect(fillTextMock).toHaveBeenCalledWith('20', expect.any(Number), expect.any(Number))
       expect(fillTextMock).toHaveBeenCalledWith('100', expect.any(Number), expect.any(Number))
       expect(fillTextMock).toHaveBeenCalledWith('1k', expect.any(Number), expect.any(Number))
