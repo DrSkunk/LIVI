@@ -15,6 +15,7 @@ class MatchAction(IntEnum):
     NONE = 0
     SETTINGS_AND_PROMPT = 1
     SETTINGS_ONLY = 2
+    NO_ACTION_NO_COMMUNICATION = 4
 
 
 @dataclass
@@ -23,6 +24,7 @@ class ExternalAccessoryProtocol:
     name: str
     match_action: MatchAction
     native_transport_component_identifier: Optional[Uint16] = None
+    car_play: Annotated[NoneLike, 4] = None
 
 
 @dataclass
@@ -70,6 +72,8 @@ class VehicleInformationComponent:
     id: Uint16
     name: str
     engine_type: EngineType
+    display_name: Annotated[Optional[str], 6] = None
+    maps_display_name: Annotated[Optional[str], 8] = None
 
 
 @dataclass

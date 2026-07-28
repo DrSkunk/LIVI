@@ -149,9 +149,14 @@ def _find_bluetoothd():
         pass
     raise RuntimeError("Cannot find bluetoothd binary")
 
+_DISABLED_BLUEZ_PLUGINS = "sap,midi"
+
+
 def _write_sap_dropin():
-    """Write bluetoothd --noplugin=sap so RFCOMM channel 8 is free for AAP."""
-    content = f"[Service]\nExecStart=\nExecStart={_find_bluetoothd()} --noplugin=sap\n"
+    """Write bluetoothd --noplugin so RFCOMM channel 8 is free for AAP and the
+    BLE MIDI service does not take a 128-bit UUID slot in the CarPlay EIR."""
+    content = (f"[Service]\nExecStart=\nExecStart={_find_bluetoothd()}"
+               f" --noplugin={_DISABLED_BLUEZ_PLUGINS}\n")
     changed = False
     if os.path.isdir(_DROPIN_DIR):
         try:
@@ -231,7 +236,7 @@ def _setup_bluetoothd():
     changed = _write_sap_dropin()
     changed = _ensure_main_conf_class() or changed
     if changed:
-        log("restarting bluetoothd to apply --noplugin=sap + device class")
+        log(f"restarting bluetoothd to apply --noplugin={_DISABLED_BLUEZ_PLUGINS} + device class")
         subprocess.run(["systemctl", "daemon-reload"], check=False)
         subprocess.run(["systemctl", "restart", "bluetooth"], check=False)
         time.sleep(5)

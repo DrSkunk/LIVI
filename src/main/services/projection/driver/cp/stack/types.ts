@@ -50,8 +50,10 @@ export interface CpStreamProfile extends CpAudioProfile {
 export interface CpStackConfig {
   /** Name shown as the car on the phone. */
   deviceName: string
-  /** Stable identifier (derived from the BT adapter MAC). */
+  /** Accessory identity = the WiFi AP interface MAC (BSSID). */
   deviceId: string
+  /** The Bluetooth adapter MAC. */
+  btMac: string
   sourceVersion: string
   /** HW-decodable codecs advertised to the phone (Pi5: hevc only, Pi4: h264 only). */
   hevc: boolean

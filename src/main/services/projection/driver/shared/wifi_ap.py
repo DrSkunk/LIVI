@@ -92,6 +92,24 @@ def get_wlan_mac(iface: str = WIFI_IFACE) -> str:
     raise RuntimeError(f"Cannot read MAC for {iface}")
 
 
+def get_wlan_link_local(iface: str = WIFI_IFACE) -> str:
+    out = subprocess.check_output(["ip", "-6", "-o", "addr", "show", "dev", iface, "scope", "link"],
+                                  text=True)
+    m = re.search(r"inet6 (fe80:[0-9a-fA-F:]+)/", out)
+    return m.group(1) if m else ""
+
+
+def get_ap_ssid_channel(iface: str = WIFI_IFACE):
+    try:
+        out = subprocess.check_output(["iw", "dev", iface, "info"], text=True)
+    except (OSError, subprocess.CalledProcessError):
+        return "", 0
+    ssid = re.search(r"^\s*ssid (.+)$", out, re.M)
+    channel = re.search(r"^\s*channel (\d+)", out, re.M)
+    return (ssid.group(1).strip() if ssid else "",
+            int(channel.group(1)) if channel else 0)
+
+
 def get_bt_mac() -> str:
     """Bluetooth adapter MAC (needed by the CarPlay iAP2 identification). /sys is
     the instant, canonical source and is tried first; hciconfig then btmgmt are
@@ -189,6 +207,9 @@ def write_hostapd_config() -> None:
             "ieee80211n=1\n"
         )
 
+    band_bit = 0x01 if is_5ghz else 0x02
+    apple_device_ie = f"dd0800a04000000200{0x20 | band_bit:02x}"
+
     config = f"""
 interface={WIFI_IFACE}
 driver=nl80211
@@ -199,6 +220,8 @@ ieee80211d=1
 ieee80211h=0
 {radio}ignore_broadcast_ssid=0
 wmm_enabled=1
+vendor_elements={apple_device_ie}
+assocresp_elements={apple_device_ie}
 {security_config}
 wpa_passphrase={PASSPHRASE}
 """
@@ -206,16 +229,45 @@ wpa_passphrase={PASSPHRASE}
         f.write(config)
 
 
+def ensure_link_local(iface: str = WIFI_IFACE) -> str:
+    subprocess.run(["sudo", "sysctl", "-qw",
+                    f"net.ipv6.conf.{iface}.disable_ipv6=0"], check=False)
+    subprocess.run(["sudo", "sysctl", "-qw",
+                    f"net.ipv6.conf.{iface}.addr_gen_mode=0"], check=False)
+    if get_wlan_link_local(iface):
+        return get_wlan_link_local(iface)
+    for _ in range(40):
+        ll = get_wlan_link_local(iface)
+        if ll:
+            return ll
+        time.sleep(0.25)
+    mac = get_wlan_mac(iface).lower().split(":")
+    eui = "fe80::%x%s:%sff:fe%s:%s%s" % (
+        int(mac[0], 16) ^ 0x02, mac[1], mac[2], mac[3], mac[4], mac[5])
+    subprocess.run(["sudo", "ip", "-6", "addr", "add", f"{eui}/64", "dev", iface,
+                    "scope", "link"], check=False)
+    for _ in range(8):
+        ll = get_wlan_link_local(iface)
+        if ll:
+            return ll
+        time.sleep(0.25)
+    print(f"[wifi_ap] {iface} has no IPv6 link-local, CarPlay needs one", flush=True)
+    return ""
+
+
 def setup_network_interface() -> None:
     subprocess.run(["sudo", "iw", "reg", "set", COUNTRY_CODE], check=False)
     subprocess.run(["sudo", "ip", "link", "set", WIFI_IFACE, "up"], check=True)
-    subprocess.run(["sudo", "ip", "addr", "flush", "dev", WIFI_IFACE], check=True)
+    subprocess.run(["sudo", "ip", "addr", "flush", "dev", WIFI_IFACE, "scope", "global"], check=True)
     subprocess.run(["sudo", "ip", "addr", "add", f"{AP_IP}/24", "dev", WIFI_IFACE], check=True)
+    ll = ensure_link_local()
+    if ll:
+        print(f"[wifi_ap] {WIFI_IFACE} link-local {ll}", flush=True)
 
 
 def disable_existing_wifi_network_services() -> None:
     subprocess.run(["sudo", "systemctl", "stop", f"wpa_supplicant@{WIFI_IFACE}"], check=False)
-    subprocess.run(["sudo", "ip", "addr", "flush", "dev", WIFI_IFACE], check=False)
+    subprocess.run(["sudo", "ip", "addr", "flush", "dev", WIFI_IFACE, "scope", "global"], check=False)
     subprocess.run(["sudo", "ip", "link", "set", WIFI_IFACE, "up"], check=False)
     time.sleep(1)
 
@@ -420,7 +472,8 @@ def setup_ap() -> bool:
 
     ready = wait_for_ap_ready()
     if ready:
-        print(f"[wifi_ap] AP up — SSID={SSID!r}  IP={AP_IP}  channel={CHANNEL}")
+        ll = ensure_link_local()
+        print(f"[wifi_ap] AP up — SSID={SSID!r}  IP={AP_IP}  channel={CHANNEL}  link-local={ll or 'MISSING'}")
     return ready
 
 

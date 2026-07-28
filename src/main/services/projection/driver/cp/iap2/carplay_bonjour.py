@@ -1,11 +1,21 @@
+import json
+import os
 import socket
 import threading
 import time
+from pathlib import Path
 
 import dbus
 from gi.repository import GLib
 
 from shared.config import AIRPLAY_PORT, CARPLAY_SOURCE_VERSION, PK, PI
+
+
+def _config_dir() -> Path:
+    user = os.environ.get("SUDO_USER", os.environ.get("USER", ""))
+    if user and user != "root":
+        return Path(f"/home/{user}") / ".config" / "LIVI"
+    return Path.home() / ".config" / "LIVI"
 
 AVAHI_DBUS_NAME = "org.freedesktop.Avahi"
 AVAHI_DBUS_PATH_SERVER = "/"
@@ -32,6 +42,8 @@ _connect_states = {}
 _addr_running = set()
 _seen_endpoints = {}
 _rebrowse_fn = None
+_resolve_host_fn = None
+
 
 
 def _cstate(ckey):
@@ -101,7 +113,21 @@ def _start_kick():
     return False
 
 
-def _connect_worker(address, port, ifname, mac_int, ckey, akey):
+def _reresolve(host, ifname):
+    """Ask Avahi for the current address of the phone's mDNS host name. The
+    reference re-resolves after a failed connect instead of dropping the peer."""
+    if _resolve_host_fn is None:
+        return ""
+    try:
+        return _resolve_host_fn(host, ifname)
+    except Exception as e:
+        print(f"[cp] re-resolve of {host} failed: {e!r}", flush=True)
+        return ""
+
+
+
+
+def _connect_worker(address, port, ifname, mac_int, ckey, akey, mdns_host=""):
     """Probe /ctrl-int/1/connect with quick retries until the phone accepts it and
     opens the reverse control connection to our :7000."""
     st = _cstate(ckey)
@@ -145,10 +171,26 @@ def _connect_worker(address, port, ifname, mac_int, ckey, akey):
                     st["ip"] = host
                 return
             except ConnectionRefusedError as e:
-                # Nothing is listening: this advertised port is stale. Stop so a
-                # fresh re-browse (kick) can pick up the phone's current port.
                 print(f"[cp] /ctrl-int/1/connect attempt {attempt} refused: {e!r}", flush=True)
-                return
+                fresh = _reresolve(mdns_host, ifname) if mdns_host else ""
+                if fresh and fresh != host:
+                    print(f"[cp] re-resolved to {fresh}, retrying", flush=True)
+                    host, is_v6 = fresh, ":" in fresh
+                    hosthdr = f"[{host}]:{port}" if is_v6 else f"{host}:{port}"
+                    req = (
+                        f"GET /ctrl-int/1/connect HTTP/1.1\r\n"
+                        f"Host: {hosthdr}\r\n"
+                        f"User-Agent: AirPlay/{CARPLAY_SOURCE_VERSION}\r\n"
+                        f"AirPlay-Receiver-Device-ID: {mac_int}\r\n"
+                        f"Connection: close\r\n\r\n"
+                    ).encode()
+                    continue
+                if _rebrowse_fn is not None:
+                    try:
+                        _rebrowse_fn()
+                    except Exception:
+                        pass
+                time.sleep(1.5)
             except Exception as e:
                 print(f"[cp] /ctrl-int/1/connect attempt {attempt} failed: {e!r}", flush=True)
                 time.sleep(1)
@@ -201,7 +243,7 @@ def start_service(device_id):
     # CoreUtilsPairingAndEncryption(0x40). pi/pk carry the AirPlay-2 pairing
     # identity; without them (and the 0x40 bit) the iPhone refuses :7000.
     txt = [
-        f"deviceID={device_id}",
+        f"deviceid={device_id}",
         "features=0x44540380,0x61",
         "flags=0x4",
         "model=LIVI",
@@ -269,7 +311,8 @@ def start_service(device_id):
                     return
                 _addr_running.add(akey)
             threading.Thread(
-                target=_connect_worker, args=(address, port, ifname, mac_int, ckey, akey), daemon=True
+                target=_connect_worker,
+                args=(address, port, ifname, mac_int, ckey, akey, str(host)), daemon=True
             ).start()
         except Exception as e:
             print(f"[cp] resolve/connect setup failed: {e!r}", flush=True)
@@ -293,6 +336,27 @@ def start_service(device_id):
             AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, '_carplay-ctrl._tcp', 'local', 0)
         receiver = bus.add_signal_receiver(on_service, "ItemNew", path=browser)
 
-    global _rebrowse_fn
+    def _resolve_host(host, ifname):
+        iface = AVAHI_IF_UNSPEC
+        if ifname:
+            try:
+                iface = socket.if_nametoindex(ifname)
+            except OSError:
+                iface = AVAHI_IF_UNSPEC
+        for proto in (AVAHI_PROTO_INET6, 0):
+            try:
+                res = server.ResolveHostName(iface, proto, host, AVAHI_PROTO_UNSPEC, 0)
+            except dbus.exceptions.DBusException:
+                continue
+            addr = str(res[4])
+            if not addr:
+                continue
+            if ":" in addr and addr.lower().startswith("fe80") and ifname:
+                addr = f"{addr}%{ifname}"
+            return addr
+        return ""
+
+    global _rebrowse_fn, _resolve_host_fn
     _rebrowse_fn = _rebrowse
+    _resolve_host_fn = _resolve_host
     _rebrowse()

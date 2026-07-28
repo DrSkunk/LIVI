@@ -47,10 +47,20 @@ class CarPlayStartSessionWiredAttributes:
     ip_address: Annotated[List[str], 0] = field(default_factory=list)
 
 
+@dataclass
+class CarPlayStartSessionWirelessAttributes:
+    wifi_ssid: Annotated[Optional[str], 0] = None
+    passphrase: Annotated[Optional[str], 1] = None
+    channel: Annotated[Optional[Uint8], 2] = None
+    ip_address: Annotated[List[str], 3] = field(default_factory=list)
+    security_type: Annotated[Optional[Uint8], 4] = None
+
+
 @csm(0x4301)
 @dataclass
 class CarPlayStartSession:
     wired_attributes: Annotated[Optional[CarPlayStartSessionWiredAttributes], 0] = None
+    wireless_attributes: Annotated[Optional[CarPlayStartSessionWirelessAttributes], 1] = None
     port: Annotated[Optional[Uint32], 2] = None
     device_identifier: Annotated[Optional[str], 3] = None
     public_key: Annotated[Optional[str], 4] = None

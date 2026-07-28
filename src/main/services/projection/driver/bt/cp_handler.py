@@ -24,7 +24,7 @@ from iap2 import livi_sock
 from shared.config import (
     AIRPLAY_PORT, AVAILABLE_CURRENT_MA, BT_ADAPTER, CARPLAY_SOURCE_VERSION,
     CARPLAY_WIRED_START_SESSION, CHANNEL, DEBUG, MANUFACTURER, MODEL, NAME, PASSPHRASE, PI,
-    SECURITY_TYPE, SSID,
+    SECURITY_TYPE, SSID, WIFI_IFACE,
 )
 from iap2.control_session_message import Int16, Uint8, Uint16, Uint32, read_csm, register_csm, write_csm
 from iap2.control_session_message.authentication import (
@@ -34,6 +34,7 @@ from iap2.control_session_message.authentication import (
 )
 from iap2.control_session_message.car_play import (
     CarPlayAvailability, CarPlayStartSession, CarPlayStartSessionWiredAttributes,
+    CarPlayStartSessionWirelessAttributes,
     DeviceTransportIdentifierNotification, WirelessCarPlayUpdate,
 )
 from iap2.control_session_message.eap import (
@@ -80,9 +81,10 @@ from iap2.mfi_auth_coprocessor import (
     read_certificate,
 )
 from iap2.transport.bluetooth import (
+    CARPLAY_CHANNEL, CARPLAY_RECORD, CARPLAY_SERVICE_UUID,
     CHANNEL as IAP_CHANNEL, IAP_CLIENT_UUID, IAP_RECORD, IAP_SERVER_UUID, IAPProfile,
 )
-from shared.wifi_ap import get_bt_mac
+from shared.wifi_ap import get_ap_ssid_channel, get_bt_mac, get_wlan_link_local, get_wlan_mac
 from iap2 import muxd, ncm_bridge
 
 AV_IFACE_DRIVERS = ("cdc_ncm", "ipheth")
@@ -396,23 +398,54 @@ class CpHandler:
         finally:
             GLib.idle_add(_unsubscribe)
 
-    async def _send_carplay_start_session(self, stream, avail, serial=""):
+    async def _send_carplay_start_session(self, stream, avail, serial="", carkit=False):
         wired = getattr(avail, "wired_attributes", None)
-        if wired is None or not getattr(wired, "available", False):
-            self._log("CarPlayAvailability: wired not available, not starting")
+        wireless = getattr(avail, "wireless_attributes", None)
+        if not carkit:
+            fe80 = get_wlan_link_local()
+            if not fe80:
+                self._log("CarPlayStartSession: no Wi-Fi link-local on the AP interface, not starting")
+                return
+            live_ssid, live_channel = get_ap_ssid_channel()
+            ssid = live_ssid or SSID
+            channel = live_channel or CHANNEL
+            await write_csm(stream, CarPlayStartSession(
+                wireless_attributes=CarPlayStartSessionWirelessAttributes(
+                    wifi_ssid=ssid,
+                    passphrase=PASSPHRASE,
+                    channel=Uint8(channel),
+                    ip_address=[fe80],
+                    security_type=Uint8(SECURITY_TYPE_MAP.get(
+                        SECURITY_TYPE.upper(), SecurityType.WPA_WPA2))),
+                port=Uint32(AIRPLAY_PORT),
+                device_identifier=get_wlan_mac(),
+                public_key=PI,
+                source_version=CARPLAY_SOURCE_VERSION))
+            self._log("CarPlayStartSession sent (wireless): iface=%s ssid=%s channel=%d fe80=%s port=%d"
+                      % (WIFI_IFACE, ssid, channel, fe80, AIRPLAY_PORT))
             return
-        fe80 = await self._wait_carkit_fe80(serial)
-        if not fe80:
-            self._log("CarPlayStartSession: no AV link-local (20s, udid=%s), not starting"
-                      % (serial[:8] if serial else "?"))
-            return
-        await write_csm(stream, CarPlayStartSession(
-            wired_attributes=CarPlayStartSessionWiredAttributes(ip_address=[fe80]),
-            port=Uint32(AIRPLAY_PORT),
-            device_identifier=get_bt_mac(),
-            public_key=PI,
-            source_version=CARPLAY_SOURCE_VERSION))
-        self._log("CarPlayStartSession sent: fe80=%s port=%d" % (fe80, AIRPLAY_PORT))
+        if wired is not None and getattr(wired, "available", False):
+            fe80 = await self._wait_carkit_fe80(serial)
+            if not fe80:
+                self._log("CarPlayStartSession: no AV link-local (20s, udid=%s), not starting"
+                          % (serial[:8] if serial else "?"))
+                return
+            await write_csm(stream, CarPlayStartSession(
+                wired_attributes=CarPlayStartSessionWiredAttributes(ip_address=[fe80]),
+                port=Uint32(AIRPLAY_PORT),
+                device_identifier=get_wlan_mac(),
+                public_key=PI,
+                source_version=CARPLAY_SOURCE_VERSION))
+            self._log("CarPlayStartSession sent (wired): fe80=%s port=%d" % (fe80, AIRPLAY_PORT))
+        elif wireless is not None and getattr(wireless, "available", False):
+            await write_csm(stream, CarPlayStartSession(
+                port=Uint32(AIRPLAY_PORT),
+                device_identifier=get_wlan_mac(),
+                public_key=PI,
+                source_version=CARPLAY_SOURCE_VERSION))
+            self._log("CarPlayStartSession sent (wireless): port=%d" % AIRPLAY_PORT)
+        else:
+            self._log("CarPlayAvailability: neither wired nor wireless available, not starting")
 
     def drop_bt_iap2(self):
         w = self._bt_writer
@@ -605,7 +638,7 @@ class CpHandler:
                     else "None (unhandled msg_id, see [csm] log)"))
                 raise Exception("auth failed")
 
-    async def _handle_identification(self, stream, carkit=False):
+    async def _handle_identification(self, stream, carkit=False, over_wifi=False):
         def messages_ids(*messages):
             from struct import Struct
             word = Struct(">H")
@@ -629,7 +662,7 @@ class CpHandler:
                     supports_iap2_connection=True,
                     car_play_interface_number=Uint8(3),
                     supports_car_play=True)]
-            cp_start = carkit and CARPLAY_WIRED_START_SESSION
+            cp_start = (carkit and CARPLAY_WIRED_START_SESSION) or (not carkit and not over_wifi)
             cp_sent = (CarPlayStartSession,) if cp_start else ()
             cp_recv = (CarPlayAvailability,) if cp_start else ()
             power_sent = (PowerSourceUpdate,) if carkit else ()
@@ -663,8 +696,8 @@ class CpHandler:
                 supported_external_accessory_protocol=[
                     ExternalAccessoryProtocol(
                         id=Uint8(1),
-                        name="en.opencarplay.test",
-                        match_action=MatchAction.NONE,
+                        name="dev.f-io.livi",
+                        match_action=MatchAction.NO_ACTION_NO_COMMUNICATION,
                     )
                 ],
                 current_language="en",
@@ -676,6 +709,8 @@ class CpHandler:
                     id=Uint16(0),
                     name=NAME,
                     engine_type=EngineType.DIESEL,
+                    display_name=NAME,
+                    maps_display_name=NAME,
                 ),
                 vehicle_status_component=VehicleStatusComponent(
                     id=Uint16(0),
@@ -779,7 +814,7 @@ class CpHandler:
                 conn.on_file_transfer = ft.feed
 
                 if carkit:
-                    await self._handle_identification(stream, carkit=carkit)
+                    await self._handle_identification(stream, carkit=carkit, over_wifi=over_wifi)
                     await self._handle_auth(stream, cert)
                     await write_csm(stream, PowerSourceUpdate(
                         available_current_for_device=Uint16(AVAILABLE_CURRENT_MA),
@@ -791,7 +826,7 @@ class CpHandler:
                         self._log("AV: identification done, watching for phone _carplay-ctrl (av-watch)")
                         self.loop.run_in_executor(None, self._av_watch)
                 else:
-                    await self._handle_identification(stream, carkit=carkit)
+                    await self._handle_identification(stream, carkit=carkit, over_wifi=over_wifi)
                     await self._handle_auth(stream, cert)
 
                 await write_csm(stream, StartNowPlayingUpdates(
@@ -849,7 +884,7 @@ class CpHandler:
                         self._log("wireless CarPlay status:", getattr(incoming, "status", None))
                     elif isinstance(incoming, CarPlayAvailability):
                         t = self.loop.create_task(
-                            self._send_carplay_start_session(stream, incoming, usb_serial))
+                            self._send_carplay_start_session(stream, incoming, usb_serial, carkit))
                         self._tasks.add(t)
                         t.add_done_callback(self._tasks.discard)
                     elif isinstance(incoming, DeviceTransportIdentifierNotification):
@@ -949,6 +984,20 @@ class CpHandler:
         })
         self._log("iAP2 Bluetooth profiles registered")
 
+        try:
+            self._carplay_profile = IAPProfile(
+                bus, "/org/bluez/carplay", self._on_connection, self.loop)
+            profile_manager.RegisterProfile(self._carplay_profile, CARPLAY_SERVICE_UUID, {
+                "Role": "server",
+                "Channel": dbus.types.UInt16(CARPLAY_CHANNEL),
+                "ServiceRecord": CARPLAY_RECORD,
+                "RequireAuthentication": False,
+                "RequireAuthorization": False,
+            })
+            self._log("CarPlay service UUID published in the Bluetooth EIR")
+        except Exception as e:
+            self._log("could not publish the CarPlay service UUID:", repr(e))
+
     def _remember_wireless_phone(self, mac):
         """Mark a wireless CarPlay iPhone trusted and record it so the reconnect worker
         can page it back after a restart."""
@@ -990,7 +1039,7 @@ class CpHandler:
 
     def _start_bonjour(self):
         try:
-            carplay_bonjour.start_service(get_bt_mac())
+            carplay_bonjour.start_service(get_wlan_mac())
         except Exception as e:
             self._log("bonjour start failed:", repr(e))
 

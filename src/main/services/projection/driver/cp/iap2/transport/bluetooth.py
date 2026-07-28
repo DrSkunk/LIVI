@@ -115,7 +115,52 @@ class IAPProfile(dbus.service.Object):
 
 IAP_SERVER_UUID = "00000000-deca-fade-deca-deafdecacaff"
 IAP_CLIENT_UUID = "00000000-deca-fade-deca-deafdecacafe"
+CARPLAY_SERVICE_UUID = "ec884348-cd41-40a2-9727-575d50bf1fd3"
 CHANNEL = 3
+CARPLAY_CHANNEL = 4
+CARPLAY_RECORD = f"""
+<?xml version="1.0" encoding="UTF-8" ?>
+<record>
+    <attribute id="0x0001">
+        <sequence>
+            <uuid value="{CARPLAY_SERVICE_UUID}" />
+        </sequence>
+    </attribute>
+    <attribute id="0x0002">
+        <uint32 value="0x00000000" />
+    </attribute>
+    <attribute id="0x0004">
+        <sequence>
+            <sequence>
+                <uuid value="0x0100" />
+            </sequence>
+            <sequence>
+                <uuid value="0x0003" />
+                <uint8 value="0x{CARPLAY_CHANNEL:02x}" />
+            </sequence>
+        </sequence>
+    </attribute>
+    <attribute id="0x0005">
+        <sequence>
+            <uuid value="0x1002" />
+        </sequence>
+    </attribute>
+    <attribute id="0x0008">
+        <uint8 value="0xff" />
+    </attribute>
+    <attribute id="0x0009">
+        <sequence>
+            <sequence>
+                <uuid value="0x1101" />
+                <uint16 value="0x0100" />
+            </sequence>
+        </sequence>
+    </attribute>
+    <attribute id="0x0100">
+        <text value="CarPlay" />
+    </attribute>
+</record>
+"""
 IAP_RECORD = f"""
 <?xml version="1.0" encoding="UTF-8" ?>
 <record>
@@ -215,6 +260,18 @@ class BluetoothTransport:
             'Role': 'client',
             'AutoConnect': True
         })
+
+        try:
+            carPlayProfile = IAPProfile(bus, "/org/bluez/carplay", self.on_connection, self._loop)
+            profileManager.RegisterProfile(carPlayProfile, CARPLAY_SERVICE_UUID, {
+                'Role': 'server',
+                'ServiceRecord': CARPLAY_RECORD,
+                'RequireAuthentication': False,
+                'RequireAuthorization': False
+            })
+            print("[cp] CarPlay service UUID published in the Bluetooth EIR", flush=True)
+        except Exception as e:
+            print(f"[cp] could not publish the CarPlay service UUID: {e!r}", flush=True)
 
         agent = Agent(bus, "/org/bluez/iap_agent")
         agent_manager = dbus.Interface(bluez, "org.bluez.AgentManager1")

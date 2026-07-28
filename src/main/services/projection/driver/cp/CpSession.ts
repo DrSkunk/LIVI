@@ -38,7 +38,7 @@ import {
   SendTouch
 } from '../../messages/sendable'
 import { buildVideoDataMessage } from '../aa/AaEventBridge'
-import { detectBtMac } from '../aa/stack/system/hwaddr'
+import { detectBtMac, detectWifiBssid } from '../aa/stack/system/hwaddr'
 import type { IPhoneDriver } from '../IPhoneDriver'
 import type { CpHelperSock } from './CpHelperSock'
 import { CpStack } from './stack/cpStack'
@@ -611,10 +611,8 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
       deviceName: name,
       oemLabel: cfg.oemName?.trim() ? cfg.oemName : name,
       icons: this._buildIcons(cfg),
-      // deviceID must be the accessory's real BT adapter MAC: CarPlay uses it to
-      // correlate the Bluetooth bond with the CarPlay session, so the phone recognises
-      // the car and auto-reconnects (pair-verify) instead of re-pairing every time.
-      deviceId: detectBtMac(cfg.btAdapter || undefined) ?? 'AA:BB:CC:DD:EE:FF',
+      deviceId: detectWifiBssid(cfg.wifiInterface || undefined) ?? 'AA:BB:CC:DD:EE:FF',
+      btMac: detectBtMac(cfg.btAdapter || undefined) ?? 'AA:BB:CC:DD:EE:FF',
       // AirPlay protocol version we announce.
       sourceVersion: cfg.carPlaySourceVersion?.trim() || DEFAULT_CONFIG.carPlaySourceVersion,
       hevc: this._hevc,
