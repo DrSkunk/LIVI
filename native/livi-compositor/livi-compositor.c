@@ -939,7 +939,17 @@ static void output_frame(struct wl_listener *listener, void *data) {
 		server->scene, output->wlr_output);
 
 	if (!server->cal_active || !cal_full_output(output)) {
-		wlr_scene_output_commit(scene_output, NULL);
+		struct wlr_output_state st;
+		wlr_output_state_init(&st);
+		if (wlr_scene_output_build_state(scene_output, &st, NULL)) {
+			// Nested, damage is relative to what the parent shows, which the
+			// calibration pass breaks by committing from its own swapchain.
+			if (wlr_backend_is_wl(output->wlr_output->backend)) {
+				st.committed &= ~WLR_OUTPUT_STATE_DAMAGE;
+			}
+			wlr_output_commit_state(output->wlr_output, &st);
+		}
+		wlr_output_state_finish(&st);
 	}
 
 	struct timespec now;
