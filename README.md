@@ -62,7 +62,7 @@ dtoverlay=i2c-gpio,bus=2,i2c_gpio_sda=19,i2c_gpio_scl=26,i2c_gpio_delay_us=5
 > [!IMPORTANT]
 > LIVI requires **OpenGL ES 3.x**.
 
-## Desktop session
+## Desktop
 
 For a host that already runs a desktop session. Written for Raspberry Pi OS, and it should work the same on Debian or any other apt-based Linux with a desktop.
 
@@ -249,9 +249,43 @@ Video: 1280x720 - View Area: 0/0/100/0 (T/B/L/R) - Safe Area: 100/100/100/100 (T
 </p>
 
 ### Cluster Stream
-Video: 1280x720 - View Area: 0/0/0/0 (T/B/L/R) - Safe Area: 60/20/350/350 (T/B/L/R)
+Video: 1920x1080 - View Area: 0/0/0/0 (T/B/L/R) - Safe Area: 120/20/500/500 (T/B/L/R)
 <p align="center">
   <img src="docs/images/area/dash_safe_area_aa.png" alt="Safe area cluster stream Android Auto" width="70%" />
+</p>
+
+## Wireless
+
+Wireless sessions do not need a router. LIVI brings up its own Wi-Fi access point and the phone joins that. Bluetooth carries the pairing and the handover, the session itself then runs over Wi-Fi.
+
+Wireless CarPlay and wireless Android Auto are enabled separately, so a head unit can offer one, both, or neither. With Auto Connect on, a phone that has been paired before is picked up again on its own. The car name is what the phone shows when it lists nearby vehicles.
+
+The Wi-Fi page sets the band, password, channel and country for the access point, and picks which Wi-Fi and Bluetooth adapter to use.
+
+Dedicated Interface reserves the Wi-Fi adapter for the access point and brings it up during boot, out of NetworkManager's hands. Without it the access point is started on demand and the interface is handed back afterwards, which keeps it available for normal networking but costs a moment on the first connection.
+
+Configure under Settings → General → Connections.
+
+<p align="center">
+  <img src="docs/images/connections.png" alt="Connection settings" width="42%" align="top" />
+  &emsp;
+  <img src="docs/images/wifi.png" alt="Wi-Fi access point settings" width="42%" align="top" />
+</p>
+
+## Display Calibration
+
+Car displays are rarely colour accurate. Cheap panels wash out blacks, run cold or warm, or crush the shadows once the sun hits them. LIVI can correct this in software.
+
+Gamma, contrast, and the red, green and blue channels are adjustable independently. The correction is applied by the compositor as a single pass over the finished frame, so it covers everything on screen: the LIVI interface, the dashboards, and the projected CarPlay or Android Auto video alike.
+
+The pass only runs while a value differs from its default, so a display that needs no correction costs nothing.
+
+Configure under Settings → Appearance → Contrast / Gamma and Settings → Appearance → Color.
+
+<p align="center">
+  <img src="docs/images/contrast_gamma.png" alt="Contrast and gamma calibration" width="42%" align="top" />
+  &emsp;
+  <img src="docs/images/color.png" alt="Colour channel calibration" width="42%" align="top" />
 </p>
 
 ## Multi-Display
@@ -275,7 +309,7 @@ Settings → General → Tab Settings.
 ## Images
 
 <p align="center">
-  <img src="docs/images/carplay.png" alt="CarPlay" width="42%" align="center" />
+  <img src="docs/images/cp.png" alt="CarPlay" width="42%" align="center" />
   &emsp;
   <img src="docs/images/aa.png" alt="Android Auto" width="42%" align="center" />
 </p>
