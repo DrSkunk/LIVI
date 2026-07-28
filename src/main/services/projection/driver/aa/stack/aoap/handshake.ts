@@ -112,26 +112,13 @@ async function startAccessory(device: Device): Promise<void> {
   await controlOut(device, REQ_START, 0, 0, Buffer.alloc(0))
 }
 
-// node-usb-rs routes a device-recipient control transfer through ANY claimed interface, and errors
-// "invalid state" if none is claimed. The claim need not be interface 0, which on macOS the kernel
-// driver (MTP/PTP) holds. Claim the first interface that is actually claimable (e.g. the vendor one).
-async function claimAnyInterface(device: Device): Promise<number> {
-  const ifaces = device.configuration?.interfaces ?? []
-  let lastErr: unknown
-  for (const iface of ifaces) {
-    try {
-      await device.claimInterface(iface.interfaceNumber)
-      return iface.interfaceNumber
-    } catch (err) {
-      lastErr = err
-    }
+// AOAP control transfers
+export async function runAoapHandshake(device: Device): Promise<void> {
+  if (isAccessoryMode(device)) {
+    // Already in accessory mode
+    return
   }
-  throw new Error(
-    `AOAP: no claimable interface for control transfers: ${(lastErr as Error)?.message ?? 'none present'}`
-  )
-}
 
-async function withClaimedInterface<T>(device: Device, fn: () => Promise<T>): Promise<T> {
   if (!device.configuration && device.configurations.length > 0) {
     try {
       await device.selectConfiguration(device.configurations[0]!.configurationValue)
@@ -139,37 +126,18 @@ async function withClaimedInterface<T>(device: Device, fn: () => Promise<T>): Pr
       /* ignore */
     }
   }
-  const ifaceNum = await claimAnyInterface(device)
-  try {
-    return await fn()
-  } finally {
-    try {
-      await device.releaseInterface(ifaceNum)
-    } catch {
-      /* device may have re-enumerated (after START) */
-    }
-  }
-}
 
-export async function runAoapHandshake(device: Device): Promise<void> {
-  if (isAccessoryMode(device)) {
-    // Already in accessory mode
-    return
+  const proto = await getProtocol(device)
+  if (proto < 1) {
+    throw new Error(`AOAP protocol version ${proto} not supported by device`)
   }
 
-  await withClaimedInterface(device, async () => {
-    const proto = await getProtocol(device)
-    if (proto < 1) {
-      throw new Error(`AOAP protocol version ${proto} not supported by device`)
-    }
+  await sendString(device, STRING_MANUFACTURER, AOAP_MANUFACTURER)
+  await sendString(device, STRING_MODEL, AOAP_MODEL)
+  await sendString(device, STRING_DESCRIPTION, AOAP_DESCRIPTION)
+  await sendString(device, STRING_VERSION, AOAP_VERSION)
+  await sendString(device, STRING_URI, AOAP_URI)
+  await sendString(device, STRING_SERIAL, AOAP_SERIAL)
 
-    await sendString(device, STRING_MANUFACTURER, AOAP_MANUFACTURER)
-    await sendString(device, STRING_MODEL, AOAP_MODEL)
-    await sendString(device, STRING_DESCRIPTION, AOAP_DESCRIPTION)
-    await sendString(device, STRING_VERSION, AOAP_VERSION)
-    await sendString(device, STRING_URI, AOAP_URI)
-    await sendString(device, STRING_SERIAL, AOAP_SERIAL)
-
-    await startAccessory(device)
-  })
+  await startAccessory(device)
 }

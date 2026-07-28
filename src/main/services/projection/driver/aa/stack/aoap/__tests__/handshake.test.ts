@@ -164,28 +164,20 @@ describe('runAoapHandshake', () => {
     expect(d.calls.find((c) => c.request === REQ_START)).toBeDefined()
   })
 
-  test('claims and releases the accessory interface', async () => {
+  test('claims no interface', async () => {
     const d = makeDevice({ pid: 0x4ee1, protocol: 2 })
     await runAoapHandshake(d as unknown as Device)
-    expect(d.claimInterface).toHaveBeenCalledWith(0)
-    expect(d.releaseInterface).toHaveBeenCalledWith(0)
+    expect(d.claimInterface).not.toHaveBeenCalled()
+    expect(d.releaseInterface).not.toHaveBeenCalled()
   })
 
-  test('claims the first claimable interface when interface 0 is held (macOS)', async () => {
-    const d = makeDevice({ pid: 0x4ee1, protocol: 2 })
-    // Interface 0 is held by a kernel driver, interface 1 is the claimable vendor interface.
-    ;(d.configuration as unknown as { interfaces: { interfaceNumber: number }[] }).interfaces = [
-      { interfaceNumber: 0 },
-      { interfaceNumber: 1 }
-    ]
-    d.claimInterface.mockImplementation(async (n: number) => {
-      if (n === 0) throw new Error('kIOReturnExclusiveAccess (0xe00002c5)')
+  test('completes while the only interface is held by another process', async () => {
+    const d = makeDevice({
+      pid: 0x4ee1,
+      protocol: 2,
+      claimError: new Error('kIOReturnExclusiveAccess (0xe00002c5)')
     })
-
     await runAoapHandshake(d as unknown as Device)
-    expect(d.claimInterface).toHaveBeenCalledWith(0)
-    expect(d.claimInterface).toHaveBeenCalledWith(1)
-    expect(d.releaseInterface).toHaveBeenCalledWith(1)
     expect(d.calls.find((c) => c.request === REQ_START)).toBeDefined()
   })
 
