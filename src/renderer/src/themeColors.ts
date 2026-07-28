@@ -10,18 +10,14 @@ export const themeColors = {
   textSecondaryDark: '#bbbbbb',
 
   // Highlight (primary) colors
-  primaryColorLight: '#ff0000',
-  primaryColorDark: '#00ffff',
+  primaryColorLight: '#006B6B',
+  primaryColorDark: '#006B6B',
 
   highlightFocusedFieldLight: '#cccccc',
   highlightFocusedFieldDark: '#bbbbbb',
-  highlightColorLight: '#ff0000',
-  highlightColorDark: '#00ffff',
-
-  // Highlight active projection stream
-  successLight: '#81c784',
-  successMain: '#4caf50',
-  successDark: '#388e3c',
+  highlightColorLight: '#004f4f',
+  highlightColorDark: '#004f4f',
+  successMain: '#30fb37',
 
   // Alpha variants for hover states
   highlightAlphaLight: 'rgba(97, 218, 251, 0.1)',

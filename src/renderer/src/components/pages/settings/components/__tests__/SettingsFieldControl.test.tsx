@@ -1,3 +1,4 @@
+import { themeColors } from '@renderer/themeColors'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { SettingsFieldControl } from '../SettingsFieldControl'
 
@@ -132,7 +133,7 @@ describe('SettingsFieldControl', () => {
       />
     )
     // Default color shows as hex, reset stays disabled until a custom color exists
-    expect(screen.getByText('#00FFFF')).toBeInTheDocument()
+    expect(screen.getByText(themeColors.highlightColorDark.toUpperCase())).toBeInTheDocument()
     expect(screen.getByTestId('icon-button')).toBeDisabled()
 
     rerender(
