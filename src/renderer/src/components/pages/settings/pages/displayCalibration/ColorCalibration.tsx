@@ -32,7 +32,16 @@ export function ColorCalibration(_props: SettingsCustomPageProps<Config, unknown
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 1.5 }}>
+    <Box
+      sx={{
+        flex: 1,
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        gap: 1.5
+      }}
+    >
       <CalibrationFilter
         id={FILTER_ID}
         gamma={gamma}
@@ -43,8 +52,7 @@ export function ColorCalibration(_props: SettingsCustomPageProps<Config, unknown
       />
       <Box
         sx={{
-          flex: 1,
-          minHeight: 0,
+          flex: '0 0 auto',
           display: 'flex',
           flexDirection: 'column',
           gap: 1,

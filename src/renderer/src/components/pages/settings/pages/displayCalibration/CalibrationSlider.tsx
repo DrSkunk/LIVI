@@ -1,6 +1,6 @@
 import RestartAltOutlinedIcon from '@mui/icons-material/RestartAltOutlined'
-import { Box, IconButton, Slider, Typography } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { Box, IconButton, Slider } from '@mui/material'
+import { type ReactNode, useEffect, useState } from 'react'
 
 type Props = {
   label: string
@@ -10,6 +10,7 @@ type Props = {
   step?: number
   defaultValue?: number
   swatch?: string
+  icon?: ReactNode
   onChange?: (v: number) => void
   onCommit: (v: number) => void
 }
@@ -23,6 +24,7 @@ export function CalibrationSlider({
   step = 0.01,
   defaultValue = 1,
   swatch,
+  icon,
   onChange,
   onCommit
 }: Props) {
@@ -36,41 +38,47 @@ export function CalibrationSlider({
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-          {swatch && (
-            <Box
-              sx={{
-                width: 12,
-                height: 12,
-                borderRadius: 0.5,
-                flex: '0 0 auto',
-                backgroundColor: swatch
-              }}
-            />
-          )}
-          <Typography variant="body2" color="text.secondary">
-            {label} {draft.toFixed(2)}
-          </Typography>
-        </Box>
-        <IconButton size="small" disabled={draft === defaultValue} onClick={reset} sx={{ p: 0.25 }}>
-          <RestartAltOutlinedIcon fontSize="small" />
-        </IconButton>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
+      <Box sx={{ position: 'relative', display: 'flex', flex: 1, minWidth: 0, ml: 2 }}>
+        <Slider
+          min={min}
+          max={max}
+          step={step}
+          value={draft}
+          onChange={(_, v) => {
+            setDraft(v as number)
+            onChange?.(v as number)
+          }}
+          onChangeCommitted={(_, v) => onCommit(v as number)}
+          sx={{ flex: 1, minWidth: 0, ...(swatch ? { color: swatch } : {}) }}
+        />
+        {icon && (
+          <Box
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              left: '0.9em',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              display: 'flex',
+              pointerEvents: 'none',
+              color: '#fff',
+              '& .MuiSvgIcon-root': { fontSize: 'clamp(1rem, 2.6svh, 1.3rem)' }
+            }}
+          >
+            {icon}
+          </Box>
+        )}
       </Box>
-      <Slider
+      <IconButton
         size="small"
-        min={min}
-        max={max}
-        step={step}
-        value={draft}
-        onChange={(_, v) => {
-          setDraft(v as number)
-          onChange?.(v as number)
-        }}
-        onChangeCommitted={(_, v) => onCommit(v as number)}
-        sx={{ width: 'calc(100% - 48px)', ml: 2, mr: 2, minWidth: 0 }}
-      />
+        aria-label={label}
+        disabled={draft === defaultValue}
+        onClick={reset}
+        sx={{ p: 0.25, flex: 'none' }}
+      >
+        <RestartAltOutlinedIcon fontSize="small" />
+      </IconButton>
     </Box>
   )
 }

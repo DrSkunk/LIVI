@@ -67,7 +67,7 @@ export function SettingsPage() {
             flex: 1,
             display: 'flex',
             flexDirection: 'column',
-            justifyContent: 'flex-start'
+            justifyContent: node.type === 'slider' ? 'center' : 'flex-start'
           }}
         >
           <SettingsFieldPage

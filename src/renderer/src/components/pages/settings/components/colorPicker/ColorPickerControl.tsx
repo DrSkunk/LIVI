@@ -131,6 +131,7 @@ export const ColorPickerControl = ({ node, value, onChange }: Props) => {
             min={0}
             max={row.max}
             step={1}
+            valueLabelDisplay="off"
             onChange={(_e, v) => preview({ ...hsl, [row.key]: v as number })}
             onChangeCommitted={(_e, v) => commit({ ...hsl, [row.key]: v as number })}
             sx={sliderSx}

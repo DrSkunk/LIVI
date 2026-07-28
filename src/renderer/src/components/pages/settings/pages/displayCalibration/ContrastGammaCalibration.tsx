@@ -1,3 +1,5 @@
+import ContrastRounded from '@mui/icons-material/ContrastRounded'
+import TonalityRounded from '@mui/icons-material/TonalityRounded'
 import { Box, Stack } from '@mui/material'
 import type { SettingsCustomPageProps } from '@renderer/routes/types'
 import type { Config } from '@shared/types'
@@ -36,7 +38,16 @@ export function ContrastGammaCalibration(_props: SettingsCustomPageProps<Config,
   })
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 1.5 }}>
+    <Box
+      sx={{
+        flex: 1,
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        gap: 1.5
+      }}
+    >
       <CalibrationFilter
         id={FILTER_ID}
         gamma={liveGamma}
@@ -47,8 +58,7 @@ export function ContrastGammaCalibration(_props: SettingsCustomPageProps<Config,
       />
       <Box
         sx={{
-          flex: 1,
-          minHeight: 0,
+          flex: '0 0 auto',
           display: 'flex',
           borderRadius: 1,
           overflow: 'hidden',
@@ -62,6 +72,7 @@ export function ContrastGammaCalibration(_props: SettingsCustomPageProps<Config,
       <Stack spacing={1.5} sx={{ px: 1 }}>
         <CalibrationSlider
           label="Gamma"
+          icon={<TonalityRounded />}
           value={gamma}
           min={CALIBRATION_MIN}
           max={CALIBRATION_MAX}
@@ -70,6 +81,7 @@ export function ContrastGammaCalibration(_props: SettingsCustomPageProps<Config,
         />
         <CalibrationSlider
           label="Contrast"
+          icon={<ContrastRounded />}
           value={contrast}
           min={CALIBRATION_MIN}
           max={CALIBRATION_MAX}

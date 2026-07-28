@@ -1,3 +1,4 @@
+import VolumeOffRounded from '@mui/icons-material/VolumeOffRounded'
 import { Box, Slider, Switch, TextField, Typography } from '@mui/material'
 import { useLiviStore } from '@renderer/store/store'
 import type { Config } from '@shared/types'
@@ -24,14 +25,6 @@ const clampInt = (n: number, min: number, max: number, step = 1) => {
   const snapped = step > 1 ? min + Math.round((n - min) / step) * step : Math.round(n)
   return Math.min(max, Math.max(min, snapped))
 }
-
-const marks = [
-  { value: 0, label: '0%' },
-  { value: 25, label: '25%' },
-  { value: 50, label: '50%' },
-  { value: 75, label: '75%' },
-  { value: 100, label: '100%' }
-]
 
 export const SettingsFieldControl = <T,>({
   node,
@@ -104,17 +97,14 @@ export const SettingsFieldControl = <T,>({
         <Slider
           value={Math.round((Number(value ?? 1.0) || 1.0) * 100)}
           max={100}
-          step={5}
-          marks={marks}
-          valueLabelDisplay="off"
+          step={1}
+          valueLabelFormat={(v) => (v === 0 ? <VolumeOffRounded /> : `${v}%`)}
           onChange={(_, v) => onChange(((v as number) / 100) as T)}
           sx={{
             width: 'calc(100% - 48px)',
-            mt: 1.5,
             ml: 2,
             mr: 2,
-            minWidth: 0,
-            '& .MuiSlider-valueLabel': { zIndex: 2 }
+            minWidth: 0
           }}
         />
       )

@@ -1,7 +1,88 @@
 import { alpha, createTheme } from '@mui/material/styles'
 import { CSSObject } from '@mui/system'
+import { SliderValueThumb } from './components/SliderValueThumb'
 import { THEME, UI } from './constants'
 import { themeColors } from './themeColors'
+
+const sliderPill = {
+  medium: { size: 'clamp(34px, 6svh, 46px)', font: 'clamp(0.95rem, 2.5svh, 1.2rem)' },
+  small: { size: 'clamp(26px, 4.6svh, 34px)', font: 'clamp(0.75rem, 2svh, 0.95rem)' }
+}
+
+type SliderStyleArgs = { ownerState: { size?: string; valueLabelDisplay?: string } }
+
+const glowColor = (percent: number): string =>
+  `color-mix(in srgb, currentColor ${percent}%, transparent)`
+
+function sliderComponent(primary: string, isLight: boolean) {
+  return {
+    defaultProps: {
+      valueLabelDisplay: 'on' as const,
+      slots: { thumb: SliderValueThumb }
+    },
+    styleOverrides: {
+      root: ({ ownerState }: SliderStyleArgs): CSSObject => {
+        if (ownerState.valueLabelDisplay === 'off') return {}
+        const pill = ownerState.size === 'small' ? sliderPill.small : sliderPill.medium
+        return {
+          height: pill.size,
+          padding: 0,
+          '& .MuiSlider-rail': {
+            height: pill.size,
+            borderRadius: '999px',
+            opacity: 1,
+            backgroundColor: `color-mix(in srgb, currentColor ${isLight ? 18 : 26}%, transparent)`,
+            boxShadow: `0 0 4px 0 ${glowColor(18)}`,
+            transition: 'box-shadow 140ms ease-out'
+          },
+          '&:hover .MuiSlider-rail, &:has(.MuiSlider-thumb.Mui-active) .MuiSlider-rail, &:has(.MuiSlider-thumb.Mui-focusVisible) .MuiSlider-rail':
+            {
+              boxShadow: `0 0 8px 0 ${glowColor(35)}`
+            },
+          '& .MuiSlider-track': {
+            height: pill.size,
+            border: 0,
+            borderRadius: '999px',
+            transition: 'none'
+          },
+          '& .MuiSlider-thumb': {
+            height: pill.size,
+            width: 0,
+            minWidth: 0,
+            padding: 0,
+            borderRadius: 0,
+            backgroundColor: 'transparent',
+            boxShadow: 'none',
+            transition: 'none',
+            '&::before': { display: 'none' },
+            '&::after': { display: 'none' },
+            '&.Mui-focusVisible, &.Mui-active, &:hover': { boxShadow: 'none' },
+            '& .LiviSlider-value': {
+              position: 'absolute',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              whiteSpace: 'nowrap',
+              display: 'flex',
+              alignItems: 'center',
+              fontSize: pill.font,
+              fontWeight: 900,
+              lineHeight: 1,
+              right: '1em',
+              '&[data-inside="true"]': { color: '#fff' },
+              '&[data-inside="false"]': {
+                color: isLight ? themeColors.textPrimaryLight : themeColors.textPrimaryDark
+              }
+            },
+            '& .MuiSvgIcon-root': { fontSize: '1.3em' }
+          },
+          '& .MuiSlider-valueLabel': { display: 'none' },
+          '& .MuiSlider-mark': { display: 'none' },
+          '& .MuiSlider-markLabel': { top: `calc(${pill.size} + 8px)` }
+        }
+      }
+    }
+  }
+}
 
 const commonLayout = {
   'html, body, #root': {
@@ -215,15 +296,7 @@ function buildTheme(mode: THEME.LIGHT | THEME.DARK, bg?: string) {
         }
       },
 
-      MuiSlider: {
-        styleOverrides: {
-          thumb: {
-            '&.Mui-focusVisible, &.Mui-active, &:hover': {
-              boxShadow: `0 0 0 10px ${alpha(highlight, 0.75)}`
-            }
-          }
-        }
-      },
+      MuiSlider: sliderComponent(primary, isLight),
 
       MuiInputLabel: {
         styleOverrides: {
@@ -513,15 +586,7 @@ export function buildRuntimeTheme(
           track: { ...swTrack, opacity: 1 }
         }
       },
-      MuiSlider: {
-        styleOverrides: {
-          thumb: {
-            '&.Mui-focusVisible, &.Mui-active, &:hover': {
-              boxShadow: `0 0 0 10px ${alpha(highlight!, 0.75)}`
-            }
-          }
-        }
-      }
+      MuiSlider: sliderComponent(primary!, mode === THEME.LIGHT)
     }
   })
 }
