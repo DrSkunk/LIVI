@@ -6,13 +6,148 @@
 
 LIVI is an open-source **Apple CarPlay and Android Auto head unit**.
 
-It is a standalone cross-platform Electron head unit with a native, zero-copy GStreamer video pipeline and hardware-accelerated decoding on Linux (including the Raspberry Pi 4 and 5) and macOS, low-latency audio, multitouch + D-Pad navigation, and support for very small embedded/OEM displays.
+It is a standalone cross-platform head unit with a native, zero-copy GStreamer video pipeline and hardware-accelerated decoding on Linux (including the Raspberry Pi 4 and 5) and macOS, low-latency audio, multitouch + D-Pad navigation, and support for very small embedded/OEM displays.
+
 
 ## Native Connectivity
 
 - **Apple CarPlay** (wired & wireless) on Linux — requires [MFi Authentication](#mfi-authentication)
 - **Android Auto** (wired) on all platforms
 - **Android Auto** (wireless) on Linux
+
+
+## Wireless
+
+Wireless sessions do not need a router. LIVI brings up its own Wi-Fi access point and the phone joins that. Bluetooth carries the pairing and the handover, the session itself then runs over Wi-Fi.
+
+Wireless CarPlay and wireless Android Auto are enabled separately, so a head unit can offer one, both, or neither. With Auto Connect on, a phone that has been paired before is picked up again on its own. The car name is what the phone shows when it lists nearby vehicles.
+
+The Wi-Fi page sets the band, password, channel and country for the access point, and picks which Wi-Fi and Bluetooth adapter to use.
+
+Dedicated Interface reserves the Wi-Fi adapter for the access point and brings it up during boot, out of NetworkManager's hands. Without it the access point is started on demand and the interface is handed back afterwards, which keeps it available for normal networking but costs a moment on the first connection.
+
+Configure under Settings → General → Connections.
+
+<p align="center">
+  <img src="docs/images/connections.png" alt="Connection settings" width="42%" align="top" />
+  &emsp;
+  <img src="docs/images/wifi.png" alt="Wi-Fi access point settings" width="42%" align="top" />
+</p>
+
+
+## Multi-Session
+
+Several phones can be connected at the same time. All of them are tracked live: every session keeps its state, its battery and signal readings, its media metadata and its turn-by-turn navigation up to date in the background, not just the one on screen.
+
+Switching is a handover, not a reconnect. The drivers stay armed and the video and audio paths stay open, so bringing another phone forward takes milliseconds instead of multiple seconds.
+
+Wireless CarPlay, wired CarPlay and wireless Android Auto each take several devices at once. Wired Android Auto is currently limited to one device. Everything within that limit can be combined freely, so a mixed set of CarPlay and Android Auto phones over cable and Wi-Fi is a normal case, not an exception.
+
+Each device is shown with its transport, its battery level and its carrier or signal strength, and the numbered badge is the slot it occupies. The active session is highlighted, the others are marked as available.
+
+Switch from the device list, or bind a key under Settings → General → Key Bindings → Cycle Session to step through the connected phones. Removing a device ends its session and forgets the pairing.
+
+Manage under Settings → Devices.
+
+<p align="center">
+  <img src="docs/images/devices.png" alt="Connected devices" width="70%" />
+</p>
+
+
+## Display Calibration
+
+Car displays are rarely colour accurate. Cheap panels wash out blacks, run cold or warm, or crush the shadows once the sun hits them. LIVI can correct this in software.
+
+Gamma, contrast, and the red, green and blue channels are adjustable independently. The correction is applied by the compositor as a single pass over the finished frame, so it covers everything on screen: the LIVI interface, the dashboards, and the projected CarPlay or Android Auto video alike.
+
+The pass only runs while a value differs from its default, so a display that needs no correction costs nothing.
+
+Configure under Settings → Appearance → Contrast / Gamma and Settings → Appearance → Color.
+
+<p align="center">
+  <img src="docs/images/contrast_gamma.png" alt="Contrast and gamma calibration" width="42%" align="top" />
+  &emsp;
+  <img src="docs/images/color.png" alt="Colour channel calibration" width="42%" align="top" />
+</p>
+
+
+## Dashboard
+
+The Dashboard is a WIP. While the IPC/socket telemetry payload already supports many signals, the UI exposes only a subset. Widgets and layouts will be extended over time.
+
+### Telemetry CLI (local)
+
+To push test data into a running LIVI, use the CLI in `scripts/tools`. The full
+field list and routing lives in
+`src/main/shared/types/Telemetry.ts`.
+
+```bash
+pnpm -C scripts/tools install
+
+# Realistic all-fields demo push
+pnpm -C scripts/tools run telemetry:demo
+
+# Send single fields or blocks ad-hoc
+pnpm -C scripts/tools run telemetry:set fuelPct=4 rangeKm=38
+pnpm -C scripts/tools run telemetry:set gps.lat=53.5912 gps.lng=10.015
+pnpm -C scripts/tools run telemetry:set _repeatMs=1000 speedKph=90 rpm=2500
+```
+
+<p align="center">
+  <img src="docs/images/telemetry.png" alt="Telemetry Dashboard" width="70%" />
+</p>
+
+
+## Multi-Display
+
+LIVI can run as multiple windows at once, each placeable on its own physical display.
+The Dash and Aux windows are freely assignable and can show the Dashes, the reverse camera or the media player. Assignment is not exclusive: any feature can be shown on one, several, or all windows at the same time.
+
+Configure each window under Settings → Window Settings
+(Main Screen / Dash Screen / Aux Screen), and assign features under
+Settings → General → Tab Settings.
+
+<p align="center">
+  <img src="docs/images/multi-display/dash.png" alt="Dash Screen" width="70%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/multi-display/auxilary.png" alt="Aux Screen" width="34%" align="top" />
+  <img src="docs/images/multi-display/livi.png" alt="Main Screen" width="34%" align="top" />
+</p>
+
+
+## View and Safe Area
+
+Stream resolution, view area insets, and safe area can be configured independently for the main and cluster streams. This is supported for Android Auto as well as CarPlay.
+
+### Main Stream
+Video: 1280x720 - View Area: 0/0/100/0 (T/B/L/R) - Safe Area: 100/100/100/100 (T/B/L/R) - Draw Outside: true
+<p align="center">
+  <img src="docs/images/area/main_safe_area_view_area_aa.png" alt="Safe area main stream Android Auto" width="70%" />
+</p>
+
+### Cluster Stream
+Video: 1920x1080 - View Area: 0/0/0/0 (T/B/L/R) - Safe Area: 120/20/500/500 (T/B/L/R)
+<p align="center">
+  <img src="docs/images/area/dash_safe_area_aa.png" alt="Safe area cluster stream Android Auto" width="70%" />
+</p>
+
+
+## Images
+
+<p align="center">
+  <img src="docs/images/cp.png" alt="CarPlay" width="42%" align="center" />
+  &emsp;
+  <img src="docs/images/aa.png" alt="Android Auto" width="42%" align="center" />
+</p>
+
+<p align="center">
+  <img src="docs/images/media.png" alt="Media" width="42%" align="top" />
+  &emsp;
+  <img src="docs/images/settings.png" alt="Settings" width="42%" align="top" />
+</p>
+
 
 ## Native Apple CarPlay
 
@@ -26,6 +161,7 @@ LIVI implements the CarPlay accessory side natively on Linux. Wireless sessions 
 - multi-session with live switching between connected phones
 
 Wireless CarPlay requires a Bluetooth adapter and a Wi-Fi interface dedicated to the access point. Wired CarPlay works on any USB port.
+
 
 ## MFi Authentication
 
@@ -57,10 +193,12 @@ dtoverlay=i2c-gpio,bus=2,i2c_gpio_sda=19,i2c_gpio_scl=26,i2c_gpio_delay_us=5
 ![Coverage Main](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-main.json)
 ![Coverage Renderer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-renderer.json)
 
+
 ## Installation
 
 > [!IMPORTANT]
 > LIVI requires **OpenGL ES 3.x**.
+
 
 ## Desktop
 
@@ -76,6 +214,7 @@ chmod +x install.sh
 ```
 
 _This install script is not actively tested on other Linux distributions._
+
 
 ## Headless
 
@@ -93,6 +232,7 @@ Reboot when it finishes. LIVI then runs fullscreen on tty1 and logs to `~/LIVI/L
 > [!NOTE]
 > The script sets the boot target to `multi-user.target` so the kiosk owns the screen. On a host that boots into a desktop, that disables the graphical login. Undo it with `sudo systemctl set-default graphical.target`.
 
+
 ## Linux (x86_64)
 
 This AppImage has been tested on Debian Trixie (13) with Wayland, Fedora 44 (GNOME) and Ubuntu 26.04.
@@ -102,6 +242,7 @@ chmod +x LIVI-*-x86_64.AppImage
 ```
 
 > **Hardware video decode (optional):** LIVI uses the system VA-API driver for GPU video decode (it is not bundled, since it must match your GPU and kernel). Most desktops ship it, a minimal install may not. Without it LIVI still works via software decode. For HW decode install the driver for your GPU and verify with `vainfo`: `i965-va-driver` (older Intel, e.g. Broadwell), `intel-media-va-driver` (Gen9+ Intel), `mesa-va-drivers` (AMD).
+
 
 ## Mac (arm64)
 
@@ -116,6 +257,7 @@ In that case:
 4. Confirm the dialog
 
 After this, the app will launch normally and future updates will work without additional steps.
+
 
 ## Build Environment
 
@@ -182,7 +324,6 @@ sudo dnf install -y nodejs
 sudo corepack enable
 ```
 
-
 Fedora has no `rfkill` package, the command comes with `util-linux`, and `python3-smbus2` does not exist there either, so `smbus2` comes from pip above. `libspa-0.2-bluetooth` is a Debian name too: it holds PipeWire's Bluetooth plugin, which Fedora ships inside `pipewire-libs`. Wireless Android Auto needs that plugin because the phone will only start a session over an HFP connection, and PipeWire is what puts HFP into the adapter's service record. LIVI's package check probes for the plugin's directory rather than a package name, so it reports the gap on any distro. Everything else, including wireless CarPlay, works the same.
 
 On macOS, the `gst-video` addon links against the **GStreamer.framework**. Install
@@ -212,125 +353,21 @@ pnpm run build:mac:arm64           # Apple Silicon
 pnpm run build:mac:x64             # Intel
 ```
 
-## Dashboard
-
-The Dashboard is currently in an early stage. While the IPC/socket telemetry payload already supports many signals, the UI exposes only a small subset. Widgets and layouts will be extended over time.
-
-### Telemetry CLI (local)
-
-To push test data into a running LIVI, use the CLI in `scripts/tools`. The full
-field list and routing lives in
-`src/main/shared/types/Telemetry.ts`.
-
-```bash
-pnpm -C scripts/tools install
-
-# Realistic all-fields demo push
-pnpm -C scripts/tools run telemetry:demo
-
-# Send single fields or blocks ad-hoc
-pnpm -C scripts/tools run telemetry:set fuelPct=4 rangeKm=38
-pnpm -C scripts/tools run telemetry:set gps.lat=53.5912 gps.lng=10.015
-pnpm -C scripts/tools run telemetry:set _repeatMs=1000 speedKph=90 rpm=2500
-```
-
-<p align="center">
-  <img src="docs/images/dash.png" alt="Dashboard" width="70%" />
-</p>
-
-## View and Safe Area
-
-Stream resolution, view area insets, and safe area can be configured independently for the main and cluster streams. This is supported for Android Auto as well as CarPlay.
-
-### Main Stream
-Video: 1280x720 - View Area: 0/0/100/0 (T/B/L/R) - Safe Area: 100/100/100/100 (T/B/L/R) - Draw Outside: true
-<p align="center">
-  <img src="docs/images/area/main_safe_area_view_area_aa.png" alt="Safe area main stream Android Auto" width="70%" />
-</p>
-
-### Cluster Stream
-Video: 1920x1080 - View Area: 0/0/0/0 (T/B/L/R) - Safe Area: 120/20/500/500 (T/B/L/R)
-<p align="center">
-  <img src="docs/images/area/dash_safe_area_aa.png" alt="Safe area cluster stream Android Auto" width="70%" />
-</p>
-
-## Wireless
-
-Wireless sessions do not need a router. LIVI brings up its own Wi-Fi access point and the phone joins that. Bluetooth carries the pairing and the handover, the session itself then runs over Wi-Fi.
-
-Wireless CarPlay and wireless Android Auto are enabled separately, so a head unit can offer one, both, or neither. With Auto Connect on, a phone that has been paired before is picked up again on its own. The car name is what the phone shows when it lists nearby vehicles.
-
-The Wi-Fi page sets the band, password, channel and country for the access point, and picks which Wi-Fi and Bluetooth adapter to use.
-
-Dedicated Interface reserves the Wi-Fi adapter for the access point and brings it up during boot, out of NetworkManager's hands. Without it the access point is started on demand and the interface is handed back afterwards, which keeps it available for normal networking but costs a moment on the first connection.
-
-Configure under Settings → General → Connections.
-
-<p align="center">
-  <img src="docs/images/connections.png" alt="Connection settings" width="42%" align="top" />
-  &emsp;
-  <img src="docs/images/wifi.png" alt="Wi-Fi access point settings" width="42%" align="top" />
-</p>
-
-## Display Calibration
-
-Car displays are rarely colour accurate. Cheap panels wash out blacks, run cold or warm, or crush the shadows once the sun hits them. LIVI can correct this in software.
-
-Gamma, contrast, and the red, green and blue channels are adjustable independently. The correction is applied by the compositor as a single pass over the finished frame, so it covers everything on screen: the LIVI interface, the dashboards, and the projected CarPlay or Android Auto video alike.
-
-The pass only runs while a value differs from its default, so a display that needs no correction costs nothing.
-
-Configure under Settings → Appearance → Contrast / Gamma and Settings → Appearance → Color.
-
-<p align="center">
-  <img src="docs/images/contrast_gamma.png" alt="Contrast and gamma calibration" width="42%" align="top" />
-  &emsp;
-  <img src="docs/images/color.png" alt="Colour channel calibration" width="42%" align="top" />
-</p>
-
-## Multi-Display
-
-LIVI can run as multiple windows at once, each placeable on its own physical display.
-The Dash and Aux windows are freely assignable and can show the Dashes, the reverse camera or the media player. Assignment is not exclusive: any feature can be shown on one, several, or all windows at the same time.
-
-Configure each window under Settings → Window Settings
-(Main Screen / Dash Screen / Aux Screen), and assign features under
-Settings → General → Tab Settings.
-
-<p align="center">
-  <img src="docs/images/multi-display/dash.png" alt="Dash Screen" width="70%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/multi-display/auxilary.png" alt="Aux Screen" width="34%" align="top" />
-  <img src="docs/images/multi-display/livi.png" alt="Main Screen" width="34%" align="top" />
-</p>
-
-## Images
-
-<p align="center">
-  <img src="docs/images/cp.png" alt="CarPlay" width="42%" align="center" />
-  &emsp;
-  <img src="docs/images/aa.png" alt="Android Auto" width="42%" align="center" />
-</p>
-
-<p align="center">
-  <img src="docs/images/media.png" alt="Media" width="42%" align="top" />
-  &emsp;
-  <img src="docs/images/settings.png" alt="Settings" width="42%" align="top" />
-</p>
 
 ## Debugging
 
 Diagnostic environment flags and where to find the logs are documented in [DEBUGGING.md](DEBUGGING.md).
 
+
 ## Credits
 
 See [CREDITS](CREDITS.md) for acknowledgements and prior art.
 
+
 ## Disclaimer
 
 _Apple and CarPlay are trademarks of Apple Inc. Android and Android Auto are trademarks of Google LLC. This project is not affiliated with or endorsed by Apple or Google. All product names, logos, and brands are the property of their respective owners._
+
 
 ## License
 
