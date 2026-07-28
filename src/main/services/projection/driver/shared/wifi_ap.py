@@ -234,18 +234,14 @@ def ensure_link_local(iface: str = WIFI_IFACE) -> str:
                     f"net.ipv6.conf.{iface}.disable_ipv6=0"], check=False)
     subprocess.run(["sudo", "sysctl", "-qw",
                     f"net.ipv6.conf.{iface}.addr_gen_mode=0"], check=False)
-    if get_wlan_link_local(iface):
-        return get_wlan_link_local(iface)
-    for _ in range(40):
-        ll = get_wlan_link_local(iface)
-        if ll:
-            return ll
-        time.sleep(0.25)
+    ll = get_wlan_link_local(iface)
+    if ll:
+        return ll
     mac = get_wlan_mac(iface).lower().split(":")
     eui = "fe80::%x%s:%sff:fe%s:%s%s" % (
         int(mac[0], 16) ^ 0x02, mac[1], mac[2], mac[3], mac[4], mac[5])
     subprocess.run(["sudo", "ip", "-6", "addr", "add", f"{eui}/64", "dev", iface,
-                    "scope", "link"], check=False)
+                    "scope", "link", "nodad"], check=False)
     for _ in range(8):
         ll = get_wlan_link_local(iface)
         if ll:
