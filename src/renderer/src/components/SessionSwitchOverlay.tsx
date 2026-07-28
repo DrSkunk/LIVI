@@ -65,8 +65,7 @@ export function SessionSwitchOverlay() {
           animation: 'liviSessionSwitch 1500ms ease-in-out forwards'
         }}
       >
-        <span style={{ color: 'var(--ui-highlight, #00e5ff)' }}>{content.position}</span>/
-        {content.total}
+        <span style={{ color: 'var(--ui-primary)' }}>{content.position}</span>/{content.total}
       </div>
     </>
   )

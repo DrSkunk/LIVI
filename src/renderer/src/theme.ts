@@ -157,6 +157,7 @@ function buildTheme(mode: THEME.LIGHT | THEME.DARK, bg?: string) {
           body: {
             backgroundColor: background,
             '--ui-highlight': highlight,
+            '--ui-primary': primary,
             '--ui-breathe-dur': '1350ms'
           },
           '.fft-surface': {
@@ -444,7 +445,8 @@ export function buildRuntimeTheme(
           ...cssBaselineSO,
           body: {
             ...cssBodySO,
-            '--ui-highlight': highlight!
+            '--ui-highlight': highlight!,
+            '--ui-primary': primary!
           },
           ':focus': { outline: 'none' }
         }
