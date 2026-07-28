@@ -21,12 +21,16 @@ vi.mock('@mui/material', async () => {
         onChange={(e) => onChange(e, e.currentTarget.checked)}
       />
     ),
-    Slider: ({ value, onChange }: any) => (
+    Slider: ({ value, onChange, onChangeCommitted }: any) => (
       <input
         data-testid="slider"
         type="range"
         value={value}
-        onChange={(e) => onChange(e, Number(e.currentTarget.value))}
+        onChange={(e) => {
+          const next = Number(e.currentTarget.value)
+          onChange?.(e, next)
+          onChangeCommitted?.(e, next)
+        }}
       />
     ),
     IconButton: ({ onClick, disabled, children }: any) => (

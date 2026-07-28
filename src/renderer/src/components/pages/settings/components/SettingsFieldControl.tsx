@@ -2,7 +2,7 @@ import VolumeOffRounded from '@mui/icons-material/VolumeOffRounded'
 import { Box, Slider, Switch, TextField, Typography } from '@mui/material'
 import { useLiviStore } from '@renderer/store/store'
 import type { Config } from '@shared/types'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SettingsNode } from '../../../../routes'
 import type { SelectOption } from '../../../../routes/types'
@@ -24,6 +24,75 @@ type Props<T> = {
 const clampInt = (n: number, min: number, max: number, step = 1) => {
   const snapped = step > 1 ? min + Math.round((n - min) / step) * step : Math.round(n)
   return Math.min(max, Math.max(min, snapped))
+}
+
+const SLIDER_SETTLE_MS = 40
+const SLIDER_MAX_WAIT_MS = 200
+
+const toPercent = (v: unknown): number => Math.round((Number(v ?? 1.0) || 1.0) * 100)
+
+function VolumeSlider<T>({ value, onChange }: { value: T; onChange: (v: T) => void }) {
+  const [draft, setDraft] = useState(() => toPercent(value))
+  const dragging = useRef(false)
+  const pending = useRef<number | null>(null)
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const maxTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (!dragging.current) setDraft(toPercent(value))
+  }, [value])
+
+  useEffect(() => {
+    return () => {
+      if (settleTimer.current) clearTimeout(settleTimer.current)
+      if (maxTimer.current) clearTimeout(maxTimer.current)
+    }
+  }, [])
+
+  const flush = () => {
+    if (settleTimer.current) {
+      clearTimeout(settleTimer.current)
+      settleTimer.current = null
+    }
+    if (maxTimer.current) {
+      clearTimeout(maxTimer.current)
+      maxTimer.current = null
+    }
+    if (pending.current === null) return
+    const next = pending.current
+    pending.current = null
+    onChange((next / 100) as T)
+  }
+
+  return (
+    <Slider
+      value={draft}
+      max={100}
+      step={1}
+      valueLabelFormat={(v) => (v === 0 ? <VolumeOffRounded /> : `${v}%`)}
+      onChange={(_, v) => {
+        dragging.current = true
+        setDraft(v as number)
+        pending.current = v as number
+        if (settleTimer.current) clearTimeout(settleTimer.current)
+        settleTimer.current = setTimeout(flush, SLIDER_SETTLE_MS)
+        if (!maxTimer.current) {
+          maxTimer.current = setTimeout(flush, SLIDER_MAX_WAIT_MS)
+        }
+      }}
+      onChangeCommitted={(_, v) => {
+        dragging.current = false
+        pending.current = v as number
+        flush()
+      }}
+      sx={{
+        width: 'calc(100% - 48px)',
+        ml: 2,
+        mr: 2,
+        minWidth: 0
+      }}
+    />
+  )
 }
 
 export const SettingsFieldControl = <T,>({
@@ -93,21 +162,7 @@ export const SettingsFieldControl = <T,>({
       )
 
     case 'slider':
-      return (
-        <Slider
-          value={Math.round((Number(value ?? 1.0) || 1.0) * 100)}
-          max={100}
-          step={1}
-          valueLabelFormat={(v) => (v === 0 ? <VolumeOffRounded /> : `${v}%`)}
-          onChange={(_, v) => onChange(((v as number) / 100) as T)}
-          sx={{
-            width: 'calc(100% - 48px)',
-            ml: 2,
-            mr: 2,
-            minWidth: 0
-          }}
-        />
-      )
+      return <VolumeSlider value={value} onChange={onChange} />
 
     case 'select':
       return (
