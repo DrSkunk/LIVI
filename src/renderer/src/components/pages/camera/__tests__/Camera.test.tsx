@@ -130,4 +130,31 @@ describe('pages/camera Camera', () => {
     expect(removeEventListener).toHaveBeenCalledWith('devicechange', deviceChangeHandler)
     expect(HTMLMediaElement.prototype.pause as Mock).toHaveBeenCalled()
   })
+
+  const videoOf = (c: HTMLElement): HTMLVideoElement => c.querySelector('video') as HTMLVideoElement
+
+  test('defaults to an unrotated, mirrored feed', () => {
+    mockSettings = { cameraId: '', cameraMirror: false }
+    enumerateDevices.mockResolvedValue([])
+    const { container } = render(<Camera />)
+    const t = videoOf(container).style.transform
+    expect(t).toContain('rotate(0deg)')
+    expect(t).toContain('scaleX(-1)')
+  })
+
+  test('applies a quarter turn without mirroring when mirror is on', () => {
+    mockSettings = { cameraId: '', cameraMirror: true, cameraRotation: 90 }
+    enumerateDevices.mockResolvedValue([])
+    const { container } = render(<Camera />)
+    const video = videoOf(container)
+    expect(video.style.transform).toContain('rotate(90deg)')
+    expect(video.style.transform).not.toContain('scaleX(-1)')
+  })
+
+  test.each([0, 90, 180, 270] as const)('renders rotation %s°', (deg) => {
+    mockSettings = { cameraId: '', cameraMirror: false, cameraRotation: deg }
+    enumerateDevices.mockResolvedValue([])
+    const { container } = render(<Camera />)
+    expect(videoOf(container).style.transform).toContain(`rotate(${deg}deg)`)
+  })
 })

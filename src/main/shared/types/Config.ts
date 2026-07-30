@@ -203,6 +203,7 @@ export type Config = {
   cameraId: string
   camera: WindowAssignment
   cameraMirror: boolean
+  cameraRotation: 0 | 90 | 180 | 270
   media: WindowAssignment
   dashboards: DashboardsConfig
 

@@ -70,6 +70,7 @@ export const DEFAULT_CONFIG: Config = {
   cameraId: '',
   camera: { main: true, dash: false, aux: false },
   cameraMirror: false,
+  cameraRotation: 0,
   autoSwitchOnReverse: true,
   dongleToolsIp: '',
   visualAudioDelayMs: 0,

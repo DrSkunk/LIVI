@@ -154,6 +154,7 @@
     "auxScreenHeight": "Height",
     "camera": "Camera",
     "cameraMirror": "Mirroring",
+    "cameraRotation": "Rotation",
     "cameraTab": "Camera Tab",
     "reverseCamera": "Reverse Camera",
     "appearance": "Appearance",

@@ -254,6 +254,8 @@ export const Camera: React.FC<CameraProps> = ({
 
   const cameraFound = status.state === 'ok'
   const exactMatched = status.state === 'ok' && status.exactMatched
+  const rotation = (settings?.cameraRotation ?? 0) as 0 | 90 | 180 | 270
+  const mirror = settings?.cameraMirror === true ? '' : ' scaleX(-1)'
 
   return (
     <div
@@ -275,7 +277,7 @@ export const Camera: React.FC<CameraProps> = ({
           objectFit: 'cover',
           objectPosition: 'center',
           display: 'block',
-          transform: settings?.cameraMirror === true ? 'none' : 'scaleX(-1)'
+          transform: `rotate(${rotation}deg)${mirror}`
         }}
       />
 

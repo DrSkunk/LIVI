@@ -215,6 +215,7 @@ describe('generalSchema', () => {
       'camera.dash',
       'camera.aux',
       'cameraMirror',
+      'cameraRotation',
       'select'
     ])
   })

@@ -491,6 +491,23 @@ export const generalSchema: SettingsNode<Config> = {
               path: 'cameraMirror'
             },
             {
+              type: 'select',
+              label: 'Rotation',
+              labelKey: 'settings.cameraRotation',
+              path: 'cameraRotation',
+              displayValue: true,
+              options: [
+                { label: '0°', value: 0 },
+                { label: '90°', value: 90 },
+                { label: '180°', value: 180 },
+                { label: '270°', value: 270 }
+              ],
+              page: {
+                title: 'Camera Rotation',
+                labelTitle: 'settings.cameraRotation'
+              }
+            },
+            {
               type: 'route',
               label: 'Camera',
               labelKey: 'settings.camera',
