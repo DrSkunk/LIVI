@@ -29,7 +29,7 @@
     "build:native:x64": "cd native/gst-video && node-gyp rebuild --arch=x64 --target=$(node -p \"require('electron/package.json').version\") --dist-url=https://artifacts.electronjs.org/headers/dist && cd ../crypto && node-gyp rebuild --arch=x64 --target=$(node -p \"require('electron/package.json').version\") --dist-url=https://artifacts.electronjs.org/headers/dist",
     "build": "pnpm run typecheck && pnpm run build:app",
     "build:compositor:linux": "bash scripts/compositor/build-linux.sh",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node scripts/sync-biome-schema.mjs && electron-builder install-app-deps",
     "build:mac": "pnpm run build:mac:arm64",
     "build:mac:arm64": "pnpm run build:native:arm64 && pnpm run build:app && bash scripts/gstreamer/package-macos.sh --relocate-node && electron-builder --mac --arm64 --publish never --config",
     "build:mac:x64": "pnpm run build:native:x64 && pnpm run build:app && bash scripts/gstreamer/package-macos.sh --relocate-node && electron-builder --mac --x64 --publish never --config",
@@ -41,7 +41,7 @@
     "test:renderer": "vitest run --project renderer",
     "coverage": "pnpm run coverage:main && pnpm run coverage:renderer",
     "coverage:main": "vitest run --project main --coverage --coverage.reportsDirectory=coverage/main",
-    "coverage:renderer": "vitest run --project renderer --coverage --coverage.reportsDirectory=coverage/renderer"
+    "coverage:renderer": "vitest run --project renderer --coverage --coverage.reportsDirectory=coverage/renderer --coverage.include='src/renderer/**'"
   },
   "lint-staged": {
     "*.{js,jsx,cjs,mjs,ts,tsx,cts,mts,json,jsonc,css,scss,md,yml,yaml}": "biome check --write --no-errors-on-unmatched"
@@ -82,7 +82,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/w3c-web-usb": "^1.0.14",
-    "@vitejs/plugin-react": "^6.0.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "@vitest/coverage-v8": "^4.1.10",
     "electron": "^43.2.0",
     "electron-builder": "^26.15.3",
@@ -99,7 +99,7 @@
     "rollup-plugin-visualizer": "^7.0.1",
     "ts-node": "^10.9.2",
     "typescript": "^7.0.2",
-    "vite": "^8.1.5",
+    "vite": "^8.2.0",
     "vite-plugin-electron": "^1.1.0",
     "vite-plugin-electron-renderer": "^1.0.0",
     "vitest": "^4.1.10"
