@@ -580,6 +580,69 @@ describe('FFTSpectrum', () => {
     expect(fillTextMock).not.toHaveBeenCalled()
   })
 
+  test('drops labels and frees the bottom margin when the spectrum is too narrow', async () => {
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: vi.fn(() => ({ width: 60, height: 180, top: 0, left: 0, bottom: 180, right: 60 }))
+    })
+
+    render(<FFTSpectrum />)
+
+    act(() => {
+      vi.runOnlyPendingTimers()
+    })
+
+    expect(fillTextMock).not.toHaveBeenCalled()
+    expect(clearRectMock).toHaveBeenCalled()
+  })
+
+  test('skips a frequency label that would overlap its neighbour', async () => {
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: vi.fn(() => ({ width: 120, height: 180, top: 0, left: 0, bottom: 180, right: 120 }))
+    })
+
+    render(<FFTSpectrum />)
+
+    act(() => {
+      vi.runOnlyPendingTimers()
+    })
+
+    const drawn = fillTextMock.mock.calls.map((c) => c[0])
+    expect(drawn).toContain('20k')
+    expect(drawn).not.toContain('10k')
+  })
+
+  test('skips the raf draw when the canvas detaches before the pending frame runs', async () => {
+    const nowMock = vi.spyOn(performance, 'now')
+    let t = 1000
+    nowMock.mockImplementation(() => t)
+
+    const noop = vi.fn()
+    Object.defineProperty(globalThis, 'cancelAnimationFrame', { configurable: true, value: noop })
+    Object.defineProperty(window, 'cancelAnimationFrame', { configurable: true, value: noop })
+    Object.defineProperty(global, 'cancelAnimationFrame', { configurable: true, value: noop })
+
+    const { unmount } = render(<FFTSpectrum />)
+
+    act(() => {
+      vi.runOnlyPendingTimers()
+    })
+
+    const before = fillRectMock.mock.calls.length
+
+    unmount()
+    t = 2000
+
+    act(() => {
+      vi.runOnlyPendingTimers()
+    })
+
+    expect(fillRectMock.mock.calls.length).toBe(before)
+
+    nowMock.mockRestore()
+  })
+
   test('normalizePcmBuffer clones Float32Array input', async () => {
     const pcm = new Float32Array([0.1, 0.2, 0.3])
 

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { SettingsFieldRow } from '../SettingsFieldRow'
 
 vi.mock('react-i18next', () => ({
@@ -29,8 +29,39 @@ vi.mock('../settingsItemRow', () => ({
     </div>
   )
 }))
+vi.mock('../posSensitiveList/PosSensitiveList', () => ({
+  PosSensitiveList: ({ onChange }: any) => (
+    <button data-testid="pos-list" onClick={() => onChange('picked')} />
+  )
+}))
 
 describe('SettingsFieldRow', () => {
+  test('renders the pos-sensitive list and forwards its changes', () => {
+    const onChange = vi.fn()
+    render(
+      <SettingsFieldRow
+        node={{ type: 'posList', path: 'zones', label: 'Zones' } as any}
+        value={[]}
+        state={{}}
+        onChange={onChange}
+      />
+    )
+    fireEvent.click(screen.getByTestId('pos-list'))
+    expect(onChange).toHaveBeenCalledWith('picked')
+  })
+
+  test('resolves label via labelKey when provided', () => {
+    render(
+      <SettingsFieldRow
+        node={{ type: 'checkbox', path: 'mute', label: 'Mute', labelKey: 'settings.mute' } as any}
+        value={false}
+        state={{ mute: false }}
+        onChange={vi.fn()}
+      />
+    )
+    expect(screen.getByText('t:settings.mute:Mute')).toBeInTheDocument()
+  })
+
   test('renders the device tiles for btDeviceList node', () => {
     render(
       <SettingsFieldRow

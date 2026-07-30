@@ -435,6 +435,30 @@ describe('useOptimisticPlaying', () => {
     expect(clearSpy).toHaveBeenCalledWith(456)
   })
 
+  it('deprecated tolerates a falsy timer id in match effect and override cleanup', async () => {
+    vi.spyOn(window, 'setTimeout').mockImplementation(
+      () => 0 as unknown as ReturnType<typeof setTimeout>
+    )
+
+    const { result, rerender } = renderHook(
+      ({ realPlaying }: { realPlaying: boolean | undefined }) =>
+        useOptimisticPlaying_deprecated(realPlaying),
+      {
+        initialProps: { realPlaying: false }
+      }
+    )
+
+    act(() => {
+      result.current.setOverride(true)
+    })
+
+    act(() => {
+      rerender({ realPlaying: true })
+    })
+
+    expect(result.current.uiPlaying).toBe(true)
+  })
+
   it('clears stale override in effect when manualRef is false but override is still set', async () => {
     const { result, rerender } = renderHook(
       ({ realPlaying, mediaPayloadError }) => useOptimisticPlaying(realPlaying, mediaPayloadError),

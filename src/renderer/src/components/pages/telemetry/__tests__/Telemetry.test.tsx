@@ -212,6 +212,32 @@ describe('Telemetry', () => {
     expect(container.firstChild).toHaveStyle({ position: 'fixed' })
   })
 
+  test('falls back when the active index points past the available dashboards', async () => {
+    normalizeDashComponentsMock.mockReturnValue({
+      dashboards: [
+        { id: 'dash1', pos: 1 },
+        { id: 'dash2', pos: 2 }
+      ]
+    })
+
+    const { rerender } = renderWithContext(<Telemetry />)
+
+    fireEvent.click(screen.getByTestId('pagination'))
+    expect(screen.getByTestId('dash-2')).toBeInTheDocument()
+
+    normalizeDashComponentsMock.mockReturnValue({
+      dashboards: [{ id: 'dash1', pos: 1 }]
+    })
+
+    rerender(
+      <AppContext.Provider value={{ isTouchDevice: false } as any}>
+        <Telemetry />
+      </AppContext.Provider>
+    )
+
+    expect(screen.getByTestId('dash-1')).toBeInTheDocument()
+  })
+
   test('wires pointer handlers from keyboard navigation hook', async () => {
     const onPointerDown = vi.fn()
     const onPointerUp = vi.fn()

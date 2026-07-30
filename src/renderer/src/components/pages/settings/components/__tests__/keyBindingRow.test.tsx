@@ -32,6 +32,17 @@ describe('KeyBindingRow', () => {
     }
   })
 
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'keyboard')
+  })
+
+  const setLayout = (entries: Array<[string, string]>) => {
+    Object.defineProperty(navigator, 'keyboard', {
+      configurable: true,
+      value: { getLayoutMap: async () => new Map(entries) }
+    })
+  }
+
   const node = {
     kind: 'keyBinding',
     id: 'kb.next',
@@ -114,5 +125,102 @@ describe('KeyBindingRow', () => {
     await waitFor(() => {
       expect(mockSaveSettings).toHaveBeenCalled()
     })
+  })
+
+  test('resolves a single-character key through the layout map', async () => {
+    setLayout([['MediaNextTrack', 'x']])
+    render(<KeyBindingRow node={node} />)
+
+    expect(await screen.findByText('X')).toBeInTheDocument()
+  })
+
+  test('resolves a multi-character key through the layout map', async () => {
+    setLayout([['MediaNextTrack', 'Enter']])
+    render(<KeyBindingRow node={node} />)
+
+    expect(await screen.findByText('Enter')).toBeInTheDocument()
+  })
+
+  test('ignores a failing layout map lookup', async () => {
+    Object.defineProperty(navigator, 'keyboard', {
+      configurable: true,
+      value: { getLayoutMap: async () => Promise.reject(new Error('no layout')) }
+    })
+    render(<KeyBindingRow node={node} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('MediaNextTrack')).toBeInTheDocument()
+    })
+  })
+
+  test('shows placeholder when no binding is set', () => {
+    mockSettings = { bindings: {} }
+    render(<KeyBindingRow node={node} />)
+
+    expect(screen.getByText('---')).toBeInTheDocument()
+  })
+
+  test('does not save when settings are missing', () => {
+    mockSettings = null
+    render(<KeyBindingRow node={node} />)
+
+    fireEvent.click(screen.getByTestId('stack-item'))
+    fireEvent.keyDown(document, { key: 'y', code: 'KeyY' })
+
+    expect(mockSaveSettings).not.toHaveBeenCalled()
+  })
+
+  test('creates a bindings map when settings have none', async () => {
+    mockSettings = {}
+    render(<KeyBindingRow node={node} />)
+
+    fireEvent.click(screen.getByTestId('stack-item'))
+    fireEvent.keyDown(document, { key: 'y', code: 'KeyY' })
+
+    await waitFor(() => {
+      expect(mockSaveSettings).toHaveBeenCalledWith({ bindings: { next: 'KeyY' } })
+    })
+  })
+
+  test('falls back to DEFAULT_BINDINGS when node omits a default value', () => {
+    const noDefault = {
+      kind: 'keyBinding',
+      id: 'kb.next',
+      label: 'Next',
+      labelKey: 'settings.key.next',
+      bindingKey: 'next'
+    } as any
+    mockSettings = { bindings: { next: 'KeyN' } }
+    render(<KeyBindingRow node={noDefault} />)
+
+    const buttons = screen.getAllByRole('button')
+    expect(buttons[2]).toBeDisabled()
+  })
+
+  test('treats an unknown binding key as having no default', () => {
+    const bare = {
+      kind: 'keyBinding',
+      id: 'kb.bare',
+      label: 'Bare',
+      bindingKey: 'nonexistent_key'
+    } as any
+    mockSettings = { bindings: {} }
+    render(<KeyBindingRow node={bare} />)
+
+    expect(screen.getByText('Bare')).toBeInTheDocument()
+    const buttons = screen.getAllByRole('button')
+    expect(buttons[2]).toBeDisabled()
+  })
+
+  test('closing the modal backdrop cancels capture', () => {
+    const { baseElement } = render(<KeyBindingRow node={node} />)
+
+    fireEvent.click(screen.getByTestId('stack-item'))
+    expect(screen.getByText(/Press a key for/)).toBeInTheDocument()
+
+    const backdrop = baseElement.querySelector('.MuiBackdrop-root') as HTMLElement
+    fireEvent.click(backdrop)
+
+    expect(screen.queryByText(/Press a key for/)).not.toBeInTheDocument()
   })
 })

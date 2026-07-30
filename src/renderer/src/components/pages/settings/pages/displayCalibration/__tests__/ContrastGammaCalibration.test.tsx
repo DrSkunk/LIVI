@@ -45,4 +45,11 @@ describe('ContrastGammaCalibration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Contrast' }))
     expect(state.saveSettings).not.toHaveBeenCalled()
   })
+
+  test('committing a slider is a no-op while settings are absent', () => {
+    render(<ContrastGammaCalibration {...props} />)
+    const slider = screen.getAllByRole('slider')[0]
+    fireEvent.keyDown(slider, { key: 'ArrowRight' })
+    expect(state.saveSettings).not.toHaveBeenCalled()
+  })
 })

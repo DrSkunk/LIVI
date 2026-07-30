@@ -195,6 +195,36 @@ describe('fft.worker', () => {
     expect(postedMessages).toHaveLength(1)
   })
 
+  test('skips frequency bins below MIN_FREQ', async () => {
+    createSpectrumMock.mockReturnValue(new Float64Array(16))
+    transformMock.mockImplementation((output: Float64Array) => {
+      for (let i = 0; i < output.length; i++) output[i] = 1
+    })
+
+    workerHandler?.({
+      data: {
+        type: 'init',
+        fftSize: 8,
+        points: 4,
+        sampleRate: 8
+      }
+    } as MessageEvent)
+
+    workerHandler?.({
+      data: {
+        type: 'pcm',
+        buffer: new Float32Array([0.2, 0.3, 0.4, 0.5, 0.4, 0.3, 0.2, 0.1]).buffer
+      }
+    } as MessageEvent)
+
+    expect(transformMock).toHaveBeenCalledTimes(1)
+    expect(postedMessages).toHaveLength(1)
+
+    for (const value of postedMessages[0].message.bins as Float32Array) {
+      expect(value).toBe(0)
+    }
+  })
+
   test('ignores unsupported message types', async () => {
     workerHandler?.({
       data: {

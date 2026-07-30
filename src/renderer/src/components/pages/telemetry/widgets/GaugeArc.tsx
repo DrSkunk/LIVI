@@ -135,7 +135,7 @@ export function GaugeArc({
       force()
       raf.current = moving ? requestAnimationFrame(tick) : 0
     }
-    if (!raf.current) raf.current = requestAnimationFrame(tick)
+    raf.current = requestAnimationFrame(tick)
     return () => {
       if (raf.current) cancelAnimationFrame(raf.current)
       raf.current = 0

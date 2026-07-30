@@ -52,4 +52,11 @@ describe('ColorCalibration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Green' }))
     expect(state.saveSettings).not.toHaveBeenCalled()
   })
+
+  test('committing a slider is a no-op while settings are absent', () => {
+    render(<ColorCalibration {...props} />)
+    const slider = screen.getAllByRole('slider')[0]
+    fireEvent.keyDown(slider, { key: 'ArrowRight' })
+    expect(state.saveSettings).not.toHaveBeenCalled()
+  })
 })

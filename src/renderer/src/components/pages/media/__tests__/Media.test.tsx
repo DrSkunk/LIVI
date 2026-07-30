@@ -10,12 +10,26 @@ vi.mock('./../hooks/useBelowNavTop', () => ({
   useBelowNavTop: () => 0
 }))
 
-vi.mock('./../hooks/useElementSize', () => ({
-  useElementSize: () => [{ current: null }, { w: 600, h: 400 }]
-}))
+const sizeHolder = vi.hoisted(() => ({ w: 600, h: 400 }))
 
-vi.mock('./../hooks/useMediaState', () => ({
-  useMediaState: () => ({
+const makeDefaultSnap = () => ({
+  snap: {
+    payload: {
+      media: {
+        MediaSongName: 'Track',
+        MediaArtistName: 'Artist',
+        MediaAlbumName: 'Album',
+        MediaAPPName: 'CarPlay',
+        MediaSongDuration: 1000,
+        MediaPlayStatus: 0
+      }
+    }
+  },
+  livePlayMs: 100
+})
+
+const mediaHolder = vi.hoisted(() => ({
+  value: {
     snap: {
       payload: {
         media: {
@@ -29,7 +43,24 @@ vi.mock('./../hooks/useMediaState', () => ({
       }
     },
     livePlayMs: 100
-  })
+  } as { snap: unknown; livePlayMs: number }
+}))
+
+const setSize = (w: number, h: number) => {
+  sizeHolder.w = w
+  sizeHolder.h = h
+}
+
+const setMedia = (value: { snap: unknown; livePlayMs: number }) => {
+  mediaHolder.value = value
+}
+
+vi.mock('./../hooks/useElementSize', () => ({
+  useElementSize: () => [{ current: null }, { w: sizeHolder.w, h: sizeHolder.h }]
+}))
+
+vi.mock('./../hooks/useMediaState', () => ({
+  useMediaState: () => mediaHolder.value
 }))
 
 let usbEventCb: ((_: unknown, ...args: unknown[]) => void) | undefined
@@ -54,6 +85,8 @@ describe('Media component', () => {
 
   beforeEach(async () => {
     usbEventCb = undefined
+    setSize(600, 400)
+    setMedia(makeDefaultSnap())
     vi.useFakeTimers({ shouldAdvanceTime: true })
     // — expand the global window
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -215,6 +248,148 @@ describe('Media component', () => {
     // Session change resets showFft to false
     await act(async () => {
       usbEventCb?.(null, { type: 'media-reset' })
+    })
+    expect(screen.getByRole('button', { name: /Show spectrum/i })).toBeInTheDocument()
+  })
+
+  it('renders the tiny-screen layout without crashing', async () => {
+    setSize(600, 300)
+    render(<Media />)
+    expect(screen.getByLabelText('Play/Pause')).toBeInTheDocument()
+  })
+
+  it('renders the single-column layout on narrow screens', async () => {
+    setSize(280, 300)
+    render(<Media />)
+    expect(screen.getByLabelText('Play/Pause')).toBeInTheDocument()
+    expect(screen.getByText('Track')).toBeInTheDocument()
+  })
+
+  it('shows the app name in the single column when the artist is empty', async () => {
+    setSize(280, 300)
+    setMedia({
+      snap: {
+        payload: {
+          media: {
+            MediaSongName: 'Track',
+            MediaArtistName: '',
+            MediaAlbumName: 'Album',
+            MediaAPPName: 'CarPlay',
+            MediaSongDuration: 1000,
+            MediaPlayStatus: 0
+          }
+        }
+      },
+      livePlayMs: 100
+    })
+    render(<Media />)
+    expect(screen.getByText('CarPlay')).toBeInTheDocument()
+  })
+
+  it('renders artwork image when base64 image is present', async () => {
+    setMedia({
+      snap: {
+        payload: {
+          base64Image: 'iVBORw0KGgo=',
+          media: {
+            MediaSongName: 'Track',
+            MediaArtistName: 'Artist',
+            MediaAlbumName: 'Album',
+            MediaAPPName: 'CarPlay',
+            MediaSongDuration: 1000,
+            MediaPlayStatus: 0
+          }
+        }
+      },
+      livePlayMs: 100
+    })
+    render(<Media />)
+    expect(screen.getByAltText('Cover')).toBeInTheDocument()
+  })
+
+  it('handles zero playback time and zero duration', async () => {
+    setMedia({
+      snap: {
+        payload: {
+          media: {
+            MediaSongName: 'Track',
+            MediaArtistName: 'Artist',
+            MediaAlbumName: 'Album',
+            MediaAPPName: 'CarPlay',
+            MediaPlayStatus: 0
+          }
+        }
+      },
+      livePlayMs: 0
+    })
+    render(<Media />)
+    expect(screen.getByLabelText('Play/Pause')).toBeInTheDocument()
+  })
+
+  it('holds the last progress when playback appears to jump backwards', async () => {
+    setMedia({
+      snap: {
+        payload: {
+          media: {
+            MediaSongName: 'Track',
+            MediaArtistName: 'Artist',
+            MediaAlbumName: 'Album',
+            MediaAPPName: 'CarPlay',
+            MediaSongDuration: 1000,
+            MediaPlayStatus: 1
+          }
+        }
+      },
+      livePlayMs: 500
+    })
+    const { rerender } = render(<Media />)
+
+    setMedia({
+      snap: {
+        payload: {
+          media: {
+            MediaSongName: 'Track',
+            MediaArtistName: 'Artist',
+            MediaAlbumName: 'Album',
+            MediaAPPName: 'CarPlay',
+            MediaSongDuration: 1000,
+            MediaPlayStatus: 1
+          }
+        }
+      },
+      livePlayMs: 100
+    })
+
+    await act(async () => {
+      rerender(<Media />)
+    })
+
+    expect(screen.getByLabelText('Play/Pause')).toBeInTheDocument()
+  })
+
+  it('car-media-key with an unknown command is ignored', async () => {
+    render(<Media />)
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('car-media-key', { detail: { command: 'seek' } }))
+    })
+    expect(screen.getByLabelText('Play/Pause')).toBeInTheDocument()
+  })
+
+  it('ignores non-toggle keys on the artwork button', async () => {
+    render(<Media />)
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole('button', { name: /Show spectrum/i }), { key: 'a' })
+    })
+    expect(screen.getByRole('button', { name: /Show spectrum/i })).toBeInTheDocument()
+  })
+
+  it('ignores projection events without a media-reset type and without a payload', async () => {
+    render(<Media />)
+
+    await act(async () => {
+      usbEventCb?.(null, { type: 'other' })
+      usbEventCb?.(null)
     })
     expect(screen.getByRole('button', { name: /Show spectrum/i })).toBeInTheDocument()
   })

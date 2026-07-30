@@ -220,4 +220,33 @@ describe('Controls', () => {
     expect(playBtnRef.current).toBe(screen.getByLabelText('Play/Pause'))
     expect(nextBtnRef.current).toBe(screen.getByLabelText('Next'))
   })
+
+  test('sets hovered state on mouse pointer enter and clears it on pointer leave', () => {
+    renderControls()
+
+    const playButton = screen.getByLabelText('Play/Pause')
+
+    fireEvent.pointerEnter(playButton, { pointerType: 'mouse' })
+
+    expect(circleBtnStyleMock).toHaveBeenCalledWith(40, expect.objectContaining({ hovered: true }))
+
+    circleBtnStyleMock.mockClear()
+
+    fireEvent.pointerLeave(playButton)
+
+    expect(circleBtnStyleMock).toHaveBeenCalledWith(40, expect.objectContaining({ hovered: false }))
+  })
+
+  test('ignores non-mouse pointer enter for hover state', () => {
+    renderControls()
+
+    const nextButton = screen.getByLabelText('Next')
+
+    fireEvent.pointerEnter(nextButton, { pointerType: 'touch' })
+
+    expect(circleBtnStyleMock).not.toHaveBeenCalledWith(
+      40,
+      expect.objectContaining({ hovered: true })
+    )
+  })
 })

@@ -2,7 +2,7 @@ import { useStatusStore } from '@store/store'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Controls, ProgressBar } from './components'
 import { FFTSpectrum } from './components/createFFTSpectrum'
-import { EXTRA_SMALL_SCREEN, MIN_SCREEN_SIZE_FOR_ATRWORK, MIN_TEXT_COL } from './constants'
+import { MIN_TEXT_COL } from './constants'
 import { useElementSize, useMediaState, useOptimisticPlaying, usePressFeedback } from './hooks'
 import { MediaEventType, UsbEvent } from './types'
 import { clamp } from './utils'
@@ -43,7 +43,7 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
   const innerMaxWidth = Math.max(0, Math.floor(w - pagePadClamped * 2))
 
   // Layout + artwork
-  const { canTwoCol, artPx, innerW } = mediaLayoutArtworksOps({
+  const { canTwoCol, artPx } = mediaLayoutArtworksOps({
     ctrlSize,
     progressH: progressHScaled,
     w,
@@ -406,41 +406,10 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
                 {title}
               </div>
 
-              {innerW > EXTRA_SMALL_SCREEN && (
-                <>
-                  <div
-                    style={{
-                      opacity: 0.9,
-                      fontSize: `${artistPxScaled}px`,
-                      marginTop: 8,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis'
-                    }}
-                  >
-                    {artist}
-                  </div>
-                  <div
-                    style={{
-                      opacity: 0.7,
-                      fontSize: `${albumPxScaled}px`,
-                      marginTop: 4,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis'
-                    }}
-                  >
-                    {album}
-                  </div>
-                </>
-              )}
-
               <div style={{ opacity: 0.55, fontSize: appPxScaled, marginTop: 4 }}>
-                {innerW > EXTRA_SMALL_SCREEN || !artist ? appName : artist}
+                {!artist ? appName : artist}
               </div>
             </div>
-
-            {innerW > MIN_SCREEN_SIZE_FOR_ATRWORK && (
-              <div style={{ display: 'flex', justifyContent: 'center' }}>{ArtworkOrFft}</div>
-            )}
           </div>
         )}
       </div>

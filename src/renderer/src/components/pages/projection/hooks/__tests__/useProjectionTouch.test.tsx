@@ -34,6 +34,26 @@ describe('useProjectionMultiTouch', () => {
     return el
   }
 
+  const createTargetWith = (rect: { left: number; top: number; width: number; height: number }) => {
+    const el = document.createElement('div')
+    el.setPointerCapture = vi.fn()
+    el.releasePointerCapture = vi.fn()
+    Object.defineProperty(el, 'getBoundingClientRect', {
+      value: () => ({
+        left: rect.left,
+        top: rect.top,
+        right: rect.left + rect.width,
+        bottom: rect.top + rect.height,
+        width: rect.width,
+        height: rect.height,
+        x: rect.left,
+        y: rect.top,
+        toJSON: () => ({})
+      })
+    })
+    return el
+  }
+
   const ptrEvent = (target: HTMLElement, options: Partial<any>) =>
     ({
       currentTarget: target,
@@ -184,5 +204,280 @@ describe('useProjectionMultiTouch', () => {
 
     result.current.onContextMenu({ preventDefault } as unknown as React.MouseEvent<HTMLDivElement>)
     expect(preventDefault).toHaveBeenCalled()
+  })
+
+  test('maps touch through a portrait letterbox transform', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const transform = {
+      streamWidth: 200,
+      streamHeight: 400,
+      cropLeft: 0,
+      cropTop: 0,
+      visibleWidth: 100,
+      visibleHeight: 200
+    }
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef, transform))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerId: 1 }))
+
+    expect(sendMultiTouch).toHaveBeenCalledWith([
+      expect.objectContaining({ action: MultiTouchAction.Down, x: 0.25, y: 0.25 })
+    ])
+  })
+
+  test('maps touch through a landscape letterbox transform', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const transform = {
+      streamWidth: 400,
+      streamHeight: 200,
+      cropLeft: 0,
+      cropTop: 0,
+      visibleWidth: 200,
+      visibleHeight: 100
+    }
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef, transform))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerId: 1 }))
+
+    expect(sendMultiTouch).toHaveBeenCalledWith([
+      expect.objectContaining({ action: MultiTouchAction.Down, x: 0.25, y: 0.25 })
+    ])
+  })
+
+  test('clamps transformed coordinates above one', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const transform = {
+      streamWidth: 100,
+      streamHeight: 100,
+      cropLeft: 90,
+      cropTop: 0,
+      visibleWidth: 100,
+      visibleHeight: 100
+    }
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef, transform))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerId: 1 }))
+
+    expect(sendMultiTouch).toHaveBeenCalledWith([
+      expect.objectContaining({ action: MultiTouchAction.Down, x: 1, y: 0.5 })
+    ])
+  })
+
+  test('clamps transformed coordinates below zero', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const transform = {
+      streamWidth: 100,
+      streamHeight: 100,
+      cropLeft: -50,
+      cropTop: 0,
+      visibleWidth: 100,
+      visibleHeight: 100
+    }
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef, transform))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerId: 1, clientX: 0 }))
+
+    expect(sendMultiTouch).toHaveBeenCalledWith([
+      expect.objectContaining({ action: MultiTouchAction.Down, x: 0, y: 0.5 })
+    ])
+  })
+
+  test('falls back to container mapping when transform is unusable', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const transform = {
+      streamWidth: 0,
+      streamHeight: 100,
+      cropLeft: 0,
+      cropTop: 0,
+      visibleWidth: 100,
+      visibleHeight: 100
+    }
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef, transform))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerId: 1 }))
+
+    expect(sendMultiTouch).toHaveBeenCalledWith([
+      expect.objectContaining({ action: MultiTouchAction.Down, x: 0.5, y: 0.5 })
+    ])
+  })
+
+  test('ignores transformed points outside the display area', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const transform = {
+      streamWidth: 200,
+      streamHeight: 400,
+      cropLeft: 0,
+      cropTop: 0,
+      visibleWidth: 100,
+      visibleHeight: 200
+    }
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef, transform))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerId: 1, clientX: 5 }))
+
+    expect(sendMultiTouch).not.toHaveBeenCalled()
+  })
+
+  test('ignores events when the target rect has zero size', () => {
+    const target = createTargetWith({ left: 0, top: 0, width: 0, height: 0 })
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerId: 1 }))
+
+    expect(sendMultiTouch).not.toHaveBeenCalled()
+    expect(sendTouch).not.toHaveBeenCalled()
+  })
+
+  test('falls back to the event target when videoRef is empty', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerType: 'mouse' }))
+
+    expect(sendTouch).toHaveBeenCalledWith(0.5, 0.5, TouchAction.Down)
+  })
+
+  test('ignores touch move for an unknown pointer', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef))
+
+    result.current.onPointerMove(ptrEvent(target, { pointerId: 99 }))
+
+    expect(sendMultiTouch).not.toHaveBeenCalled()
+  })
+
+  test('ignores finish for an unknown touch pointer', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef))
+
+    result.current.onPointerUp(ptrEvent(target, { pointerId: 99 }))
+
+    expect(sendMultiTouch).not.toHaveBeenCalled()
+    expect(target.releasePointerCapture).not.toHaveBeenCalled()
+  })
+
+  test('mouse finish out of bounds clears the drag without sending up', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerType: 'mouse' }))
+    result.current.onPointerUp(
+      ptrEvent(target, { pointerType: 'mouse', clientX: 200, clientY: 200 })
+    )
+
+    expect(sendTouch).toHaveBeenCalledTimes(1)
+    expect(sendTouch).toHaveBeenCalledWith(0.5, 0.5, TouchAction.Down)
+
+    result.current.onPointerMove(ptrEvent(target, { pointerType: 'mouse', clientX: 60 }))
+    flushRaf()
+    expect(sendTouch).toHaveBeenCalledTimes(1)
+  })
+
+  test('reuses the existing slot for a repeated pointerdown of the same pointer', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerId: 7 }))
+    result.current.onPointerDown(ptrEvent(target, { pointerId: 7, clientX: 60 }))
+
+    expect(sendMultiTouch).toHaveBeenCalledTimes(2)
+    const downIds = sendMultiTouch.mock.calls
+      .flatMap((c) => c[0] as Array<{ id: number; action: MultiTouchAction }>)
+      .filter((x) => x.action === MultiTouchAction.Down)
+      .map((x) => x.id)
+    expect(downIds).toEqual([0, 0])
+  })
+
+  test('coalesces successive moves into a single frame', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerId: 3 }))
+    result.current.onPointerMove(ptrEvent(target, { pointerId: 3, clientX: 60 }))
+    result.current.onPointerMove(ptrEvent(target, { pointerId: 3, clientX: 70 }))
+    flushRaf()
+
+    const moveCalls = sendMultiTouch.mock.calls
+      .flatMap((c) => c[0] as Array<{ action: MultiTouchAction }>)
+      .filter((x) => x.action === MultiTouchAction.Move)
+    expect(moveCalls).toHaveLength(1)
+  })
+
+  test('cancels a scheduled move when a finish arrives before flush', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerId: 4 }))
+    result.current.onPointerMove(ptrEvent(target, { pointerId: 4, clientX: 60 }))
+    result.current.onPointerUp(ptrEvent(target, { pointerId: 4, clientX: 80 }))
+    flushRaf()
+
+    const moveCalls = sendMultiTouch.mock.calls
+      .flatMap((c) => c[0] as Array<{ action: MultiTouchAction }>)
+      .filter((x) => x.action === MultiTouchAction.Move)
+    expect(moveCalls).toHaveLength(0)
+    expect(sendMultiTouch).toHaveBeenCalledWith([
+      expect.objectContaining({ action: MultiTouchAction.Up, x: 0.8, y: 0.5 })
+    ])
+  })
+
+  test('cancels a pending frame on unmount', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const { result, unmount } = renderHook(() => useProjectionMultiTouch(videoRef))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerId: 5 }))
+    result.current.onPointerMove(ptrEvent(target, { pointerId: 5, clientX: 60 }))
+
+    expect(() => unmount()).not.toThrow()
   })
 })

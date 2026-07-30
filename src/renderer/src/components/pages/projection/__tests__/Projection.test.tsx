@@ -29,7 +29,8 @@ const liviState: Record<string, any> = {
   setDeviceInfo: vi.fn(),
   setAudioInfo: vi.fn(),
   setPcmData: vi.fn(),
-  setBluetoothPairedList: vi.fn()
+  setBluetoothPairedList: vi.fn(),
+  bumpAudioDevicesRevision: vi.fn()
 }
 
 vi.mock('react-router', () => ({
@@ -129,6 +130,7 @@ describe('Projection page', () => {
     liviState.setAudioInfo.mockClear()
     liviState.setPcmData.mockClear()
     liviState.setBluetoothPairedList.mockClear()
+    liviState.bumpAudioDevicesRevision.mockClear()
     statusState.setStreaming.mockClear()
     statusState.setDongleHardwarePresent.mockClear()
     statusState.setActiveProtocol.mockClear()
@@ -943,7 +945,579 @@ describe('Projection page', () => {
 
     document.body.removeChild(anchor)
   })
+
+  test('navigating back to projection presses home and requests a frame', async () => {
+    mockPathname = '/media'
+
+    const { rerender } = render(<Projection {...baseProps()} />)
+    ;(window as any).projection.ipc.sendCommand.mockClear()
+    ;(window as any).projection.ipc.sendFrame.mockClear()
+
+    mockPathname = '/'
+    rerender(<Projection {...baseProps()} />)
+
+    await waitFor(() =>
+      expect((window as any).projection.ipc.sendCommand).toHaveBeenCalledWith('home')
+    )
+    expect((window as any).projection.ipc.sendFrame).toHaveBeenCalled()
+  })
+
+  test('navigating back to projection is a no-op while projection is inactive', async () => {
+    statusState.isDongleHardwarePresent = false
+    statusState.activeProtocol = null
+
+    mockPathname = '/media'
+    const { rerender } = render(<Projection {...baseProps()} />)
+    ;(window as any).projection.ipc.sendCommand.mockClear()
+
+    mockPathname = '/'
+    rerender(<Projection {...baseProps()} />)
+
+    expect((window as any).projection.ipc.sendCommand).not.toHaveBeenCalledWith('home')
+  })
+
+  test('back-to-projection frame request swallows a rejection', async () => {
+    ;(window as any).projection.ipc.sendFrame = vi.fn().mockRejectedValue(new Error('no frame'))
+
+    mockPathname = '/media'
+    const { rerender } = render(<Projection {...baseProps()} />)
+
+    mockPathname = '/'
+    expect(() => rerender(<Projection {...baseProps()} />)).not.toThrow()
+
+    await waitFor(() =>
+      expect((window as any).projection.ipc.sendCommand).toHaveBeenCalledWith('home')
+    )
+  })
+
+  test('visibility update swallows a rejection', async () => {
+    ;(window as any).projection.ipc.setVisible = vi.fn().mockRejectedValue(new Error('hidden'))
+
+    expect(() => render(<Projection {...baseProps()} />)).not.toThrow()
+
+    await waitFor(() => expect((window as any).projection.ipc.setVisible).toHaveBeenCalled())
+  })
+
+  test('overlay recalc tolerates a missing ResizeObserver', () => {
+    const anchor = document.createElement('div')
+    anchor.id = 'content-root'
+    document.body.appendChild(anchor)
+
+    const { rerender } = render(
+      <Projection {...baseProps({ settings: baseSettings({ hand: 'left' }) })} />
+    )
+
+    const original = (global as any).ResizeObserver
+    ;(global as any).ResizeObserver = undefined
+
+    expect(() =>
+      rerender(<Projection {...baseProps({ settings: baseSettings({ hand: 'right' }) })} />)
+    ).not.toThrow()
+
+    ;(global as any).ResizeObserver = original
+    document.body.removeChild(anchor)
+  })
+
+  test('worker audioInfo without payload defaults sample rate to zero', async () => {
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      MockWorker.instances[0]?.emit({ type: 'audioInfo' })
+    })
+
+    expect(liviState.setAudioInfo).toHaveBeenCalledWith({ sampleRate: 0 })
+  })
+
+  test('worker command voiceAssistantUiActive switches to projection', async () => {
+    mockPathname = '/media'
+
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      MockWorker.instances[0]?.emit({
+        type: 'command',
+        message: { value: CommandMapping.voiceAssistantUiActive }
+      })
+    })
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/', { replace: true }))
+  })
+
+  test('worker command voiceAssistantUiIdle returns to the previous route', async () => {
+    mockPathname = '/media'
+
+    const { rerender } = render(<Projection {...baseProps()} />)
+
+    act(() => {
+      MockWorker.instances[0]?.emit({
+        type: 'command',
+        message: { value: CommandMapping.voiceAssistantUiActive }
+      })
+    })
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/', { replace: true }))
+
+    navigateMock.mockClear()
+    mockPathname = '/'
+    rerender(<Projection {...baseProps()} />)
+
+    act(() => {
+      MockWorker.instances[0]?.emit({
+        type: 'command',
+        message: { value: CommandMapping.voiceAssistantUiIdle }
+      })
+    })
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/media', { replace: true }))
+  })
+
+  test('worker failure retry timer reloads the window', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    const reloadSpy = vi.fn()
+    const originalLocation = window.location
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...originalLocation, reload: reloadSpy }
+    })
+
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      MockWorker.instances[0]?.emit({ type: 'failure' })
+    })
+
+    act(() => {
+      vi.advanceTimersByTime(3000)
+    })
+
+    expect(reloadSpy).toHaveBeenCalled()
+
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: originalLocation
+    })
+    vi.useRealTimers()
+  })
+
+  test('ipc dongleInfo without boxInfo keeps the previous box info', async () => {
+    liviState.boxInfo = { keep: true }
+    liviState.dongleFwVersion = 'old'
+
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'dongleInfo', payload: { dongleFwVersion: 'fw' } })
+    })
+
+    expect(liviState.dongleFwVersion).toBe('fw')
+    expect(liviState.boxInfo).toEqual({ keep: true })
+  })
+
+  test('ipc dongleInfo without a firmware version keeps the previous one', async () => {
+    liviState.boxInfo = null
+    liviState.dongleFwVersion = 'keep-fw'
+
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'dongleInfo', payload: { boxInfo: { a: 1 } } })
+    })
+
+    expect(liviState.dongleFwVersion).toBe('keep-fw')
+    expect(liviState.boxInfo).toEqual({ a: 1 })
+  })
+
+  test('ipc dongleInfo without a payload is ignored', async () => {
+    liviState.dongleFwVersion = 'unchanged'
+
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'dongleInfo' })
+    })
+
+    expect(liviState.dongleFwVersion).toBe('unchanged')
+  })
+
+  test('bluetoothPairedList reads a nested payload.data string', async () => {
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'bluetoothPairedList', payload: { data: 'nested-a\nnested-b' } })
+    })
+
+    expect(liviState.setBluetoothPairedList).toHaveBeenCalledWith('nested-a\nnested-b')
+  })
+
+  test('bluetoothPairedList reads a top-level data string', async () => {
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'bluetoothPairedList', data: 'top-a\ntop-b' })
+    })
+
+    expect(liviState.setBluetoothPairedList).toHaveBeenCalledWith('top-a\ntop-b')
+  })
+
+  test('bluetoothPairedList falls back to an empty string', async () => {
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'bluetoothPairedList' })
+    })
+
+    expect(liviState.setBluetoothPairedList).toHaveBeenCalledWith('')
+  })
+
+  test('audioDevicesChanged bumps the audio devices revision', async () => {
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'audioDevicesChanged' })
+    })
+
+    expect(liviState.bumpAudioDevicesRevision).toHaveBeenCalled()
+  })
+
+  test('resolution event stores negotiated dimensions', async () => {
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'resolution', payload: { width: 1280, height: 720 } })
+    })
+
+    expect(liviState.negotiatedWidth).toBe(1280)
+    expect(liviState.negotiatedHeight).toBe(720)
+  })
+
+  test('resolution event without a payload is ignored', async () => {
+    liviState.negotiatedWidth = 42
+
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'resolution' })
+    })
+
+    expect(liviState.negotiatedWidth).toBe(42)
+  })
+
+  test('resolution event with a non-numeric width is ignored', async () => {
+    liviState.negotiatedWidth = 43
+
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'resolution', payload: { width: 'x', height: 100 } })
+    })
+
+    expect(liviState.negotiatedWidth).toBe(43)
+  })
+
+  test('resolution event with a missing height is ignored', async () => {
+    liviState.negotiatedWidth = 44
+
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'resolution', payload: { width: 100 } })
+    })
+
+    expect(liviState.negotiatedWidth).toBe(44)
+  })
+
+  test('audio event with a non-numeric command is ignored', async () => {
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'audio', payload: {} })
+    })
+
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  test('ipc audioInfo without a payload is ignored', async () => {
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'audioInfo' })
+    })
+
+    expect(liviState.setAudioInfo).not.toHaveBeenCalled()
+  })
+
+  test('ipc audioInfo without a sample rate defaults to zero', async () => {
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'audioInfo', payload: {} })
+    })
+
+    expect(liviState.setAudioInfo).toHaveBeenCalledWith({ sampleRate: 0 })
+  })
+
+  test('ipc command with a non-numeric value is ignored', async () => {
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'command', message: {} })
+    })
+
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  test('resize observer forwards frame requests to the worker', async () => {
+    let roCb: (() => void) | undefined
+    ;(global as any).ResizeObserver = vi.fn(function (cb: () => void) {
+      roCb = cb
+      return { observe: vi.fn(), disconnect: vi.fn() }
+    })
+
+    render(<Projection {...baseProps()} />)
+
+    const worker = MockWorker.instances[0]
+    worker.postMessage.mockClear()
+
+    act(() => {
+      roCb?.()
+    })
+
+    expect(worker.postMessage).toHaveBeenCalledWith({ type: 'frame' })
+  })
+
+  test('key command effect skips when the counter matches the last sent value', async () => {
+    const { rerender } = render(
+      <Projection {...baseProps()} command={'home' as any} commandCounter={1} />
+    )
+    expect((window as any).projection.ipc.sendCommand).toHaveBeenCalledTimes(1)
+
+    rerender(<Projection {...baseProps()} command={'back' as any} commandCounter={1} />)
+
+    expect((window as any).projection.ipc.sendCommand).toHaveBeenCalledTimes(1)
+  })
+
+  test('computes the touch transform when dimensions are negotiated', () => {
+    liviState.negotiatedWidth = 1920
+    liviState.negotiatedHeight = 1080
+
+    expect(() =>
+      render(
+        <Projection
+          {...baseProps({
+            settings: baseSettings({ projectionWidth: 800, projectionHeight: 480 })
+          })}
+        />
+      )
+    ).not.toThrow()
+  })
+
+  test('handles null negotiated dimensions', () => {
+    liviState.negotiatedWidth = null
+    liviState.negotiatedHeight = null
+
+    expect(() => render(<Projection {...baseProps()} />)).not.toThrow()
+  })
+
+  test('handles negotiated width without a negotiated height', () => {
+    liviState.negotiatedWidth = 100
+    liviState.negotiatedHeight = 0
+
+    expect(() => render(<Projection {...baseProps()} />)).not.toThrow()
+  })
+
+  test('handles negotiated dimensions with a zero projection width', () => {
+    liviState.negotiatedWidth = 100
+    liviState.negotiatedHeight = 100
+
+    expect(() =>
+      render(
+        <Projection
+          {...baseProps({ settings: baseSettings({ projectionWidth: 0, projectionHeight: 480 }) })}
+        />
+      )
+    ).not.toThrow()
+  })
+
+  test('handles negotiated dimensions with a zero projection height', () => {
+    liviState.negotiatedWidth = 100
+    liviState.negotiatedHeight = 100
+
+    expect(() =>
+      render(
+        <Projection
+          {...baseProps({ settings: baseSettings({ projectionWidth: 800, projectionHeight: 0 }) })}
+        />
+      )
+    ).not.toThrow()
+  })
+
+  test('requestHostUI does not navigate when already on the host route', async () => {
+    mockPathname = '/media'
+
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'command', message: { value: CommandMapping.requestHostUI } })
+    })
+
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  test('call attention stays armed when active follows ringing on projection', async () => {
+    mockPathname = '/media'
+    const settings = baseSettings({ autoSwitchOnPhoneCall: true })
+
+    const { rerender } = render(<Projection {...baseProps({ settings })} />)
+
+    act(() => {
+      onEventCb?.(null, {
+        type: 'audio',
+        payload: { command: AudioCommand.AudioAttentionRinging }
+      })
+    })
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/', { replace: true }))
+
+    navigateMock.mockClear()
+    mockPathname = '/'
+    rerender(<Projection {...baseProps({ settings })} />)
+
+    act(() => {
+      onEventCb?.(null, {
+        type: 'audio',
+        payload: { command: AudioCommand.AudioPhonecallStart }
+      })
+    })
+
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  test('voiceAssistant idle does not navigate back when not on the projection route', async () => {
+    mockPathname = '/media'
+
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, {
+        type: 'command',
+        message: { value: CommandMapping.voiceAssistantUiActive }
+      })
+    })
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/', { replace: true }))
+
+    navigateMock.mockClear()
+
+    act(() => {
+      onEventCb?.(null, {
+        type: 'command',
+        message: { value: CommandMapping.voiceAssistantUiIdle }
+      })
+    })
+
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  test('worker command with an unrecognized value is ignored', async () => {
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      MockWorker.instances[0]?.emit({ type: 'command', message: { value: 4242 } })
+    })
+
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  test('worker failure does not schedule a second retry while one is pending', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout')
+
+    render(<Projection {...baseProps()} />)
+
+    const worker = MockWorker.instances[0]
+
+    act(() => {
+      worker.emit({ type: 'failure' })
+    })
+    act(() => {
+      worker.emit({ type: 'failure' })
+    })
+
+    const retryCalls = setTimeoutSpy.mock.calls.filter((call) => call[1] === 3000)
+    expect(retryCalls).toHaveLength(1)
+
+    setTimeoutSpy.mockRestore()
+    vi.useRealTimers()
+  })
+
+  test('a second usb plugged event does not re-run device setup', async () => {
+    render(<Projection {...baseProps()} />)
+
+    await act(async () => {
+      await usbCb?.(null, { type: 'plugged' })
+    })
+
+    liviState.resetInfo.mockClear()
+
+    await act(async () => {
+      await usbCb?.(null, { type: 'plugged' })
+    })
+
+    expect(liviState.resetInfo).not.toHaveBeenCalled()
+  })
+
+  test('usb connect bails out when the component unmounts mid-lookup', async () => {
+    let resolveInfo: ((v: unknown) => void) | undefined
+    ;(window as any).projection.usb.getDeviceInfo = vi.fn(
+      () =>
+        new Promise((r) => {
+          resolveInfo = r
+        })
+    )
+
+    const { unmount } = render(<Projection {...baseProps()} />)
+
+    await act(async () => {
+      usbCb?.(null, { type: 'plugged' })
+    })
+
+    unmount()
+
+    await act(async () => {
+      resolveInfo?.({ device: true, vendorId: 1, productId: 2, usbFwVersion: 'x' })
+    })
+
+    expect(statusState.setDongleHardwarePresent).not.toHaveBeenCalledWith(true)
+  })
+
+  test('an unknown usb event type is ignored', async () => {
+    render(<Projection {...baseProps()} />)
+
+    await act(async () => {
+      usbCb?.(null, { type: 'other' })
+    })
+
+    expect(statusState.setDongleHardwarePresent).not.toHaveBeenCalled()
+  })
+
+  test('audio event with an unrecognized numeric command is ignored', async () => {
+    render(<Projection {...baseProps()} />)
+
+    act(() => {
+      onEventCb?.(null, { type: 'audio', payload: { command: 99999 } })
+    })
+
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
 })
+
+function baseSettings(overrides: any = {}) {
+  return {
+    width: 800,
+    height: 480,
+    fps: 60,
+    cluster: { main: false, dash: false, aux: false },
+    ...overrides
+  }
+}
 
 function baseProps(overrides: any = {}) {
   return {

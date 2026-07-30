@@ -237,8 +237,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
     (p: AttentionPayload) => {
       const inProjection = location.pathname === '/'
 
-      if (p.kind !== 'call' && p.kind !== 'voiceAssistant') return
-
       // ACTIVE: switch to projection
       if (p.active) {
         // Already on projection: keep the arm if this kind switched us here (ring -> active).
@@ -274,7 +272,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
 
   // Projection worker messages
   useEffect(() => {
-    if (!carplayWorker) return
     const handler = (ev: MessageEvent<WorkerToUI>) => {
       const msg = ev.data
       switch (msg.type) {
@@ -563,9 +560,9 @@ const CarplayComponent: React.FC<CarplayProps> = ({
 
   // Resize observer => inform render worker
   useEffect(() => {
-    if (!carplayWorker || !mainElem.current) return
+    const el = mainElem.current as HTMLDivElement
     const obs = new ResizeObserver(() => carplayWorker.postMessage({ type: 'frame' }))
-    obs.observe(mainElem.current)
+    obs.observe(el)
     return () => obs.disconnect()
   }, [carplayWorker])
 

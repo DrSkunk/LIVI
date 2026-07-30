@@ -14,6 +14,17 @@ describe('settings utils', () => {
     expect(obj).toEqual({ ui: { theme: { primary: '#fff' } } })
   })
 
+  test('setValueByPath is a no-op for an empty path', () => {
+    const obj: Record<string, unknown> = { existing: 1 }
+    setValueByPath(obj, '', 'ignored')
+    expect(obj).toEqual({ existing: 1 })
+  })
+
+  test('getNodeByPath returns null when walking into a non-route node', () => {
+    const leafRoot = { type: 'checkbox', path: 'mute', label: 'Mute' } as any
+    expect(getNodeByPath(leafRoot, ['anything'])).toBeNull()
+  })
+
   test('getNodeByPath resolves route chains and leaf nodes', () => {
     const tree = {
       type: 'route',

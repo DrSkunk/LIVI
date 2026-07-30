@@ -47,12 +47,6 @@ const SEGMENT_MASK: Record<string, number> = {
   '9': segMask(0, 1, 2, 3, 5, 6)
 }
 
-function clampChar(c: string) {
-  const up = c.toUpperCase()
-  if (up.length !== 1) return ' '
-  return SEGMENT_MASK[up] != null ? up : ' '
-}
-
 export function SegmentDisplay({
   value,
   digits,
@@ -77,7 +71,7 @@ export function SegmentDisplay({
       ? sanitized.slice(-digits)
       : ' '.repeat(digits - sanitized.length) + sanitized
 
-  const padded = str.split('').map(clampChar).join('')
+  const padded = str.toUpperCase()
 
   const totalWidth = digits * DIGIT_W + (digits - 1) * DIGIT_GAP
   let seenNonZero = false
@@ -125,7 +119,7 @@ function Digit({
   offColor: string
   offMode: 'dim' | 'blank'
 }) {
-  const mask = SEGMENT_MASK[char] ?? 0
+  const mask = SEGMENT_MASK[char]
   const blankDigit = char === ' ' && offMode === 'blank'
 
   const fillFor = (on: boolean) => {
@@ -158,7 +152,7 @@ function Digit({
     // phase gap: shorten on both ends
     const dx0 = bx - ax
     const dy0 = by - ay
-    const len0 = Math.hypot(dx0, dy0) || 1
+    const len0 = Math.hypot(dx0, dy0)
     const ux0 = dx0 / len0
     const uy0 = dy0 / len0
     ax += ux0 * tipGap
@@ -168,7 +162,7 @@ function Digit({
 
     const dx = bx - ax
     const dy = by - ay
-    const len = Math.hypot(dx, dy) || 1
+    const len = Math.hypot(dx, dy)
     const ux = dx / len
     const uy = dy / len
     const px = -uy

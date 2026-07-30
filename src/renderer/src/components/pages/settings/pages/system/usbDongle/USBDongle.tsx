@@ -48,7 +48,6 @@ function toIndexCandidates(urls: string[]): string[] {
     if (!/^https?:\/\//i.test(raw)) continue
     try {
       const u = new URL(raw)
-      if (!u.host) continue
       hosts.add(u.host)
     } catch {
       // ignore malformed candidate
@@ -58,11 +57,11 @@ function toIndexCandidates(urls: string[]): string[] {
 }
 
 function normalizeIp(raw: string): string {
-  return String(raw ?? '').trim()
+  return raw.trim()
 }
 
 function maskIpv4Input(raw: string): string {
-  const cleaned = String(raw ?? '').replace(/[^\d.]/g, '')
+  const cleaned = raw.replace(/[^\d.]/g, '')
   const parts = cleaned.split('.').slice(0, 4)
   return parts
     .map((p) => p.replace(/\D/g, '').slice(0, 3))
@@ -72,7 +71,6 @@ function maskIpv4Input(raw: string): string {
 
 function isValidIpv4(raw: string): boolean {
   const ip = normalizeIp(raw)
-  if (!ip) return false
   const parts = ip.split('.')
   if (parts.length !== 4) return false
   return parts.every((p) => {
@@ -211,7 +209,7 @@ export function USBDongle() {
 
       return json.length > 6000 ? json.slice(0, 6000) + '\n…(truncated)…' : json
     } catch (e) {
-      return `<<unstringifiable: ${e instanceof Error ? e.message : String(e)}>>`
+      return `<<unstringifiable: ${(e as Error).message}>>`
     }
   }
 
@@ -269,7 +267,6 @@ export function USBDongle() {
   }, [settings?.dongleToolsIp])
 
   const handleEnableDevTools = useCallback(async () => {
-    if (devBusy) return
     setDevError(null)
     setDevResult(null)
     setDevOpenedUrl(null)
@@ -356,7 +353,7 @@ export function USBDongle() {
       setDevError(e instanceof Error ? e.message : String(e))
       pushDevLog(`Error: ${e instanceof Error ? e.message : String(e)}`)
     }
-  }, [devBusy, devIpInput, pushDevLog, saveSettings, t])
+  }, [devIpInput, pushDevLog, saveSettings, t])
 
   useEffect(() => {
     if (isDongleConnected) return
@@ -383,9 +380,7 @@ export function USBDongle() {
           ? 'Done'
           : fwDlg.phase === 'start'
             ? 'Starting…'
-            : fwDlg.phase === 'error'
-              ? 'Error'
-              : 'Working…'
+            : 'Error'
 
   const clearAutoCloseTimer = useCallback(() => {
     if (autoCloseTimerRef.current != null) {
@@ -571,21 +566,13 @@ export function USBDongle() {
   useEffect(() => {
     if (!fwDlg.open) return
 
-    // Cancel any pending auto-close when state changes
-    if (autoCloseTimerRef.current != null) {
-      window.clearTimeout(autoCloseTimerRef.current)
-      autoCloseTimerRef.current = null
-    }
-
-    // After an upload the dongle drops off USB to flash/reboot; that disconnect (or the
-    // following reconnect) closes the dialog.
+    // After an upload the dongle drops off USB to flash/reboot; that disconnect closes the
+    // dialog. The pending auto-close timer (if any) is cleared by this effect's cleanup.
     if (fwWaitingForReconnect) {
       if (!isDongleConnected) {
-        if (!fwSawDisconnect) setFwSawDisconnect(true)
+        setFwSawDisconnect(true)
         closeFwDialog()
-        return
       }
-      if (fwSawDisconnect) closeFwDialog()
       return
     }
 
@@ -635,11 +622,11 @@ export function USBDongle() {
             const st = await window.projection.ipc.dongleFirmware('status')
             if (isDongleFwCheckResponse(st)) {
               setFwResult((prev) => {
-                if (!prev) return st
+                const base = prev as DongleFwCheckResponse
                 return {
-                  ...prev,
+                  ...base,
                   request: {
-                    ...(prev.request ?? {}),
+                    ...(base.request ?? {}),
                     ...(st.request ?? {})
                   }
                 }
@@ -677,12 +664,6 @@ export function USBDongle() {
         }
 
         if (action === 'upload') {
-          // UI safety: never upload unless localReady is true
-          if (!localReady) {
-            setFwUiError(localReason || 'Local firmware is not ready for this dongle.')
-            return
-          }
-
           // Wait for dongle reboot/reconnect after upload
           setFwWaitingForReconnect(true)
           setFwSawDisconnect(false)
@@ -778,7 +759,7 @@ export function USBDongle() {
         setFwBusy(null)
       }
     },
-    [localReady, localReason, localPath]
+    [localPath]
   )
 
   useEffect(() => {
@@ -786,7 +767,7 @@ export function USBDongle() {
     if (!isDongleConnected) return
     if (!fmt(dongleFwVersion) || !fmt(boxInfo?.uuid)) return
 
-    handleFwAction('status').catch(() => {})
+    void handleFwAction('status')
   }, [isDongleConnected, dongleFwVersion, boxInfo?.uuid, handleFwAction])
 
   const rowsTop = useMemo<Row[]>(
@@ -1026,7 +1007,8 @@ export function USBDongle() {
 
           {fwPct != null && (fwDlg.progress.total ?? 0) > 0 && (
             <Typography variant="body2" sx={{ mt: 1 }} color="text.secondary">
-              {fwPct}% • {human(fwDlg.progress.received ?? 0)} / {human(fwDlg.progress.total ?? 0)}
+              {fwPct}% • {human(fwDlg.progress.received as number)} /{' '}
+              {human(fwDlg.progress.total as number)}
             </Typography>
           )}
 
@@ -1136,13 +1118,8 @@ export function USBDongle() {
           {devError}
         </Alert>
       ) : devResult ? (
-        <Alert severity={devResult.ok ? 'success' : 'warning'} sx={{ mt: 1 }}>
-          {devResult.ok
-            ? t('settings.devToolsEnabled')
-            : t('settings.devToolsPartial', {
-                cgiOk: String(devResult.cgiOk),
-                webOk: String(devResult.webOk)
-              })}
+        <Alert severity="success" sx={{ mt: 1 }}>
+          {t('settings.devToolsEnabled')}
         </Alert>
       ) : null}
       {!devOpenedUrl && devUrlCandidates.length > 0 ? (

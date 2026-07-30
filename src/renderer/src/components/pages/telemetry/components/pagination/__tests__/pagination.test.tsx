@@ -1,3 +1,4 @@
+import { createTheme, ThemeProvider } from '@mui/material'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { DashboardsPagination } from '../pagination'
 
@@ -137,6 +138,21 @@ describe('DashboardsPagination', () => {
 
     expect(onSetIndex).not.toHaveBeenCalled()
     expect(revealDots).not.toHaveBeenCalled()
+  })
+
+  test('uses the darker backdrop under a dark theme', () => {
+    render(
+      <ThemeProvider theme={createTheme({ palette: { mode: 'dark' } })}>
+        <DashboardsPagination
+          activeIndex={0}
+          dotsLength={2}
+          onSetIndex={vi.fn()}
+          isNavbarHidden={false}
+        />
+      </ThemeProvider>
+    )
+
+    expect(screen.getAllByRole('button')).toHaveLength(2)
   })
 
   test('hides pagination visually when showDots is false', () => {

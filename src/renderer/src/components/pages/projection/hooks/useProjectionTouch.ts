@@ -98,12 +98,10 @@ export const useProjectionMultiTouch = (
   }, [])
 
   const free = useCallback((pid: number) => {
-    const slot = slotByPointerId.current.get(pid)
-    if (slot !== undefined) {
-      slotByPointerId.current.delete(pid)
-      active.current.delete(slot)
-      freeSlots.current.push(slot)
-    }
+    const slot = slotByPointerId.current.get(pid) as number
+    slotByPointerId.current.delete(pid)
+    active.current.delete(slot)
+    freeSlots.current.push(slot)
   }, [])
 
   const sendFullFrame = useCallback((overrides?: Map<number, MultiTouchAction>) => {
@@ -112,13 +110,6 @@ export const useProjectionMultiTouch = (
       const action = overrides?.get(id) ?? MultiTouchAction.Move
       pts.push({ id, x: pos.x, y: pos.y, action })
     })
-    if (!pts.length && overrides && overrides.size) {
-      overrides.forEach((action, id) => {
-        const pos = active.current.get(id)
-        if (pos) pts.push({ id, x: pos.x, y: pos.y, action })
-      })
-    }
-    if (!pts.length) return
     window.projection.ipc.sendMultiTouch(pts)
   }, [])
 
@@ -213,15 +204,9 @@ export const useProjectionMultiTouch = (
       const id = slotByPointerId.current.get(e.pointerId)
       if (id === undefined) return
 
-      const last = active.current.get(id)
-      const x = p?.x ?? last?.x
-      const y = p?.y ?? last?.y
-
-      if (x === undefined || y === undefined) {
-        el.releasePointerCapture?.(e.pointerId)
-        free(e.pointerId)
-        return
-      }
+      const last = active.current.get(id) as { x: number; y: number }
+      const x = p?.x ?? last.x
+      const y = p?.y ?? last.y
 
       active.current.set(id, { x, y })
       const overrides = new Map<number, MultiTouchAction>()

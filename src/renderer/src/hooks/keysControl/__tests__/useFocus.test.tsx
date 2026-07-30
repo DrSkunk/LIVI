@@ -437,4 +437,91 @@ describe('useFocus', () => {
     expect(scrolledWrapper.scrollTop).toBe(70)
     expect(document.activeElement).toBe(second)
   })
+
+  test('returns empty results when no root is provided', () => {
+    const { result } = renderHook(() => useFocus(), {
+      wrapper: wrapperWithContext({ isTouchDevice: false })
+    })
+
+    expect(result.current.getFocusableList(null)).toEqual([])
+    expect(result.current.getFirstFocusable(null)).toBeNull()
+  })
+
+  test('getFirstFocusable falls back to the first item when all are form fields', () => {
+    const root = document.createElement('div')
+    const inputA = document.createElement('input')
+    const inputB = document.createElement('input')
+    root.appendChild(inputA)
+    root.appendChild(inputB)
+    document.body.appendChild(root)
+
+    const { result } = renderHook(() => useFocus(), {
+      wrapper: wrapperWithContext({ isTouchDevice: false })
+    })
+
+    expect(result.current.getFirstFocusable(root)).toBe(inputA)
+  })
+
+  test('focusSelectedNav falls back to the first focusable when no tab is selected', () => {
+    const navRoot = document.createElement('div')
+    navRoot.id = 'nav-root'
+    const btn = document.createElement('button')
+    navRoot.appendChild(btn)
+    document.body.appendChild(navRoot)
+
+    const { result } = renderHook(() => useFocus(), {
+      wrapper: wrapperWithContext({ isTouchDevice: false })
+    })
+
+    expect(result.current.focusSelectedNav()).toBe(true)
+    expect(document.activeElement).toBe(btn)
+  })
+
+  test('focusSelectedNav returns false when the nav has no focusable target', () => {
+    const navRoot = document.createElement('div')
+    navRoot.id = 'nav-root'
+    document.body.appendChild(navRoot)
+
+    const { result } = renderHook(() => useFocus(), {
+      wrapper: wrapperWithContext({ isTouchDevice: false })
+    })
+
+    expect(result.current.focusSelectedNav()).toBe(false)
+  })
+
+  test('focusFirstInMain returns false when there is no main root at all', () => {
+    const { result } = renderHook(() => useFocus(), {
+      wrapper: wrapperWithContext({ isTouchDevice: false })
+    })
+
+    expect(result.current.focusFirstInMain()).toBe(false)
+  })
+
+  test('moveFocusLinear focuses the last item for a backward move with no active element', () => {
+    const contentRoot = document.createElement('div')
+    contentRoot.id = 'content-root'
+    const first = document.createElement('button')
+    const second = document.createElement('button')
+    first.scrollIntoView = vi.fn()
+    second.scrollIntoView = vi.fn()
+    contentRoot.appendChild(first)
+    contentRoot.appendChild(second)
+    document.body.appendChild(contentRoot)
+
+    const { result } = renderHook(() => useFocus(), {
+      wrapper: wrapperWithContext({
+        isTouchDevice: false,
+        contentEl: { current: contentRoot } as any,
+        keyboardNavigation: { focusedElId: null },
+        onSetAppContext: vi.fn()
+      })
+    })
+
+    const activeSpy = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(null)
+
+    expect(result.current.moveFocusLinear(-1)).toBe(true)
+
+    activeSpy.mockRestore()
+    expect(document.activeElement).toBe(second)
+  })
 })

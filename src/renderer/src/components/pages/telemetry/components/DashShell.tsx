@@ -18,8 +18,7 @@ export function DashShell({
   const [size, setSize] = React.useState({ w: 0, h: 0 })
 
   React.useEffect(() => {
-    const el = ref.current
-    if (!el) return
+    const el = ref.current as HTMLDivElement
 
     const ro = new ResizeObserver(([entry]) => {
       const cr = entry?.contentRect

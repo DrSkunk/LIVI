@@ -348,4 +348,23 @@ describe('NumberSpinner', () => {
 
     expect(input.value).toBe('77')
   })
+
+  test('small size without min renders and handles an empty input value', async () => {
+    renderWithContext(
+      <NumberSpinner
+        id="small-spinner"
+        label="Small"
+        size="small"
+        value={5}
+        onValueChange={() => {}}
+      />
+    )
+
+    const input = screen.getByLabelText('small-spinner') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '' } })
+
+    expect(input.value).toBe('')
+    expect(screen.getByRole('button', { name: 'Increase' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Decrease' })).toBeInTheDocument()
+  })
 })

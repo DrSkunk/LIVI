@@ -26,6 +26,15 @@ describe('getWindowRole', () => {
     expect(getWindowRole()).toBe('main')
   })
 
+  test('falls back to an empty search when window is undefined', () => {
+    vi.stubGlobal('window', undefined)
+    try {
+      expect(getWindowRole()).toBe('main')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   test('survives URLSearchParams throwing', () => {
     const origURLSearchParams = global.URLSearchParams
     ;(global as { URLSearchParams: unknown }).URLSearchParams = function () {

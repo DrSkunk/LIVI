@@ -1,4 +1,5 @@
 import type { Config } from '@shared/types'
+import { act, renderHook } from '@testing-library/react'
 import type { Mock } from 'vitest'
 
 type ProjectionApiOverrides = {
@@ -1771,5 +1772,62 @@ describe('store', () => {
     useStatusStore.getState().setActiveProtocol(null)
     useStatusStore.getState().setDongleHardwarePresent(true)
     expect(useStatusStore.getState().isDongleHardwarePresent).toBe(true)
+  })
+
+  test('useProjectionActive reflects dongle presence and active protocol', async () => {
+    const { useStatusStore, useProjectionActive } = await loadFreshStore()
+
+    const { result } = renderHook(() => useProjectionActive())
+    expect(result.current).toBe(false)
+
+    act(() => {
+      useStatusStore.getState().setDongleHardwarePresent(true)
+    })
+    expect(result.current).toBe(true)
+  })
+
+  test('clearing dongle presence while nothing is active does not re-baseline', async () => {
+    const { useStatusStore } = await loadFreshStore()
+
+    useStatusStore.getState().setDongleHardwarePresent(false)
+
+    expect(useStatusStore.getState().isDongleHardwarePresent).toBe(false)
+  })
+
+  test('audio-devices revision and cluster-dash setters update state', async () => {
+    const { useLiviStore, useStatusStore } = await loadFreshStore()
+
+    const before = useLiviStore.getState().audioDevicesRevision
+    useLiviStore.getState().bumpAudioDevicesRevision()
+    expect(useLiviStore.getState().audioDevicesRevision).toBe(before + 1)
+
+    useStatusStore.getState().setClusterDashActive(true)
+    expect(useStatusStore.getState().clusterDashActive).toBe(true)
+  })
+
+  test('telemetry view request updates the requested view and bumps its nonce', async () => {
+    let telemetryHandler: ((payload: unknown) => void) | undefined
+
+    const projection = makeProjectionApi({
+      settings: {
+        get: vi.fn().mockResolvedValue(baseSettings),
+        save: vi.fn().mockResolvedValue(undefined)
+      },
+      ipc: {
+        onTelemetry: vi.fn((handler) => {
+          telemetryHandler = handler
+        })
+      }
+    })
+
+    const { useLiviStore, useStatusStore } = await loadFreshStore(projection)
+
+    await waitForStoreSettings(useLiviStore)
+
+    const before = useStatusStore.getState().requestedViewNonce
+    telemetryHandler?.({ view: 'camera' })
+
+    expect(useStatusStore.getState().requestedView).toBe('camera')
+    expect(useStatusStore.getState().requestedViewNonce).toBe(before + 1)
   })
 })

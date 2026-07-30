@@ -146,6 +146,28 @@ describe('Nav', () => {
     expect(navigateMock).toHaveBeenCalledWith(ROUTES.MEDIA)
   })
 
+  test('falls back to the home route when there are no tabs', async () => {
+    mockTabs = []
+    mockPathname = '/unknown'
+
+    render(<Nav receivingVideo={false} settings={null as never} />)
+
+    expect(screen.getByTestId('tabs')).toHaveAttribute('data-value', '0')
+  })
+
+  test('routes the transport switch tab to the devices page', async () => {
+    mockTabs = [
+      { label: 'Home', path: ROUTES.HOME, icon: <span>h</span> },
+      { label: 'Switch', path: ROUTES.TRANSPORT_SWITCH, icon: <span>x</span> }
+    ]
+
+    render(<Nav receivingVideo={false} settings={null as never} />)
+
+    fireEvent.click(screen.getByLabelText('Switch'))
+
+    expect(navigateMock).toHaveBeenCalledWith(ROUTES.DEVICES)
+  })
+
   test('replaces current route when clicking Settings from nested settings path', async () => {
     mockPathname = '/settings/system'
 

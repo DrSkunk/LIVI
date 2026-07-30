@@ -1,4 +1,4 @@
-import { withGhostOption } from '../ghostOption'
+import { findOptionForValue, withGhostOption } from '../ghostOption'
 
 const formatOffline = (name: string): string => `${name} (offline)`
 
@@ -40,5 +40,40 @@ describe('withGhostOption', () => {
     const before = liveOptions.length
     withGhostOption(liveOptions, 'absent_sink', 'X', formatOffline)
     expect(liveOptions).toHaveLength(before)
+  })
+
+  test('returns input unchanged when a live option shares the saved MAC', () => {
+    const btLive = [{ value: 'bluez_output.AA_BB_CC_DD_EE_FF.2', label: 'Headset' }]
+    expect(
+      withGhostOption(btLive, 'bluez_output.AA_BB_CC_DD_EE_FF.1', 'Saved', formatOffline)
+    ).toBe(btLive)
+  })
+})
+
+describe('findOptionForValue', () => {
+  const btOptions = [
+    { value: '', label: 'System default' },
+    { value: 'bluez_output.AA_BB_CC_DD_EE_FF.2', label: 'Headset', offline: false },
+    { value: 'bluez_output.11_22_33_44_55_66.1', label: 'Offline set', offline: true }
+  ]
+
+  test('returns the directly matching option', () => {
+    expect(findOptionForValue(btOptions, 'bluez_output.AA_BB_CC_DD_EE_FF.2')).toBe(btOptions[1])
+  })
+
+  test('returns undefined when value has no MAC and no direct match', () => {
+    expect(findOptionForValue(btOptions, 'missing')).toBeUndefined()
+  })
+
+  test('matches a live option by MAC when the exact id differs', () => {
+    expect(findOptionForValue(btOptions, 'bluez_output.AA_BB_CC_DD_EE_FF.9')).toBe(btOptions[1])
+  })
+
+  test('ignores offline options and returns undefined when only offline MAC matches', () => {
+    expect(findOptionForValue(btOptions, 'bluez_output.11_22_33_44_55_66.9')).toBeUndefined()
+  })
+
+  test('returns undefined for a numeric value with no direct match', () => {
+    expect(findOptionForValue(btOptions, 999)).toBeUndefined()
   })
 })

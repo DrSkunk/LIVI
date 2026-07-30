@@ -42,10 +42,8 @@ export const Cluster: React.FC<ClusterProps> = ({ visible, showLoadingPlaceholde
   const activeProtocol = useStatusStore((s) => s.activeProtocol)
   const clusterDashActive = useStatusStore((s) => s.clusterDashActive)
 
-  const [rendererError] = useState<string | null>(null)
   const [clusterStreamActive, setClusterStreamActive] = useState(false)
 
-  const renderReady: boolean = true
   const rootRef = useRef<HTMLDivElement>(null)
 
   const supportsNaviScreen = useMemo(() => {
@@ -79,24 +77,22 @@ export const Cluster: React.FC<ClusterProps> = ({ visible, showLoadingPlaceholde
   }, [showCluster])
 
   useEffect(() => {
-    if (!renderReady) return
     void window.projection.ipc.requestCluster(showCluster).catch(() => {})
-  }, [showCluster, renderReady])
+  }, [showCluster])
 
   useEffect(() => {
     const handler = (_evt: unknown, ...args: unknown[]) => {
       const msg = (args[0] ?? {}) as { type?: string }
       if (msg.type !== 'plugged') return
-      if (!renderReady) return
       void window.projection.ipc.requestCluster(showClusterRef.current).catch(() => {})
     }
     const unsubscribe = window.projection.ipc.onEvent(handler)
     return unsubscribe
-  }, [renderReady])
+  }, [])
 
   // Cluster frames negotiated -> the compositor renders the cluster plane
   useEffect(() => {
-    const ipc = (window.projection?.ipc ?? {}) as {
+    const ipc = window.projection.ipc as {
       onClusterResolution?: (cb: (payload: unknown) => void) => (() => void) | void
     }
     if (typeof ipc.onClusterResolution !== 'function') return
@@ -122,9 +118,9 @@ export const Cluster: React.FC<ClusterProps> = ({ visible, showLoadingPlaceholde
 
   useEffect(() => {
     if (!clusterStreamActive || !clusterDashActive) return
-    const ipc = window.projection?.ipc as { clusterRepaintNudge?: () => Promise<unknown> }
+    const ipc = window.projection.ipc as { clusterRepaintNudge?: () => Promise<unknown> }
     const id = setTimeout(() => {
-      void ipc?.clusterRepaintNudge?.().catch(() => {})
+      void ipc.clusterRepaintNudge?.().catch(() => {})
     }, 120)
     return () => clearTimeout(id)
   }, [clusterStreamActive, clusterDashActive])
@@ -191,14 +187,6 @@ export const Cluster: React.FC<ClusterProps> = ({ visible, showLoadingPlaceholde
               Not supported by firmware
             </Typography>
           </Box>
-        </Box>
-      )}
-
-      {rendererError && (
-        <Box sx={{ position: 'absolute', top: 16, left: 16, right: 16 }}>
-          <Typography variant="body2" color="error">
-            {rendererError}
-          </Typography>
         </Box>
       )}
 

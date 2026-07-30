@@ -149,4 +149,162 @@ describe('Cluster page', () => {
     delete (window as any).projection.ipc.onClusterResolution
     expect(() => renderCluster()).not.toThrow()
   })
+
+  test('requests the cluster again on a plugged event', async () => {
+    const cbs: AnyFn[] = []
+    ;(window as any).projection.ipc.onEvent = vi.fn((cb: AnyFn) => {
+      cbs.push(cb)
+      return vi.fn()
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/cluster']}>
+        <Cluster visible />
+      </MemoryRouter>
+    )
+    ;(window as any).projection.ipc.requestCluster.mockClear()
+
+    await act(async () => {
+      cbs.forEach((cb) => cb(undefined, { type: 'plugged' }))
+      await Promise.resolve()
+    })
+
+    expect((window as any).projection.ipc.requestCluster).toHaveBeenCalledWith(true)
+  })
+
+  test('swallows requestCluster rejections on mount and on events', async () => {
+    const cbs: AnyFn[] = []
+    ;(window as any).projection.ipc.requestCluster = vi.fn().mockRejectedValue(new Error('boom'))
+    ;(window as any).projection.ipc.onEvent = vi.fn((cb: AnyFn) => {
+      cbs.push(cb)
+      return vi.fn()
+    })
+
+    renderCluster()
+
+    await waitFor(() => expect((window as any).projection.ipc.requestCluster).toHaveBeenCalled())
+
+    await act(async () => {
+      cbs.forEach((cb) => cb(undefined, { type: 'plugged' }))
+      cbs.forEach((cb) => cb(undefined, { type: 'unplugged' }))
+      await Promise.resolve()
+    })
+
+    expect((window as any).projection.ipc.requestCluster).toHaveBeenCalledWith(false)
+  })
+
+  test('handles projection events dispatched without a payload or unrelated types', async () => {
+    const cbs: AnyFn[] = []
+    ;(window as any).projection.ipc.onEvent = vi.fn((cb: AnyFn) => {
+      cbs.push(cb)
+      return vi.fn()
+    })
+
+    renderCluster()
+
+    expect(() =>
+      act(() => {
+        cbs.forEach((cb) => cb(undefined))
+        cbs.forEach((cb) => cb(undefined, { type: 'zzz' }))
+        cbs.forEach((cb) => cb(undefined, { type: 'failure' }))
+      })
+    ).not.toThrow()
+  })
+
+  test('treats a non-string non-object boxInfo as unsupported', async () => {
+    liviState.boxInfo = 12345
+    renderCluster()
+    expect(screen.getByText('Not supported by firmware')).toBeInTheDocument()
+  })
+
+  test('treats a stringified non-object boxInfo as unsupported', async () => {
+    liviState.boxInfo = '123'
+    renderCluster()
+    expect(screen.getByText('Not supported by firmware')).toBeInTheDocument()
+  })
+
+  test('treats a numeric supportFeatures value as unsupported', async () => {
+    liviState.boxInfo = { supportFeatures: 42 }
+    renderCluster()
+    expect(screen.getByText('Not supported by firmware')).toBeInTheDocument()
+  })
+
+  test('ignores zero-sized cluster frames and runs the resolution cleanup', async () => {
+    let resCb: ((p: unknown) => void) | null = null
+    const off = vi.fn()
+    ;(window as any).projection.ipc.onClusterResolution = vi.fn((cb: (p: unknown) => void) => {
+      resCb = cb
+      return off
+    })
+
+    const { unmount } = renderCluster()
+
+    await waitFor(() => expect(resCb).not.toBeNull())
+
+    act(() => {
+      resCb!(undefined)
+      resCb!({ width: 'x', height: 'y' })
+    })
+
+    unmount()
+    expect(off).toHaveBeenCalled()
+  })
+
+  test('nudges the cluster repaint when the stream and dash are active', async () => {
+    vi.useFakeTimers()
+    statusState.clusterDashActive = true
+    let resCb: ((p: unknown) => void) | null = null
+    const nudge = vi.fn().mockRejectedValue(new Error('nudge'))
+    ;(window as any).projection.ipc.onClusterResolution = vi.fn((cb: (p: unknown) => void) => {
+      resCb = cb
+    })
+    ;(window as any).projection.ipc.clusterRepaintNudge = nudge
+
+    render(
+      <MemoryRouter initialEntries={['/cluster']}>
+        <Cluster visible />
+      </MemoryRouter>
+    )
+
+    act(() => {
+      resCb!({ width: 100, height: 100 })
+    })
+    act(() => {
+      vi.advanceTimersByTime(200)
+    })
+
+    expect(nudge).toHaveBeenCalled()
+
+    vi.useRealTimers()
+    statusState.clusterDashActive = false
+  })
+
+  test('does not throw when repaint nudge IPC is unavailable', async () => {
+    vi.useFakeTimers()
+    statusState.clusterDashActive = true
+    let resCb: ((p: unknown) => void) | null = null
+    ;(window as any).projection.ipc.onClusterResolution = vi.fn((cb: (p: unknown) => void) => {
+      resCb = cb
+    })
+    delete (window as any).projection.ipc.clusterRepaintNudge
+
+    render(
+      <MemoryRouter initialEntries={['/cluster']}>
+        <Cluster visible />
+      </MemoryRouter>
+    )
+
+    act(() => {
+      resCb!({ width: 100, height: 100 })
+    })
+
+    expect(() =>
+      act(() => {
+        vi.advanceTimersByTime(200)
+      })
+    ).not.toThrow()
+
+    vi.useRealTimers()
+    statusState.clusterDashActive = false
+  })
 })

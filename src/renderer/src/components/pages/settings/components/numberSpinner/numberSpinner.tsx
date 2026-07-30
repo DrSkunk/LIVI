@@ -151,8 +151,7 @@ export default function NumberSpinner({
                         textAlign: 'center',
                         bgcolor: theme.palette.background.paper,
                         caretColor: isSlider ? 'transparent' : 'auto',
-                        fontSize:
-                          fieldHeight >= 80 ? '1.6rem' : fieldHeight >= 64 ? '1.35rem' : '1.1rem',
+                        fontSize: fieldHeight >= 80 ? '1.6rem' : '1.35rem',
                         fontWeight: 500,
                         lineHeight: 1
                       }

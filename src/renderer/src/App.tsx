@@ -276,7 +276,7 @@ function AppInner() {
 
     // reverse off: restore the previous route
     if (reverseAutoSwitchActiveRef.current && location.pathname === ROUTES.CAMERA) {
-      const back = reverseBackPathRef.current ?? ROUTES.HOME
+      const back = reverseBackPathRef.current as string
       reverseAutoSwitchActiveRef.current = false
       reverseBackPathRef.current = null
       navigate(back)

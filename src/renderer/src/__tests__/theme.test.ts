@@ -149,6 +149,47 @@ describe('theme module', () => {
     vi.useRealTimers()
   })
 
+  test('slider style overrides cover value label, sizes and both modes', async () => {
+    const rootOf = (theme: typeof lightTheme) => {
+      const so = (theme.components?.MuiSlider?.styleOverrides ?? {}) as any
+      return so.root as (arg: {
+        ownerState: { size?: string; valueLabelDisplay?: string }
+      }) => Record<string, unknown>
+    }
+
+    for (const theme of [lightTheme, darkTheme]) {
+      const root = rootOf(theme)
+      expect(root({ ownerState: { valueLabelDisplay: 'off' } })).toEqual({})
+      expect(typeof root({ ownerState: { valueLabelDisplay: 'on', size: 'small' } })).toBe('object')
+      expect(typeof root({ ownerState: { valueLabelDisplay: 'on', size: 'medium' } })).toBe(
+        'object'
+      )
+      expect(typeof root({ ownerState: {} })).toBe('object')
+    }
+  })
+
+  test('buildRuntimeTheme fills the dark primary and light highlight defaults', async () => {
+    const darkT = buildRuntimeTheme(THEME.DARK, undefined, '#abcabc')
+    expect(typeof darkT.palette.primary.main).toBe('string')
+    expect(darkT.palette.secondary.main).toBe('#abcabc')
+
+    const lightT = buildRuntimeTheme(THEME.LIGHT, '#123123')
+    expect(lightT.palette.primary.main).toBe('#123123')
+    expect(typeof lightT.palette.secondary.main).toBe('string')
+  })
+
+  test('initCursorHider re-arms when only the vertical position changes', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    ;(window as any).app = { notifyUserActivity: vi.fn() }
+
+    initCursorHider()
+    pointerMove('mouse', 200, 200)
+    pointerMove('mouse', 200, 260)
+    expect(document.body.style.cursor).toBe('default')
+
+    vi.useRealTimers()
+  })
+
   test('initUiBreatheClock covers plateau, falling and zero wave phases', async () => {
     vi.resetModules()
     vi.useFakeTimers({ shouldAdvanceTime: true })

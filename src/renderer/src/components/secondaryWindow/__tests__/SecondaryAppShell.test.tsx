@@ -225,6 +225,41 @@ describe('SecondaryAppShell — key bindings dispatch IPC commands', () => {
     expect(sendCommandMock).toHaveBeenCalledWith('voiceAssistantRelease')
   })
 
+  test('ignores empty and non-string binding codes', async () => {
+    state.settings = {
+      media: { dash: true },
+      bindings: { playPause: 'Space', left: '', up: 42 } as unknown as Record<string, string>
+    }
+    await renderShell()
+
+    fireEvent.keyDown(document, { code: 'Space' })
+    expect(sendCommandMock).toHaveBeenCalledWith('playPause')
+  })
+
+  test('ignores non-transport key down and up events', async () => {
+    state.settings = { media: { dash: true }, bindings: { back: 'Backspace' } }
+    await renderShell()
+
+    fireEvent.keyDown(document, { code: 'Backspace' })
+    fireEvent.keyUp(document, { code: 'Backspace' })
+    expect(sendCommandMock).not.toHaveBeenCalled()
+  })
+
+  test('keeps PTT engaged while the window stays visible', async () => {
+    state.settings = { media: { dash: true }, bindings: { voiceAssistant: 'KeyV' } }
+    await renderShell()
+    fireEvent.keyDown(document, { code: 'KeyV' })
+    sendCommandMock.mockClear()
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible'
+    })
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    expect(sendCommandMock).not.toHaveBeenCalledWith('voiceAssistantRelease')
+  })
+
   test('sendCommand failure is swallowed', async () => {
     sendCommandMock.mockImplementation(() => {
       throw new Error('ipc down')

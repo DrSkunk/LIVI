@@ -14,6 +14,10 @@ type SliderStyleArgs = { ownerState: { size?: string; valueLabelDisplay?: string
 const glowColor = (percent: number): string =>
   `color-mix(in srgb, currentColor ${percent}%, transparent)`
 
+const asCssRecord = (v: unknown): Record<string, CSSObject> => v as Record<string, CSSObject>
+const asUnknownRecord = (v: unknown): Record<string, unknown> => v as Record<string, unknown>
+const asCss = (v: unknown): CSSObject => v as CSSObject
+
 function sliderComponent(primary: string, isLight: boolean) {
   return {
     defaultProps: {
@@ -386,48 +390,28 @@ export function buildRuntimeTheme(
       mode === THEME.LIGHT ? themeColors.highlightColorLight : themeColors.highlightColorDark
   }
 
-  const tabsSO = (base.components?.MuiTabs?.styleOverrides ?? {}) as Record<string, CSSObject>
-  const outlinedSO = (base.components?.MuiOutlinedInput?.styleOverrides ?? {}) as Record<
-    string,
-    CSSObject
-  >
-  const inputLabelSO = (base.components?.MuiInputLabel?.styleOverrides ?? {}) as Record<
-    string,
-    CSSObject
-  >
-  const buttonSO = (base.components?.MuiButton?.styleOverrides ?? {}) as Record<string, CSSObject>
-  const buttonBaseSO = (base.components?.MuiButtonBase?.styleOverrides ?? {}) as Record<
-    string,
-    CSSObject
-  >
-  const iconButtonSO = (base.components?.MuiIconButton?.styleOverrides ?? {}) as Record<
-    string,
-    CSSObject
-  >
-  const switchSO = (base.components?.MuiSwitch?.styleOverrides ?? {}) as Record<string, CSSObject>
-  const cssBaselineSO = (base.components?.MuiCssBaseline?.styleOverrides ?? {}) as Record<
-    string,
-    unknown
-  >
+  const tabsSO = asCssRecord(base.components?.MuiTabs?.styleOverrides)
+  const outlinedSO = asCssRecord(base.components?.MuiOutlinedInput?.styleOverrides)
+  const inputLabelSO = asCssRecord(base.components?.MuiInputLabel?.styleOverrides)
+  const buttonSO = asCssRecord(base.components?.MuiButton?.styleOverrides)
+  const buttonBaseSO = asCssRecord(base.components?.MuiButtonBase?.styleOverrides)
+  const iconButtonSO = asCssRecord(base.components?.MuiIconButton?.styleOverrides)
+  const switchSO = asCssRecord(base.components?.MuiSwitch?.styleOverrides)
+  const cssBaselineSO = asUnknownRecord(base.components?.MuiCssBaseline?.styleOverrides)
 
-  const cssBodySO =
-    cssBaselineSO.body != null &&
-    typeof cssBaselineSO.body === 'object' &&
-    !Array.isArray(cssBaselineSO.body)
-      ? (cssBaselineSO.body as CSSObject)
-      : {}
+  const cssBodySO = asCss(cssBaselineSO.body)
 
-  const tabsIndicator = (tabsSO.indicator ?? {}) as CSSObject
-  const outlinedRoot = (outlinedSO.root ?? {}) as CSSObject
-  const outlinedNotched = (outlinedSO.notchedOutline ?? {}) as CSSObject
-  const inputLabelRoot = (inputLabelSO.root ?? {}) as CSSObject
-  const btnRoot = (buttonSO.root ?? {}) as CSSObject
-  const btnBaseRoot = (buttonBaseSO.root ?? {}) as CSSObject
+  const tabsIndicator = asCss(tabsSO.indicator)
+  const outlinedRoot = asCss(outlinedSO.root)
+  const outlinedNotched = asCss(outlinedSO.notchedOutline)
+  const inputLabelRoot = asCss(inputLabelSO.root)
+  const btnRoot = asCss(buttonSO.root)
+  const btnBaseRoot = asCss(buttonBaseSO.root)
 
-  const iconBtnRoot = (iconButtonSO.root ?? {}) as CSSObject
-  const swSwitchBase = (switchSO.switchBase ?? {}) as CSSObject
-  const swThumb = (switchSO.thumb ?? {}) as CSSObject
-  const swTrack = (switchSO.track ?? {}) as CSSObject
+  const iconBtnRoot = asCss(iconButtonSO.root)
+  const swSwitchBase = asCss(switchSO.switchBase)
+  const swThumb = asCss(switchSO.thumb)
+  const swTrack = asCss(switchSO.track)
 
   return createTheme({
     ...base,

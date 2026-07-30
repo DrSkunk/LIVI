@@ -183,4 +183,61 @@ describe('useVehicleTelemetry', () => {
 
     nowSpy.mockRestore()
   })
+
+  test('hydrates from the telemetry snapshot', async () => {
+    ;(window as any).projection.ipc.getTelemetrySnapshot = vi.fn(() =>
+      Promise.resolve({ speedKph: 42, rpm: 1500, ts: 1000 })
+    )
+
+    const { result } = renderHook(() => useVehicleTelemetry())
+
+    await waitFor(() => {
+      expect(result.current.telemetry).toMatchObject({ speedKph: 42, rpm: 1500 })
+    })
+  })
+
+  test('ignores an empty telemetry snapshot', async () => {
+    ;(window as any).projection.ipc.getTelemetrySnapshot = vi.fn(() => Promise.resolve({}))
+
+    const { result } = renderHook(() => useVehicleTelemetry())
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(result.current.telemetry).toBeNull()
+  })
+
+  test('ignores a non-object telemetry snapshot', async () => {
+    ;(window as any).projection.ipc.getTelemetrySnapshot = vi.fn(() => Promise.resolve('nope'))
+
+    const { result } = renderHook(() => useVehicleTelemetry())
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(result.current.telemetry).toBeNull()
+  })
+
+  test('drops a telemetry snapshot that resolves after unmount', async () => {
+    let resolveSnap: (v: unknown) => void = () => {}
+    ;(window as any).projection.ipc.getTelemetrySnapshot = vi.fn(
+      () =>
+        new Promise((res) => {
+          resolveSnap = res
+        })
+    )
+
+    const { result, unmount } = renderHook(() => useVehicleTelemetry())
+
+    unmount()
+
+    await act(async () => {
+      resolveSnap({ speedKph: 10, ts: 1 })
+      await Promise.resolve()
+    })
+
+    expect(result.current.telemetry).toBeNull()
+  })
 })

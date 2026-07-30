@@ -58,8 +58,7 @@ function VolumeSlider<T>({ value, onChange }: { value: T; onChange: (v: T) => vo
       clearTimeout(maxTimer.current)
       maxTimer.current = null
     }
-    if (pending.current === null) return
-    const next = pending.current
+    const next = pending.current as number
     pending.current = null
     onChange((next / 100) as T)
   }
@@ -255,8 +254,7 @@ function DynamicSelect({
 
     if (!onLabelChange) return
     const pickedLive = options.find((o) => o.value === next)
-    const sourceOption = pickedLive ?? pickedOption
-    if (!sourceOption) return
+    const sourceOption = (pickedLive ?? pickedOption) as SelectOption
     const liveLabel = sourceOption.labelKey
       ? t(sourceOption.labelKey, sourceOption.label)
       : sourceOption.label

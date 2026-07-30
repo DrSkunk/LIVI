@@ -198,13 +198,175 @@ describe('IconUploader', () => {
         requestRestart={requestRestart}
       />
     )
-    const _fileInputRef = { click: vi.fn() }
-    const iconBox = screen.getAllByRole('button')[0] // first is the icon box div
-    // Simulate pressing Enter on the icon box
+    const iconBox = screen.getAllByRole('button')[0]
     fireEvent.keyDown(iconBox, { key: 'Enter' })
-    // The file input is hidden; picking would call fileInputRef.current?.click()
-    // We can't easily verify the click on the hidden input, but we can verify
-    // the handler runs without error
     expect(iconBox).toBeInTheDocument()
+  })
+
+  test('clicking the icon box opens the hidden file picker', async () => {
+    const { container } = render(
+      <IconUploader
+        state={{} as any}
+        node={{} as any}
+        onChange={vi.fn()}
+        requestRestart={requestRestart}
+      />
+    )
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const clickSpy = vi.spyOn(input, 'click')
+    const iconBox = screen.getAllByRole('button')[0]
+    fireEvent.click(iconBox)
+    expect(clickSpy).toHaveBeenCalled()
+  })
+
+  test('space key on icon box opens the file picker', async () => {
+    const { container } = render(
+      <IconUploader
+        state={{} as any}
+        node={{} as any}
+        onChange={vi.fn()}
+        requestRestart={requestRestart}
+      />
+    )
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const clickSpy = vi.spyOn(input, 'click')
+    const iconBox = screen.getAllByRole('button')[0]
+    fireEvent.keyDown(iconBox, { key: ' ' })
+    expect(clickSpy).toHaveBeenCalled()
+  })
+
+  test('reset failure shows an error message', async () => {
+    ;(window as any).app.resetDongleIcons = vi.fn().mockRejectedValue(new Error('reset boom'))
+    render(
+      <IconUploader
+        state={{} as any}
+        node={{} as any}
+        onChange={vi.fn()}
+        requestRestart={requestRestart}
+      />
+    )
+    fireEvent.click(screen.getByText('settings.reset'))
+    await waitFor(() => {
+      expect(screen.getByText('Resetting icons failed.')).toBeInTheDocument()
+    })
+  })
+
+  test('no file selected leaves settings untouched', async () => {
+    const { container } = render(
+      <IconUploader
+        state={{} as any}
+        node={{} as any}
+        onChange={vi.fn()}
+        requestRestart={requestRestart}
+      />
+    )
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [] } })
+    expect(saveSettings).not.toHaveBeenCalled()
+  })
+
+  test('other keys on the icon box do not open the picker', async () => {
+    const { container } = render(
+      <IconUploader
+        state={{} as any}
+        node={{} as any}
+        onChange={vi.fn()}
+        requestRestart={requestRestart}
+      />
+    )
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const clickSpy = vi.spyOn(input, 'click')
+    fireEvent.keyDown(screen.getAllByRole('button')[0], { key: 'a' })
+    expect(clickSpy).not.toHaveBeenCalled()
+  })
+
+  test('reset shows error when resetDongleIcons is not a function', async () => {
+    ;(window as any).app = { somethingElse: 1 }
+    render(
+      <IconUploader
+        state={{} as any}
+        node={{} as any}
+        onChange={vi.fn()}
+        requestRestart={requestRestart}
+      />
+    )
+    fireEvent.click(screen.getByText('settings.reset'))
+    await waitFor(() => {
+      expect(screen.getByText('Reset API not available.')).toBeInTheDocument()
+    })
+  })
+
+  test('reset keeps existing icons when the API returns no fields', async () => {
+    ;(window as any).app.resetDongleIcons = vi.fn().mockResolvedValue({})
+    render(
+      <IconUploader
+        state={{} as any}
+        node={{} as any}
+        onChange={vi.fn()}
+        requestRestart={requestRestart}
+      />
+    )
+    fireEvent.click(screen.getByText('settings.reset'))
+    await waitFor(() => {
+      expect(saveSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dongleIcon120: '',
+          dongleIcon180: '',
+          dongleIcon256: ''
+        })
+      )
+    })
+  })
+
+  test('shows the placeholder when no icon data is available anywhere', async () => {
+    vi.resetModules()
+    vi.doMock('@shared/assets/carIcons', () => ({
+      ICON_120_B64: '',
+      ICON_180_B64: '',
+      ICON_256_B64: ''
+    }))
+    vi.doMock('@store/store', () => ({
+      useLiviStore: (selector: (s: any) => unknown) =>
+        selector({
+          settings: { dongleIcon120: '', dongleIcon180: '', dongleIcon256: '' },
+          saveSettings
+        }),
+      useStatusStore: (selector: (s: any) => unknown) => selector({ isDongleHardwarePresent: true })
+    }))
+    const { IconUploader: FreshIconUploader } = await import('../IconUploader')
+
+    render(
+      <FreshIconUploader
+        state={{} as any}
+        node={{} as any}
+        onChange={vi.fn()}
+        requestRestart={requestRestart}
+      />
+    )
+    expect(screen.getByText('No icon found')).toBeInTheDocument()
+
+    vi.doUnmock('@shared/assets/carIcons')
+    vi.doUnmock('@store/store')
+  })
+
+  test('renders nothing when settings are missing', async () => {
+    vi.resetModules()
+    vi.doMock('@store/store', () => ({
+      useLiviStore: (selector: (s: any) => unknown) => selector({ settings: null, saveSettings }),
+      useStatusStore: (selector: (s: any) => unknown) => selector({ isDongleHardwarePresent: true })
+    }))
+    const { IconUploader: FreshIconUploader } = await import('../IconUploader')
+
+    const { container } = render(
+      <FreshIconUploader
+        state={{} as any}
+        node={{} as any}
+        onChange={vi.fn()}
+        requestRestart={requestRestart}
+      />
+    )
+    expect(container.firstChild).toBeNull()
+
+    vi.doUnmock('@store/store')
   })
 })

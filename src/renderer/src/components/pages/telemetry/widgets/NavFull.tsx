@@ -49,23 +49,6 @@ function unwrapNaviPatch(raw: unknown): Partial<NaviBag> | null {
     }
   }
 
-  // projection-event message wrapper
-  if (isRecord(raw) && isRecord(raw.payload)) {
-    const p = raw.payload as Record<string, unknown>
-
-    if (isRecord(p.navi)) return p.navi as unknown as Partial<NaviBag>
-
-    if (
-      'NaviStatus' in p ||
-      'NaviAPPName' in p ||
-      'NaviDestinationName' in p ||
-      'NaviManeuverType' in p ||
-      'NaviRemainDistance' in p
-    ) {
-      return p as unknown as Partial<NaviBag>
-    }
-  }
-
   // { navi: {...} }
   if (isRecord((raw as Record<string, unknown>).navi)) {
     return (raw as Record<string, unknown>).navi as unknown as Partial<NaviBag>

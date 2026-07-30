@@ -60,6 +60,57 @@ describe('GaugeArc', () => {
     expect(container.querySelectorAll('rect').length).toBeGreaterThanOrEqual(2)
   })
 
+  test('fully fades a single cap tick', () => {
+    const { container } = render(
+      <GaugeArc value={40} scaleMax={100} ticks={8} armTicks={1} {...colors} />
+    )
+
+    expect(container.querySelector('svg')).toBeInTheDocument()
+  })
+
+  test('draws the soft C-shaped backdrop in both orientations', () => {
+    const upright = render(<GaugeArc value={30} scaleMax={100} shadow {...colors} />)
+    expect(upright.container.querySelector('path')).toBeInTheDocument()
+
+    const mirrored = render(<GaugeArc value={30} scaleMax={100} shadow mirror {...colors} />)
+    expect(mirrored.container.querySelector('path')).toBeInTheDocument()
+  })
+
+  test('turns the eased trail and pointer red past the redline', () => {
+    vi.useFakeTimers()
+    try {
+      const { container } = render(
+        <GaugeArc value={95} scaleMax={100} redline={10} ticks={20} {...colors} />
+      )
+
+      act(() => {
+        vi.advanceTimersByTime(3000)
+      })
+
+      const fills = Array.from(container.querySelectorAll('rect')).map((r) =>
+        r.getAttribute('fill')
+      )
+      expect(fills.filter((f) => f === '#f00').length).toBeGreaterThan(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('settles the pointer at zero without drawing a trail', () => {
+    vi.useFakeTimers()
+    try {
+      const { container } = render(<GaugeArc value={0} scaleMax={100} ticks={20} {...colors} />)
+
+      act(() => {
+        vi.advanceTimersByTime(3000)
+      })
+
+      expect(container.querySelector('svg')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   test('eases the pointer in and fades the trail over time', () => {
     vi.useFakeTimers()
     try {

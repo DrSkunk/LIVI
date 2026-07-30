@@ -10,6 +10,14 @@ describe('usePaginationDots', () => {
     expect(hiddenNav.result.current.showDots).toBe(false)
   })
 
+  test('always shows dots when no navbar is present', () => {
+    const shownHidden = renderHook(() => usePaginationDots(true, false))
+    expect(shownHidden.result.current.showDots).toBe(true)
+
+    const shownVisible = renderHook(() => usePaginationDots(false, false))
+    expect(shownVisible.result.current.showDots).toBe(true)
+  })
+
   test('revealDots is a no-op (kept for caller API compatibility)', () => {
     const { result } = renderHook(() => usePaginationDots(false))
     act(() => {

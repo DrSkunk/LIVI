@@ -54,7 +54,6 @@ vi.mock(
 
 describe('About page with object author and contributors', () => {
   test('renders object author as formatted string (name email url)', () => {
-    // lines 37-44: toAuthorString with isPersonLike object
     render(<About />)
 
     const authorLabel = screen.getByText('settings.author:')
@@ -63,11 +62,93 @@ describe('About page with object author and contributors', () => {
   })
 
   test('renders contributor objects and strings from array', () => {
-    // lines 64-71: contributorsStr loop with objects and strings
     render(<About />)
 
     const contribLabel = screen.getByText('settings.contributors:')
     expect(contribLabel.nextSibling?.textContent).toContain('Alice')
     expect(contribLabel.nextSibling?.textContent).toContain('Bob')
+  })
+})
+
+const pkgPath = '../../../../../../../../../package.json'
+
+const renderWith = async (pkg: Record<string, unknown>, run: unknown, sha: unknown) => {
+  vi.resetModules()
+  vi.doMock(pkgPath, () => pkg)
+  ;(globalThis as any).__BUILD_RUN__ = run
+  ;(globalThis as any).__BUILD_SHA__ = sha
+  const mod = await import('../About')
+  return render(<mod.About />)
+}
+
+describe('About page metadata edge cases', () => {
+  test('handles string author, blank/null/number/object fields and non-array contributors', async () => {
+    await renderWith(
+      {
+        name: '   ',
+        description: null,
+        version: 5,
+        homepage: { x: 1 },
+        author: 'Solo',
+        contributors: 'not-an-array'
+      },
+      '',
+      ''
+    )
+
+    expect(screen.getByText('5')).toBeInTheDocument()
+
+    const authorLabel = screen.getByText('settings.author:')
+    expect(authorLabel.nextSibling?.textContent).toBe('Solo')
+
+    const contribLabel = screen.getByText('settings.contributors:')
+    expect(contribLabel.nextSibling?.textContent).toBe('—')
+  })
+
+  test('renders blank for empty person author and nameless contributors', async () => {
+    await renderWith(
+      {
+        name: 'App',
+        description: 'Desc',
+        version: '1.0.0',
+        homepage: 'https://h',
+        author: {},
+        contributors: [{ email: 'e@x.dev' }, 7]
+      },
+      '9',
+      'abc1234'
+    )
+
+    const authorLabel = screen.getByText('settings.author:')
+    expect(authorLabel.nextSibling?.textContent).toBe('—')
+
+    const contribLabel = screen.getByText('settings.contributors:')
+    expect(contribLabel.nextSibling?.textContent).toBe('—')
+
+    expect(screen.getByText('#9')).toBeInTheDocument()
+    expect(screen.getByText('abc1234')).toBeInTheDocument()
+  })
+
+  test('renders blank author and commit dev when metadata is missing', async () => {
+    await renderWith(
+      {
+        name: 'App',
+        description: 'D',
+        version: '1',
+        homepage: 'h',
+        author: null,
+        contributors: []
+      },
+      undefined,
+      undefined
+    )
+
+    const authorLabel = screen.getByText('settings.author:')
+    expect(authorLabel.nextSibling?.textContent).toBe('—')
+
+    const contribLabel = screen.getByText('settings.contributors:')
+    expect(contribLabel.nextSibling?.textContent).toBe('—')
+
+    expect(screen.getByText('dev')).toBeInTheDocument()
   })
 })

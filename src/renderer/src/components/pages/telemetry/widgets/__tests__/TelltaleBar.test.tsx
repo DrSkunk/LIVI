@@ -36,4 +36,14 @@ describe('TelltaleBar', () => {
     expect(opacityOf('turn-right')).toBe(1)
     expect(opacityOf('tt-hazard')).toBe(1)
   })
+
+  test('shows a rounded ambient temperature when a finite value is supplied', () => {
+    render(<TelltaleBar ambientC={21.6} />)
+    expect(screen.getByTestId('ambient-temp')).toHaveTextContent('22°C')
+  })
+
+  test('omits the ambient temperature when the value is not finite', () => {
+    render(<TelltaleBar ambientC={Number.NaN} />)
+    expect(screen.queryByTestId('ambient-temp')).toBeNull()
+  })
 })

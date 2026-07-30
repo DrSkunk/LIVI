@@ -95,9 +95,7 @@ export const About = () => {
       { label: t('settings.version'), value: appVersion, mono: true }
     ]
 
-    if (buildRunStr) {
-      out.push({ label: t('settings.build'), value: buildRunStr, mono: true })
-    }
+    out.push({ label: t('settings.build'), value: buildRunStr, mono: true })
 
     out.push({ label: t('settings.commit', 'Commit'), value: commitShaStr, mono: true })
 

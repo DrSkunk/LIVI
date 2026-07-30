@@ -29,8 +29,9 @@ vi.mock('../../../hooks/useBlinkingTime', () => ({
   useBlinkingTime: () => '12:34'
 }))
 
+let mockNetwork: { type: string; online: boolean } = { type: 'wifi', online: true }
 vi.mock('../../../hooks/useNetworkStatus', () => ({
-  useNetworkStatus: () => ({ type: 'wifi', online: true })
+  useNetworkStatus: () => mockNetwork
 }))
 
 vi.mock('@mui/material/styles', async () => {
@@ -49,6 +50,8 @@ describe('AppLayout', () => {
     mockPathname = '/'
     mockStreaming = false
     mockHand = 0
+    mockTabCount = 4
+    mockNetwork = { type: 'wifi', online: true }
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 })
     ;(window as any).app = { notifyUserActivity: vi.fn() }
   })
@@ -173,6 +176,101 @@ describe('AppLayout', () => {
     })
 
     expect(container.querySelector('#content-root')?.getAttribute('data-nav-hidden')).toBe('0')
+  })
+
+  test('uses compact icons and a smaller clock at extra-small heights', async () => {
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 300 })
+    const navRef = createRef<HTMLDivElement>()
+    const mainRef = createRef<HTMLDivElement>()
+    const { container } = render(
+      <AppLayout navRef={navRef} mainRef={mainRef} receivingVideo={false}>
+        <div>Content</div>
+      </AppLayout>
+    )
+    expect((container.querySelector('#nav-root') as HTMLElement).style.width).toBe('56px')
+  })
+
+  test('mirrors the layout for a right-hand-drive steering position', async () => {
+    mockHand = 1
+    const navRef = createRef<HTMLDivElement>()
+    const mainRef = createRef<HTMLDivElement>()
+    const { container } = render(
+      <AppLayout navRef={navRef} mainRef={mainRef} receivingVideo={false}>
+        <div>Content</div>
+      </AppLayout>
+    )
+    expect((container.querySelector('#main') as HTMLElement).style.flexDirection).toBe(
+      'row-reverse'
+    )
+    const nav = container.querySelector('#nav-root') as HTMLElement
+    expect(nav.style.borderLeft).toContain('1px solid')
+    expect(nav.style.borderRight).toBe('')
+  })
+
+  test('offsets a hidden nav to the right for right-hand-drive while streaming home', async () => {
+    mockHand = 1
+    mockStreaming = true
+    mockPathname = '/'
+    const navRef = createRef<HTMLDivElement>()
+    const mainRef = createRef<HTMLDivElement>()
+    const { container } = render(
+      <AppLayout navRef={navRef} mainRef={mainRef} receivingVideo={false}>
+        <div>Content</div>
+      </AppLayout>
+    )
+    expect((container.querySelector('#nav-root') as HTMLElement).style.transform).toBe(
+      'translateX(10px)'
+    )
+  })
+
+  test('defaults the steering hand to left when the setting is absent', async () => {
+    mockHand = undefined as unknown as number
+    const navRef = createRef<HTMLDivElement>()
+    const mainRef = createRef<HTMLDivElement>()
+    const { container } = render(
+      <AppLayout navRef={navRef} mainRef={mainRef} receivingVideo={false}>
+        <div>Content</div>
+      </AppLayout>
+    )
+    expect((container.querySelector('#main') as HTMLElement).style.flexDirection).toBe('row')
+  })
+
+  test('shows the offline icon when the network is down and not on wifi', async () => {
+    mockNetwork = { type: 'ethernet', online: false }
+    const navRef = createRef<HTMLDivElement>()
+    const mainRef = createRef<HTMLDivElement>()
+    const { container } = render(
+      <AppLayout navRef={navRef} mainRef={mainRef} receivingVideo={false}>
+        <div>Content</div>
+      </AppLayout>
+    )
+    expect(container.querySelector('[data-testid="WifiOffIcon"]')).toBeTruthy()
+  })
+
+  test('shows no network icon when online but not on wifi', async () => {
+    mockNetwork = { type: 'ethernet', online: true }
+    const navRef = createRef<HTMLDivElement>()
+    const mainRef = createRef<HTMLDivElement>()
+    const { container } = render(
+      <AppLayout navRef={navRef} mainRef={mainRef} receivingVideo={false}>
+        <div>Content</div>
+      </AppLayout>
+    )
+    expect(container.querySelector('[data-testid="WifiIcon"]')).toBeFalsy()
+    expect(container.querySelector('[data-testid="WifiOffIcon"]')).toBeFalsy()
+  })
+
+  test('marks the content region as nav-free when there is a single tab', async () => {
+    mockTabCount = 1
+    const navRef = createRef<HTMLDivElement>()
+    const mainRef = createRef<HTMLDivElement>()
+    const { container } = render(
+      <AppLayout navRef={navRef} mainRef={mainRef} receivingVideo={false}>
+        <div>Content</div>
+      </AppLayout>
+    )
+    expect(container.querySelector('#content-root')?.getAttribute('data-nav-present')).toBe('0')
+    expect(container.querySelector('#nav-root')).toBeNull()
   })
 
   test('removes wake listeners on unmount for auto-hide pages', async () => {

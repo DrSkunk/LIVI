@@ -134,4 +134,43 @@ describe('Settings Camera page', () => {
       expect(screen.getByRole('option', { name: 'No camera' })).toBeInTheDocument()
     })
   })
+
+  test('selecting a camera option forwards the value to onChange', async () => {
+    const onChange = vi.fn()
+    render(<Camera state={{ cameraId: '' } as any} onChange={onChange} />)
+
+    await waitFor(() => expect(detectCameras).toHaveBeenCalled())
+
+    fireEvent.mouseDown(screen.getByRole('combobox'))
+    await waitFor(() =>
+      expect(screen.getByRole('option', { name: 'Rear cam' })).toBeInTheDocument()
+    )
+    fireEvent.click(screen.getByRole('option', { name: 'Rear cam' }))
+
+    expect(onChange).toHaveBeenCalledWith('cam-2')
+  })
+
+  test('USB event with a missing payload falls back to an empty object', async () => {
+    render(<Camera state={{ cameraId: '' } as any} onChange={vi.fn()} />)
+
+    await waitFor(() => expect(listenForEvents).toHaveBeenCalled())
+
+    const usbHandler = listenForEvents.mock.calls[0][0]
+    detectCameras.mockClear()
+    usbHandler({})
+
+    expect(detectCameras).not.toHaveBeenCalled()
+  })
+
+  test('camera without a deviceId falls back to an empty option id', async () => {
+    detectCameras.mockResolvedValueOnce([{ deviceId: undefined, label: 'Ghost cam' }])
+    render(<Camera state={{} as any} onChange={vi.fn()} />)
+
+    await waitFor(() => expect(detectCameras).toHaveBeenCalled())
+
+    fireEvent.mouseDown(screen.getByRole('combobox'))
+    await waitFor(() =>
+      expect(screen.getByRole('option', { name: 'Ghost cam' })).toBeInTheDocument()
+    )
+  })
 })

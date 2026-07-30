@@ -89,8 +89,7 @@ export const FFTSpectrum = () => {
   }, [visualAudioDelayMs])
 
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
+    const canvas = canvasRef.current as HTMLCanvasElement
 
     const update = () => {
       const { width, height } = canvas.getBoundingClientRect()

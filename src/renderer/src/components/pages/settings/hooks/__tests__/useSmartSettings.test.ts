@@ -3,20 +3,26 @@ import { useSmartSettings } from '../useSmartSettings'
 
 const saveSettings = vi.fn()
 const markRestartBaseline = vi.fn()
+let mockRestartBaseline: any = { projectionWidth: 800, bindings: { back: 'KeyB' } }
 
 vi.mock('@store/store', () => ({
   useLiviStore: (selector: (s: any) => unknown) =>
     selector({
       saveSettings,
-      restartBaseline: { projectionWidth: 800, bindings: { back: 'KeyB' } },
+      restartBaseline: mockRestartBaseline,
       markRestartBaseline
     })
+}))
+
+vi.mock('../../constants', () => ({
+  requiresRestartParams: ['projectionWidth', 'bindings']
 }))
 
 describe('useSmartSettings', () => {
   beforeEach(async () => {
     saveSettings.mockReset()
     markRestartBaseline.mockReset()
+    mockRestartBaseline = { projectionWidth: 800, bindings: { back: 'KeyB' } }
     ;(window as any).projection = {
       ipc: { restart: vi.fn().mockResolvedValue(undefined) }
     }
@@ -118,5 +124,49 @@ describe('useSmartSettings', () => {
 
     expect(validate).toHaveBeenCalled()
     expect(result.current.state.volume).toBe(50) // unchanged
+  })
+
+  test('requestRestart with no path treats it as restart-relevant', async () => {
+    const initial = { projectionWidth: 800 } as any
+    const settings = { projectionWidth: 800 } as any
+    const { result } = renderHook(() => useSmartSettings(initial, settings))
+
+    act(() => result.current.requestRestart())
+    expect(result.current.needsRestart).toBe(true)
+  })
+
+  test('needsRestartFromConfig skips bindings keys and tolerates nullish settings and baseline', async () => {
+    mockRestartBaseline = null
+    const initial = {} as any
+    const { result } = renderHook(() => useSmartSettings(initial, null as any))
+    expect(result.current.needsRestart).toBe(false)
+  })
+
+  test('handleFieldChange clones an empty object when settings is nullish', async () => {
+    const initial = { projectionWidth: 800 } as any
+    const { result } = renderHook(() => useSmartSettings(initial, null as any))
+
+    act(() => {
+      result.current.handleFieldChange('projectionWidth', 640)
+    })
+
+    expect(result.current.state.projectionWidth).toBe(640)
+    expect(saveSettings).toHaveBeenCalledWith({ projectionWidth: 640 })
+  })
+
+  test('resetState restores the provided initial state', async () => {
+    const initial = { projectionWidth: 800 } as any
+    const settings = { projectionWidth: 800 } as any
+    const { result } = renderHook(() => useSmartSettings(initial, settings))
+
+    act(() => {
+      result.current.handleFieldChange('projectionWidth', 900)
+    })
+    expect(result.current.state.projectionWidth).toBe(900)
+
+    act(() => {
+      result.current.resetState()
+    })
+    expect(result.current.state.projectionWidth).toBe(800)
   })
 })

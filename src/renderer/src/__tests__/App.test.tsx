@@ -8,6 +8,7 @@ const updateCamerasMock = vi.fn()
 const listenForEvents = vi.fn()
 const unlistenForEvents = vi.fn()
 const focusFirstInMainMock = vi.fn()
+let capturedKeyDownOpts: any = null
 let mockPathname = '/'
 
 vi.mock('react-router', () => ({
@@ -51,7 +52,10 @@ vi.mock('../hooks', () => ({
     focusFirstInMain: focusFirstInMainMock,
     moveFocusLinear: vi.fn()
   }),
-  useKeyDown: () => useKeyDownHandler
+  useKeyDown: (opts: any) => {
+    capturedKeyDownOpts = opts
+    return useKeyDownHandler
+  }
 }))
 
 const liviState: any = {
@@ -105,6 +109,8 @@ describe('App', () => {
     liviState.saveSettings = vi.fn()
     statusState.reverse = false
     statusState.cameraFound = false
+    statusState.requestedView = null
+    statusState.requestedViewNonce = 0
     ;(window as any).projection = {
       usb: {
         listenForEvents,
@@ -444,5 +450,242 @@ describe('App', () => {
     navigateMock.mockClear()
     rerender(<App />)
     expect(navigateMock).toHaveBeenCalledWith('/media')
+  })
+
+  test('mounts without redirecting when settings are missing', async () => {
+    liviState.settings = null
+    expect(() => render(<App />)).not.toThrow()
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  test('changes language to english when the setting is empty', async () => {
+    liviState.settings = { ...liviState.settings, language: '' }
+    const i18n = await vi.importMock<any>('i18next')
+    render(<App />)
+    expect(i18n.default.changeLanguage).toHaveBeenCalledWith('en')
+  })
+
+  test('keeps the home route and does not redirect when start page is home', async () => {
+    liviState.settings = { ...liviState.settings, startPage: undefined }
+    mockPathname = '/'
+    render(<App />)
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  test('falls back to home when the start page is unknown', async () => {
+    liviState.settings = { ...liviState.settings, startPage: 'nonexistent' }
+    mockPathname = '/'
+    render(<App />)
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  test('records a transition from a settings sub page back to settings root', async () => {
+    mockPathname = '/settings/devices'
+    const { rerender } = render(<App />)
+
+    mockPathname = '/settings'
+    rerender(<App />)
+
+    expect(navigateMock).not.toHaveBeenCalledWith('/camera')
+  })
+
+  test('does not overwrite app context when nav and content elements exist', async () => {
+    const onSetAppContext = vi.fn()
+    render(
+      <AppContext.Provider
+        value={
+          {
+            isTouchDevice: false,
+            navEl: { current: document.createElement('div') },
+            contentEl: { current: document.createElement('div') },
+            onSetAppContext
+          } as any
+        }
+      >
+        <App />
+      </AppContext.Provider>
+    )
+    expect(onSetAppContext).not.toHaveBeenCalled()
+  })
+
+  test('inContainer handles missing container, missing element and containment', async () => {
+    render(<App />)
+    const { inContainer } = capturedKeyDownOpts
+    const parent = document.createElement('div')
+    const child = document.createElement('span')
+    parent.appendChild(child)
+    const outside = document.createElement('span')
+
+    expect(inContainer(null, child)).toBe(false)
+    expect(inContainer(parent, null)).toBe(false)
+    expect(inContainer(parent, child)).toBe(true)
+    expect(inContainer(parent, outside)).toBe(false)
+  })
+
+  test('does not clear the focused field when focus lands on the same id', async () => {
+    const onSetAppContext = vi.fn()
+    const field = document.createElement('input')
+    field.id = 'focused-field'
+    field.setAttribute('aria-label', 'a-different-label')
+    document.body.appendChild(field)
+
+    render(
+      <AppContext.Provider
+        value={
+          {
+            isTouchDevice: false,
+            keyboardNavigation: { focusedElId: 'focused-field' },
+            onSetAppContext
+          } as any
+        }
+      >
+        <App />
+      </AppContext.Provider>
+    )
+
+    onSetAppContext.mockClear()
+    field.focus()
+    fireEvent.focusIn(field)
+
+    expect(onSetAppContext).toHaveBeenCalled()
+  })
+
+  test('ignores focus changes when no field is being edited', async () => {
+    const onSetAppContext = vi.fn()
+    render(
+      <AppContext.Provider value={{ isTouchDevice: false, onSetAppContext } as any}>
+        <App />
+      </AppContext.Provider>
+    )
+    onSetAppContext.mockClear()
+
+    const el = document.createElement('button')
+    document.body.appendChild(el)
+    fireEvent.focusIn(el)
+
+    expect(onSetAppContext).not.toHaveBeenCalled()
+  })
+
+  test('PTT keyup with a different key does not release', async () => {
+    liviState.settings = {
+      ...liviState.settings,
+      bindings: { ...liviState.settings.bindings, voiceAssistant: 'KeyV' }
+    }
+    const { broadcastMediaKey } = await vi.importMock<any>('../utils/broadcastMediaKey')
+    render(<App />)
+    act(() => {
+      fireEvent.keyDown(document, { code: 'KeyV' })
+    })
+    broadcastMediaKey.mockClear()
+    act(() => {
+      fireEvent.keyUp(document, { code: 'KeyX' })
+    })
+    expect(broadcastMediaKey).not.toHaveBeenCalled()
+  })
+
+  test('PTT stays pressed when the document becomes visible again', async () => {
+    liviState.settings = {
+      ...liviState.settings,
+      bindings: { ...liviState.settings.bindings, voiceAssistant: 'KeyV' }
+    }
+    const { broadcastMediaKey } = await vi.importMock<any>('../utils/broadcastMediaKey')
+    render(<App />)
+    act(() => {
+      fireEvent.keyDown(document, { code: 'KeyV' })
+    })
+    broadcastMediaKey.mockClear()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(broadcastMediaKey).not.toHaveBeenCalled()
+  })
+
+  test('usb handler tolerates events without a payload', async () => {
+    render(<App />)
+    const usbHandler = listenForEvents.mock.calls[0][0]
+    updateCamerasMock.mockClear()
+    expect(() => usbHandler(undefined)).not.toThrow()
+    expect(updateCamerasMock).not.toHaveBeenCalled()
+  })
+
+  test('camera enabled state resolves for non-main window roles', async () => {
+    const { getWindowRole } = await vi.importMock<any>('../utils/windowRole')
+    getWindowRole.mockReturnValue('left')
+    liviState.settings = {
+      ...liviState.settings,
+      autoSwitchOnReverse: true,
+      cameraId: 'cam-1',
+      camera: { left: true }
+    }
+    statusState.reverse = true
+    statusState.cameraFound = true
+    mockPathname = '/media'
+    render(<App />)
+    expect(navigateMock).toHaveBeenCalledWith('/camera')
+    getWindowRole.mockReturnValue('main')
+  })
+
+  test('camera stays disabled for a non-main role without a camera entry', async () => {
+    const { getWindowRole } = await vi.importMock<any>('../utils/windowRole')
+    getWindowRole.mockReturnValue('left')
+    liviState.settings = {
+      ...liviState.settings,
+      autoSwitchOnReverse: true,
+      cameraId: 'cam-1',
+      camera: {}
+    }
+    statusState.reverse = true
+    statusState.cameraFound = true
+    mockPathname = '/media'
+    render(<App />)
+    expect(navigateMock).not.toHaveBeenCalledWith('/camera')
+    getWindowRole.mockReturnValue('main')
+  })
+
+  test('does not re-navigate to camera when already on the camera route', async () => {
+    liviState.settings = {
+      ...liviState.settings,
+      autoSwitchOnReverse: true,
+      cameraId: 'cam-1',
+      camera: { main: true }
+    }
+    statusState.reverse = true
+    statusState.cameraFound = true
+    mockPathname = '/camera'
+    render(<App />)
+    expect(navigateMock).not.toHaveBeenCalledWith('/camera')
+  })
+
+  test('reverse off restores home when there is no recorded prior route', async () => {
+    const { getWindowRole } = await vi.importMock<any>('../utils/windowRole')
+    getWindowRole.mockReturnValue('main')
+    liviState.settings = {
+      ...liviState.settings,
+      autoSwitchOnReverse: true,
+      cameraId: 'cam-1',
+      camera: { main: true }
+    }
+    statusState.reverse = false
+    statusState.cameraFound = true
+    mockPathname = '/camera'
+    render(<App />)
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  test('external navigation request routes to the requested view', async () => {
+    statusState.requestedView = 'media'
+    statusState.requestedViewNonce = 1
+    mockPathname = '/'
+    render(<App />)
+    expect(navigateMock).toHaveBeenCalledWith('/media')
+  })
+
+  test('external navigation request with no view does not navigate', async () => {
+    statusState.requestedView = null
+    statusState.requestedViewNonce = 1
+    mockPathname = '/media'
+    render(<App />)
+    expect(navigateMock).not.toHaveBeenCalled()
   })
 })

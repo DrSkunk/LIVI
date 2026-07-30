@@ -47,6 +47,18 @@ describe('useAutoHideNav', () => {
     expect(result.current.hidden).toBe(true)
   })
 
+  test('wake() while disabled re-shows without scheduling a hide', () => {
+    const { result } = renderHook(() => useAutoHideNav(false))
+    act(() => {
+      result.current.wake()
+    })
+    expect(result.current.hidden).toBe(false)
+    act(() => {
+      vi.advanceTimersByTime(5_000)
+    })
+    expect(result.current.hidden).toBe(false)
+  })
+
   test('input activity (mousemove / keydown / wheel) wakes the nav', () => {
     const { result } = renderHook(() => useAutoHideNav(true))
     act(() => {

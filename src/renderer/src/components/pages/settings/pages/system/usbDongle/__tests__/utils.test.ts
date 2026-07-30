@@ -6,6 +6,7 @@ describe('usbDongle utils', () => {
     expect(normalizeBoxInfo('{"uuid":"x"}')).toEqual({ uuid: 'x' })
     expect(normalizeBoxInfo('bad-json')).toBeNull()
     expect(normalizeBoxInfo('   ')).toBeNull()
+    expect(normalizeBoxInfo(42)).toBeNull()
     expect(normalizeBoxInfo(null)).toBeNull()
   })
 

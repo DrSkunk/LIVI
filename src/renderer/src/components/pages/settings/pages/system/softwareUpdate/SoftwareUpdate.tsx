@@ -254,7 +254,6 @@ export function SoftwareUpdate() {
               variant="contained"
               disabled={installStarting}
               onClick={() => {
-                if (installStarting) return
                 setInstallStarting(true)
                 window.app?.beginInstall?.()
               }}

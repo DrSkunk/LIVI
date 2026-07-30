@@ -522,6 +522,124 @@ describe('NavMini', () => {
     })
   })
 
+  test('ignores a non-object navigation snapshot', async () => {
+    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue(null)
+
+    render(<NavMini />)
+
+    await waitFor(() => {
+      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalled()
+    })
+
+    expect(screen.queryByText('200 m')).not.toBeInTheDocument()
+  })
+
+  test('ignores an event dispatched without a message', async () => {
+    render(<NavMini />)
+
+    await waitFor(() => {
+      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalled()
+    })
+
+    act(() => {
+      onEventCb?.(null)
+    })
+
+    expect(screen.queryByText('200 m')).not.toBeInTheDocument()
+  })
+
+  test('uses the maneuver text as the distance line when remain distance is a dash', async () => {
+    translateNavigationMock.mockImplementation(() => ({
+      RemainDistanceText: '—',
+      ManeuverTypeText: 'Turn right',
+      TimeRemainingToDestinationText: '12 min',
+      DistanceRemainingDisplayStringText: '5 km',
+      CurrentRoadName: 'Main Street',
+      codes: { ManeuverType: 2, TurnSide: 2 }
+    }))
+    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
+      payload: { navi: { NaviStatus: 1 } }
+    })
+
+    render(<NavMini />)
+
+    expect(await screen.findByText('Turn right')).toBeInTheDocument()
+  })
+
+  test('drops an Unknown maneuver text from the distance line', async () => {
+    translateNavigationMock.mockImplementation(() => ({
+      RemainDistanceText: '—',
+      ManeuverTypeText: 'Unknown',
+      TimeRemainingToDestinationText: '12 min',
+      DistanceRemainingDisplayStringText: '5 km',
+      CurrentRoadName: 'Main Street',
+      codes: { ManeuverType: 2, TurnSide: 2 }
+    }))
+    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
+      payload: { navi: { NaviStatus: 1 } }
+    })
+
+    render(<NavMini />)
+
+    expect(await screen.findAllByText('—')).not.toHaveLength(0)
+  })
+
+  test('shows a dash when the destination distance is missing', async () => {
+    translateNavigationMock.mockImplementation(() => ({
+      RemainDistanceText: '200 m',
+      ManeuverTypeText: 'Turn right',
+      TimeRemainingToDestinationText: '12 min',
+      DistanceRemainingDisplayStringText: undefined,
+      CurrentRoadName: 'Main Street',
+      codes: { ManeuverType: 2, TurnSide: 2 }
+    }))
+    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
+      payload: { navi: { NaviStatus: 1 } }
+    })
+
+    render(<NavMini />)
+
+    expect(await screen.findByText('200 m')).toBeInTheDocument()
+    expect(screen.getAllByText('—')).not.toHaveLength(0)
+  })
+
+  test('extracts navi from a top-level navi wrapper (no payload)', async () => {
+    ;(window as any).projection.ipc.readNavigation = vi
+      .fn()
+      .mockResolvedValue({ navi: { NaviStatus: 1, NaviManeuverType: 2, NaviTurnSide: 2 } })
+
+    render(<NavMini />)
+
+    expect(await screen.findByText('200 m')).toBeInTheDocument()
+  })
+
+  test('extracts navi from a top-level NaviStatus payload (no wrappers)', async () => {
+    ;(window as any).projection.ipc.readNavigation = vi
+      .fn()
+      .mockResolvedValue({ NaviStatus: 1, NaviManeuverType: 2, NaviTurnSide: 2 })
+
+    render(<NavMini />)
+
+    expect(await screen.findByText('200 m')).toBeInTheDocument()
+  })
+
+  test('clears navigation and re-hydrates on a navigation-reset event', async () => {
+    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
+      payload: { navi: { NaviStatus: 1 } }
+    })
+
+    render(<NavMini />)
+    expect(await screen.findByText('200 m')).toBeInTheDocument()
+
+    act(() => {
+      onEventCb?.(null, { type: 'navigation-reset' })
+    })
+
+    await waitFor(() => {
+      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalledTimes(2)
+    })
+  })
+
   // Compact coverage for the remaining ManeuverIcon switch cases.
   // turnSide=1 (left side); turnSide=2 paths are covered separately above.
   test.each([

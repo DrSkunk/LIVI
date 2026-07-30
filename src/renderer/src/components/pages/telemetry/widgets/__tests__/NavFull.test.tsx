@@ -518,6 +518,106 @@ describe('NavFull', () => {
     })
   })
 
+  test('ignores a non-object navigation snapshot', async () => {
+    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue(null)
+
+    render(<NavFull />)
+
+    await waitFor(() => {
+      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalled()
+    })
+
+    expect(screen.queryByText('Turn right')).not.toBeInTheDocument()
+  })
+
+  test('ignores an event dispatched without a message', async () => {
+    render(<NavFull />)
+
+    await waitFor(() => {
+      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalled()
+    })
+
+    act(() => {
+      onEventCb?.(null)
+    })
+
+    expect(screen.queryByText('Turn right')).not.toBeInTheDocument()
+  })
+
+  test('omits the remaining-distance text when it is not a string', async () => {
+    translateNavigationMock.mockImplementation(() => ({
+      ManeuverTypeText: 'Turn right',
+      RemainDistanceText: undefined,
+      CurrentRoadName: '',
+      TimeRemainingToDestinationText: '',
+      DistanceRemainingDisplayStringText: '',
+      DestinationName: '',
+      SourceName: '',
+      codes: { ManeuverType: 2, TurnSide: 2 }
+    }))
+    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
+      payload: { navi: { NaviStatus: 1 } }
+    })
+
+    render(<NavFull />)
+
+    expect(await screen.findByText('Turn right')).toBeInTheDocument()
+    expect(screen.queryByText('200 m')).not.toBeInTheDocument()
+  })
+
+  test('renders the after-maneuver road name below the current road', async () => {
+    translateNavigationMock.mockImplementation(() => ({
+      ManeuverTypeText: 'Turn right',
+      RemainDistanceText: '200 m',
+      CurrentRoadName: 'Main Street',
+      AfterManeuverRoadName: 'Second Street',
+      TimeRemainingToDestinationText: '',
+      DistanceRemainingDisplayStringText: '',
+      DestinationName: '',
+      SourceName: '',
+      codes: { ManeuverType: 2, TurnSide: 2 }
+    }))
+    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
+      payload: { navi: { NaviStatus: 1 } }
+    })
+
+    render(<NavFull />)
+
+    expect(await screen.findByText('Second Street')).toBeInTheDocument()
+  })
+
+  test('extracts navi from a top-level navi wrapper (no payload)', async () => {
+    ;(
+      window as { projection: { ipc: { readNavigation: Mock; onEvent: Mock } } }
+    ).projection.ipc.readNavigation = vi
+      .fn()
+      .mockResolvedValue({ navi: { NaviStatus: 1, NaviManeuverType: 2, NaviTurnSide: 2 } })
+
+    render(<NavFull />)
+    await waitFor(() => {
+      expect(screen.getByText('Turn right')).toBeInTheDocument()
+    })
+  })
+
+  test('clears navigation and re-hydrates on a navigation-reset event', async () => {
+    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
+      payload: { navi: { NaviStatus: 1 } }
+    })
+
+    render(<NavFull />)
+    await waitFor(() => {
+      expect(screen.getByText('Turn right')).toBeInTheDocument()
+    })
+
+    act(() => {
+      onEventCb?.(null, { type: 'navigation-reset' })
+    })
+
+    await waitFor(() => {
+      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalledTimes(2)
+    })
+  })
+
   test('live IPC update merges with hydrated navi', async () => {
     ;(
       window as { projection: { ipc: { readNavigation: Mock; onEvent: Mock } } }

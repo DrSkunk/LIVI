@@ -3,6 +3,7 @@ import { SettingsPage } from '../SettingsPage'
 
 const navigateMock = vi.fn()
 let mockNode: any = null
+let mockSplat: string | undefined = 'audio'
 const handleFieldChange = vi.fn()
 const restartMock = vi.fn()
 const applyBtList = vi.fn()
@@ -26,7 +27,7 @@ const smartState = {
 
 vi.mock('react-router', () => ({
   useNavigate: () => navigateMock,
-  useParams: () => ({ '*': 'audio' })
+  useParams: () => ({ '*': mockSplat })
 }))
 
 vi.mock('react-i18next', () => ({
@@ -59,8 +60,24 @@ vi.mock('../components', () => ({
 }))
 
 vi.mock('../components/SettingsFieldPage', () => ({
-  SettingsFieldPage: ({ onChange }: { onChange: (v: unknown) => void }) => (
-    <button data-testid="field-page" onClick={() => onChange('next-page-value')} />
+  SettingsFieldPage: ({
+    onChange,
+    onLabelChange,
+    onDone
+  }: {
+    onChange: (v: unknown) => void
+    onLabelChange?: (label: string) => void
+    onDone: () => void
+  }) => (
+    <div data-testid="field-page">
+      <button data-testid="field-page-change" onClick={() => onChange('next-page-value')} />
+      <button
+        data-testid="field-page-label"
+        onClick={() => onLabelChange?.('page-label')}
+        disabled={!onLabelChange}
+      />
+      <button data-testid="field-page-done" onClick={() => onDone()} />
+    </div>
   )
 }))
 
@@ -68,16 +85,23 @@ vi.mock('../components/SettingsFieldRow', () => ({
   SettingsFieldRow: ({
     onChange,
     onClick,
-    onItemNavigate
+    onItemNavigate,
+    onLabelChange
   }: {
     onChange: (v: unknown) => void
     onClick?: () => void
     onItemNavigate: (s: string) => void
+    onLabelChange?: (label: string) => void
   }) => (
     <div data-testid="field-row">
       <button data-testid="field-row-change" onClick={() => onChange('next')} />
       <button data-testid="field-row-click" onClick={() => onClick?.()} disabled={!onClick} />
       <button data-testid="field-row-navigate" onClick={() => onItemNavigate('child')} />
+      <button
+        data-testid="field-row-label"
+        onClick={() => onLabelChange?.('row-label')}
+        disabled={!onLabelChange}
+      />
     </div>
   )
 }))
@@ -95,6 +119,7 @@ vi.mock('../../../layouts', () => ({
 describe('SettingsPage', () => {
   beforeEach(() => {
     mockNode = null
+    mockSplat = 'audio'
     navigateMock.mockReset()
     restartMock.mockReset()
     applyBtList.mockReset()
@@ -163,7 +188,7 @@ describe('SettingsPage', () => {
   test('page field passes onChange through to handleFieldChange', () => {
     mockNode = { type: 'string', label: 'Name', path: 'name', page: { title: 'Name' } }
     render(<SettingsPage />)
-    fireEvent.click(screen.getByTestId('field-page'))
+    fireEvent.click(screen.getByTestId('field-page-change'))
     expect(handleFieldChange).toHaveBeenCalledWith('name', 'next-page-value')
   })
 
@@ -210,6 +235,14 @@ describe('SettingsPage', () => {
     expect(applyBtList).not.toHaveBeenCalled()
   })
 
+  test('handleRestart no-ops when restart is available but nothing is pending', () => {
+    mockNode = { type: 'route', label: 'Audio', children: [] }
+    render(<SettingsPage />)
+    fireEvent.click(screen.getByTestId('restart'))
+    expect(restartMock).not.toHaveBeenCalled()
+    expect(applyBtList).not.toHaveBeenCalled()
+  })
+
   test('handleRestart calls restart() when needsRestart is true', () => {
     smartState.needsRestart = true
     mockNode = { type: 'route', label: 'Audio', children: [] }
@@ -236,5 +269,78 @@ describe('SettingsPage', () => {
     render(<SettingsPage />)
     fireEvent.click(screen.getByTestId('restart'))
     expect(restartMock).toHaveBeenCalled()
+  })
+
+  test('select page node wires up the label path and done handler', () => {
+    mockNode = {
+      type: 'select',
+      label: 'Language',
+      path: 'lang',
+      labelPath: 'lang.label',
+      page: { title: 'Language' }
+    }
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByTestId('field-page-label'))
+    expect(handleFieldChange).toHaveBeenCalledWith('lang.label', 'page-label')
+
+    fireEvent.click(screen.getByTestId('field-page-done'))
+    expect(navigateMock).toHaveBeenCalledWith(-1)
+  })
+
+  test('slider page node centers its content', () => {
+    mockNode = { type: 'slider', label: 'Volume', path: 'volume', page: { title: 'Volume' } }
+    render(<SettingsPage />)
+    expect(screen.getByTestId('field-page')).toBeInTheDocument()
+    expect(screen.getByTestId('field-page-label')).toBeDisabled()
+  })
+
+  test('title falls back to the translated label key', () => {
+    mockNode = { type: 'route', labelKey: 'settings.title', children: [] }
+    render(<SettingsPage />)
+    expect(screen.getByText('settings.title')).toBeInTheDocument()
+  })
+
+  test('select child wires up the child label path', () => {
+    mockNode = {
+      type: 'route',
+      label: 'Audio',
+      children: [{ type: 'select', label: 'Source', path: 'source', labelPath: 'source.label' }]
+    }
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByTestId('field-row-label'))
+    expect(handleFieldChange).toHaveBeenCalledWith('source.label', 'row-label')
+  })
+
+  test('route child renders its translated label key', () => {
+    mockNode = {
+      type: 'route',
+      label: 'Audio',
+      children: [{ type: 'route', route: 'deep', labelKey: 'deep.key', path: '' }]
+    }
+    render(<SettingsPage />)
+    expect(screen.getByTestId('stack-item')).toHaveTextContent('deep.key')
+  })
+
+  test('route node with an explicit undefined children list renders no rows', () => {
+    mockNode = { type: 'route', label: 'Empty', children: undefined }
+    render(<SettingsPage />)
+    expect(screen.getByText('Empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('field-row')).not.toBeInTheDocument()
+  })
+
+  test('node without a children key renders no rows', () => {
+    mockNode = { type: 'route', label: 'NoChildren' }
+    render(<SettingsPage />)
+    expect(screen.getByText('NoChildren')).toBeInTheDocument()
+    expect(screen.queryByTestId('field-row')).not.toBeInTheDocument()
+  })
+
+  test('empty splat resolves to the root path', () => {
+    mockSplat = undefined
+    mockNode = { type: 'route', label: 'Root', children: [] }
+    render(<SettingsPage />)
+    expect(screen.getByText('Root')).toBeInTheDocument()
   })
 })

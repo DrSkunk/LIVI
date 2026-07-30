@@ -57,47 +57,37 @@ export const Camera: React.FC<SettingsCustomPageProps<Config, string>> = ({ stat
   return (
     <>
       <div style={{ marginTop: 16 }}>
-        {cameraOptions.length ? (
-          <>
-            <Select
-              size="small"
-              variant="outlined"
-              value={cameraValue}
-              sx={{
-                minWidth: 200,
-                width: '100%',
+        <Select
+          size="small"
+          variant="outlined"
+          value={cameraValue}
+          sx={{
+            minWidth: 200,
+            width: '100%',
 
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                  borderColor: 'primary.main',
-                  borderWidth: '1px'
-                },
+            '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+              borderColor: 'primary.main',
+              borderWidth: '1px'
+            },
 
-                '& .MuiSelect-select': {
-                  display: 'flex',
-                  alignItems: 'center',
-                  minHeight: 0
-                }
-              }}
-              onChange={(e) => onChange(e.target.value)}
-            >
-              {cameraOptions.map((o) => (
-                <MenuItem key={o.deviceId || 'none'} value={o.deviceId}>
-                  {o.label}
-                </MenuItem>
-              ))}
-            </Select>
+            '& .MuiSelect-select': {
+              display: 'flex',
+              alignItems: 'center',
+              minHeight: 0
+            }
+          }}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          {cameraOptions.map((o) => (
+            <MenuItem key={o.deviceId || 'none'} value={o.deviceId}>
+              {o.label}
+            </MenuItem>
+          ))}
+        </Select>
 
-            <Typography color="text.secondary" sx={{ mb: 2 }}>
-              Source
-            </Typography>
-          </>
-        ) : (
-          <>
-            <Typography color="text.secondary" sx={{ mb: 2 }}>
-              No camera detected
-            </Typography>
-          </>
-        )}
+        <Typography color="text.secondary" sx={{ mb: 2 }}>
+          Source
+        </Typography>
       </div>
     </>
   )

@@ -143,7 +143,7 @@ export const useKeyDown = ({
       }
 
       let mappedAction: BindKey | undefined
-      for (const [k, v] of Object.entries(b ?? {})) {
+      for (const [k, v] of Object.entries(b)) {
         if (v === code) {
           mappedAction = k as BindKey
           break
@@ -181,18 +181,16 @@ export const useKeyDown = ({
 
       if (inNav) {
         if (isLeft) {
-          const target = (document.activeElement as HTMLElement | null) ?? navRoot
+          const target = document.activeElement as HTMLElement
 
-          if (target) {
-            target.dispatchEvent(
-              new KeyboardEvent('keydown', {
-                bubbles: true,
-                cancelable: true,
-                key: 'ArrowUp',
-                code: 'ArrowUp'
-              })
-            )
-          }
+          target.dispatchEvent(
+            new KeyboardEvent('keydown', {
+              bubbles: true,
+              cancelable: true,
+              key: 'ArrowUp',
+              code: 'ArrowUp'
+            })
+          )
 
           event.preventDefault()
           event.stopPropagation()
@@ -200,18 +198,16 @@ export const useKeyDown = ({
         }
 
         if (isRight) {
-          const target = (document.activeElement as HTMLElement | null) ?? navRoot
+          const target = document.activeElement as HTMLElement
 
-          if (target) {
-            target.dispatchEvent(
-              new KeyboardEvent('keydown', {
-                bubbles: true,
-                cancelable: true,
-                key: 'ArrowDown',
-                code: 'ArrowDown'
-              })
-            )
-          }
+          target.dispatchEvent(
+            new KeyboardEvent('keydown', {
+              bubbles: true,
+              cancelable: true,
+              key: 'ArrowDown',
+              code: 'ArrowDown'
+            })
+          )
 
           event.preventDefault()
           event.stopPropagation()
@@ -305,9 +301,7 @@ export const useKeyDown = ({
         _active?.tagName === 'TEXTAREA' ||
         _active?.getAttribute('contenteditable') === 'true' ||
         _active?.getAttribute('role') === 'slider' ||
-        _active?.getAttribute('role') === 'switch' ||
-        (_active instanceof HTMLInputElement && _active.type === 'range') ||
-        (_active instanceof HTMLInputElement && _active.type === 'listbox')
+        _active?.getAttribute('role') === 'switch'
 
       const isRangeSlider =
         (active?.tagName === 'INPUT' && (active as HTMLInputElement).type === 'range') ||
@@ -374,7 +368,7 @@ export const useKeyDown = ({
         }
 
         const role = active?.getAttribute('role') || ''
-        const tag = active?.tagName || ''
+        const tag = (active as HTMLElement).tagName
 
         const isSwitch =
           role === 'switch' || (tag === 'INPUT' && (active as HTMLInputElement).type === 'checkbox')
@@ -421,7 +415,7 @@ export const useKeyDown = ({
           return
         }
 
-        const ok = activateControl(active || null)
+        const ok = activateControl(active)
         if (ok) {
           event.preventDefault()
           event.stopPropagation()

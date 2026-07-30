@@ -283,4 +283,41 @@ describe('renderer main bootstrap', () => {
 
     expect(matchMediaMock).toHaveBeenCalledWith('(pointer: coarse)')
   })
+
+  test('dash role sets the window title and mounts DashApp', async () => {
+    vi.doMock('../utils/windowRole', () => ({ getWindowRole: () => 'dash' }))
+
+    const mod = await import('../main')
+
+    expect(document.title).toBe('Dash')
+    expect(initUiBreatheClockMock).not.toHaveBeenCalled()
+    expect(initCursorHiderMock).not.toHaveBeenCalled()
+
+    const tree = mod.Root()
+    const roleApp = tree.props.children.props.children[1]
+    expect(roleApp.type().props['data-testid']).toBe('dash-app')
+  })
+
+  test('aux role sets the window title and mounts AuxApp', async () => {
+    vi.doMock('../utils/windowRole', () => ({ getWindowRole: () => 'aux' }))
+
+    const mod = await import('../main')
+
+    expect(document.title).toBe('Auxiliary')
+
+    const tree = mod.Root()
+    const roleApp = tree.props.children.props.children[1]
+    expect(roleApp.type().props['data-testid']).toBe('aux-app')
+  })
+
+  test('adds the compositor class when running under the livi compositor', async () => {
+    vi.doMock('../utils/windowRole', () => ({ getWindowRole: () => 'main' }))
+    ;(window as any).app = { compositor: true }
+    document.documentElement.classList.remove('compositor')
+
+    await import('../main')
+
+    expect(document.documentElement.classList.contains('compositor')).toBe(true)
+    ;(window as any).app = undefined
+  })
 })

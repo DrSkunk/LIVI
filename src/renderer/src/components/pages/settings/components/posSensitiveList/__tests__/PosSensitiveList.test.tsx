@@ -29,7 +29,15 @@ vi.mock('@mui/material', () => ({
     onClick?: (e: React.MouseEvent) => void
     disabled?: boolean
   } & Record<string, unknown>) => (
-    <button type="button" disabled={disabled} onClick={onClick} {...rest}>
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      ref={(el) => {
+        if (el) (el as unknown as { _onClick?: typeof onClick })._onClick = onClick
+      }}
+      {...rest}
+    >
       {children}
     </button>
   )
@@ -179,10 +187,11 @@ describe('PosSensitiveList', () => {
   test('swap is a no-op for out-of-bounds indices (e.g. up on first row)', () => {
     const onChange = vi.fn()
     render(<PosSensitiveList node={node} value={undefined} onChange={onChange} />)
-    // First row's up button is disabled, but assert no onChange even when fired programmatically
     const ups = screen.getAllByTestId('up-icon').map((u) => u.parentElement as HTMLButtonElement)
-    // jsdom does fire onClick on disabled buttons via fireEvent — swap guards internally
-    fireEvent.click(ups[0])
+    const handler = (
+      ups[0] as unknown as { _onClick?: (e: { stopPropagation: () => void }) => void }
+    )._onClick
+    handler?.({ stopPropagation: () => {} })
     expect(onChange).not.toHaveBeenCalled()
   })
 

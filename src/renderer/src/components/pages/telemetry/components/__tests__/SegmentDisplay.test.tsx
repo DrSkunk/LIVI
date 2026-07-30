@@ -23,6 +23,48 @@ describe('SegmentDisplay', () => {
     expect(polygons.every((p) => p.getAttribute('fill') === 'rgb(1, 2, 3)')).toBe(true)
   })
 
+  test('left-pads values shorter than the digit count', () => {
+    const { container } = render(<SegmentDisplay value="5" digits={3} />)
+    expect(container.querySelectorAll('polygon')).toHaveLength(21)
+  })
+
+  test('keeps the final zero lit when every digit is zero', () => {
+    const { container } = render(
+      <SegmentDisplay
+        value="000"
+        digits={3}
+        dimLeadingZeros
+        leadingZeroColor="rgb(8, 8, 8)"
+        onColor="rgb(9, 9, 9)"
+      />
+    )
+    const fills = Array.from(container.querySelectorAll('polygon')).map((p) =>
+      p.getAttribute('fill')
+    )
+    expect(fills).toContain('rgb(9, 9, 9)')
+  })
+
+  test('stops dimming zeros after the first significant digit', () => {
+    const { container } = render(
+      <SegmentDisplay
+        value="105"
+        digits={3}
+        dimLeadingZeros
+        leadingZeroColor="rgb(8, 8, 8)"
+        onColor="rgb(9, 9, 9)"
+      />
+    )
+    const fills = Array.from(container.querySelectorAll('polygon')).map((p) =>
+      p.getAttribute('fill')
+    )
+    expect(fills).not.toContain('rgb(8, 8, 8)')
+  })
+
+  test('renders a minus sign without treating it as significant', () => {
+    const { container } = render(<SegmentDisplay value="-5" digits={2} offMode="dim" />)
+    expect(container.querySelectorAll('polygon')).toHaveLength(14)
+  })
+
   test('dims leading zeros when enabled', () => {
     const { container } = render(
       <SegmentDisplay

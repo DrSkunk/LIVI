@@ -53,8 +53,7 @@ export const Camera: React.FC<CameraProps> = ({
   }, [])
 
   const playVideo = useCallback(async (stream: MediaStream) => {
-    const videoEl = videoRef.current
-    if (!videoEl) return
+    const videoEl = videoRef.current as HTMLVideoElement
     videoEl.srcObject = stream
     const p = videoEl.play()
     if (p && typeof (p as Promise<void>).catch === 'function') {
@@ -150,7 +149,6 @@ export const Camera: React.FC<CameraProps> = ({
 
   const openStream = useCallback(
     async (deviceId: CameraId | '', signal: AbortSignal) => {
-      if (!videoRef.current) return
       setStatus({ state: 'opening' })
 
       // enumerate to validate device presence

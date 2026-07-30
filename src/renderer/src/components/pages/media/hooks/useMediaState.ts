@@ -111,7 +111,7 @@ export function useMediaState(allowInitialHydrate: boolean) {
 
       if (m.MediaPlayStatus === 1) {
         const dur = m.MediaSongDuration ?? 0
-        const next = clamp((livePlayMsRef.current ?? 0) + dt, 0, dur)
+        const next = clamp(livePlayMsRef.current + dt, 0, dur)
         livePlayMsRef.current = next
 
         if (now - lastUiUpdateRef.current >= UI_INTERVAL_MS) {

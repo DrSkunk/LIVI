@@ -267,6 +267,175 @@ describe('useMediaState', () => {
     expect(result.current.snap?.payload.media?.MediaSongPlayTime).toBeUndefined()
   })
 
+  it('treats an event handler call with no payload as an empty event', async () => {
+    let handler: (ev: unknown, ...args: unknown[]) => void = () => {}
+    mockOnEvent.mockImplementationOnce((cb) => {
+      handler = cb
+      return vi.fn()
+    })
+    ;(payloadFromLiveEvent as Mock).mockReturnValue(null)
+
+    const { result } = renderHook(() => useMediaState(false))
+
+    act(() => {
+      handler({})
+    })
+
+    expect(payloadFromLiveEvent).toHaveBeenCalledWith({})
+    expect(result.current.snap).toBeNull()
+  })
+
+  it('skips subscription when onEvent is not a function', async () => {
+    ;(window as never as { projection: { ipc: { onEvent?: unknown } } }).projection.ipc.onEvent =
+      undefined
+
+    const { unmount } = renderHook(() => useMediaState(false))
+    unmount()
+
+    expect(mockRemoveListener).toHaveBeenCalledWith('projection-event', expect.any(Function))
+  })
+
+  it('does not hydrate when readMedia resolves to nothing', async () => {
+    mockReadMedia.mockResolvedValueOnce(null)
+
+    const { result } = renderHook(() => useMediaState(true))
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(mockReadMedia).toHaveBeenCalled()
+    expect(result.current.snap).toBeNull()
+    expect(result.current.livePlayMs).toBe(0)
+  })
+
+  it('hydrates with zero play time when the snapshot has no media', async () => {
+    mockReadMedia.mockResolvedValueOnce({
+      timestamp: '2025-01-01T00:00:00Z',
+      payload: { type: 1 }
+    })
+
+    const { result } = renderHook(() => useMediaState(true))
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(result.current.snap?.payload.type).toBe(1)
+    expect(result.current.livePlayMs).toBe(0)
+  })
+
+  it('clamps against zero duration while playing without a song duration', async () => {
+    const payload = {
+      timestamp: '2025-01-01T00:00:00Z',
+      payload: {
+        type: 1,
+        media: { MediaPlayStatus: 1, MediaSongPlayTime: 10 }
+      }
+    }
+    mockReadMedia.mockResolvedValueOnce(payload)
+    renderHook(() => useMediaState(true))
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    for (let i = 0; i < 5; i++) {
+      await act(async () => {
+        vi.advanceTimersByTime(50)
+        await Promise.resolve()
+      })
+    }
+
+    expect(clamp).toHaveBeenCalledWith(expect.any(Number), 0, 0)
+  })
+
+  it('handles media-reset by re-reading media and seeding play time', async () => {
+    let handler: (ev: unknown, ...args: unknown[]) => void = () => {}
+    mockOnEvent.mockImplementationOnce((cb) => {
+      handler = cb
+      return vi.fn()
+    })
+    mockReadMedia.mockResolvedValueOnce({
+      timestamp: '2025-01-01T00:00:00Z',
+      payload: { type: 1, media: { MediaSongPlayTime: 321 } }
+    })
+
+    const { result } = renderHook(() => useMediaState(false))
+
+    await act(async () => {
+      handler({}, { type: 'media-reset' })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(mockReadMedia).toHaveBeenCalled()
+    expect(result.current.livePlayMs).toBe(321)
+    expect(result.current.snap?.payload.media?.MediaSongPlayTime).toBe(321)
+  })
+
+  it('handles media-reset with missing media by seeding play time to zero', async () => {
+    let handler: (ev: unknown, ...args: unknown[]) => void = () => {}
+    mockOnEvent.mockImplementationOnce((cb) => {
+      handler = cb
+      return vi.fn()
+    })
+    mockReadMedia.mockResolvedValueOnce({
+      timestamp: '2025-01-01T00:00:00Z',
+      payload: { type: 1 }
+    })
+
+    const { result } = renderHook(() => useMediaState(false))
+
+    await act(async () => {
+      handler({}, { type: 'media-reset' })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.livePlayMs).toBe(0)
+    expect(result.current.snap?.payload.type).toBe(1)
+  })
+
+  it('ignores media-reset when readMedia returns nothing', async () => {
+    let handler: (ev: unknown, ...args: unknown[]) => void = () => {}
+    mockOnEvent.mockImplementationOnce((cb) => {
+      handler = cb
+      return vi.fn()
+    })
+    mockReadMedia.mockResolvedValueOnce(null)
+
+    const { result } = renderHook(() => useMediaState(false))
+
+    await act(async () => {
+      handler({}, { type: 'media-reset' })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.snap).toBeNull()
+    expect(result.current.livePlayMs).toBe(0)
+  })
+
+  it('swallows errors thrown while handling media-reset', async () => {
+    let handler: (ev: unknown, ...args: unknown[]) => void = () => {}
+    mockOnEvent.mockImplementationOnce((cb) => {
+      handler = cb
+      return vi.fn()
+    })
+    mockReadMedia.mockRejectedValueOnce(new Error('boom'))
+
+    const { result } = renderHook(() => useMediaState(false))
+
+    await act(async () => {
+      handler({}, { type: 'media-reset' })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.snap).toBeNull()
+  })
+
   it('falls back to 0 when incoming media event has no MediaSongPlayTime and previous play time is not a number', async () => {
     let handler: (ev: unknown, ...args: unknown[]) => void = () => {}
     mockOnEvent.mockImplementationOnce((cb) => {

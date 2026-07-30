@@ -33,4 +33,11 @@ describe('SoftReadout', () => {
 
     expect(screen.getByText('7')).toBeInTheDocument()
   })
+
+  test('paints the rounded backdrop when a backdrop colour is provided', () => {
+    render(<SoftReadout value={88} label="KPH" backdropColor="rgb(10, 20, 30)" />)
+
+    expect(screen.getByText('88')).toBeInTheDocument()
+    expect(screen.getByText('KPH')).toBeInTheDocument()
+  })
 })

@@ -21,6 +21,8 @@ describe('SoftwareUpdate', () => {
     updateEventCb = undefined
     progressCb = undefined
     mockSaveSettings.mockClear()
+    ;(globalThis as any).__BUILD_SHA__ = undefined
+    ;(globalThis as any).__BUILD_RUN__ = undefined
     mockSettings = { updateNightly: false }
     ;(window as any).app = {
       getVersion: vi.fn().mockResolvedValue('1.0.0'),
@@ -193,5 +195,152 @@ describe('SoftwareUpdate', () => {
 
     fireEvent.click(sw)
     expect(mockSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ updateNightly: false }))
+  })
+
+  test('shows build metadata suffix when build globals are strings', async () => {
+    ;(globalThis as any).__BUILD_SHA__ = 'deadbee'
+    ;(globalThis as any).__BUILD_RUN__ = '42'
+    render(<SoftwareUpdate />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/1\.0\.0/)).toBeInTheDocument()
+    })
+  })
+
+  test('offers a downgrade when the installed version is newer', async () => {
+    ;(window as any).app.getVersion = vi.fn().mockResolvedValue('2.0.0')
+    ;(window as any).app.getLatestRelease = vi
+      .fn()
+      .mockResolvedValue({ version: '1.0.0', url: 'https://old' })
+    render(<SoftwareUpdate />)
+
+    const btn = await screen.findByRole('button', { name: 'softwareUpdate.downgrade' })
+    expect(btn).toBeEnabled()
+
+    fireEvent.click(btn)
+    expect(screen.getByText('Software Downgrade')).toBeInTheDocument()
+  })
+
+  test('shows up to date and disables the button when versions match', async () => {
+    ;(window as any).app.getVersion = vi.fn().mockResolvedValue('1.0.0')
+    ;(window as any).app.getLatestRelease = vi
+      .fn()
+      .mockResolvedValue({ version: '1.0.0', url: 'https://same' })
+    render(<SoftwareUpdate />)
+
+    const btn = await screen.findByRole('button', { name: 'softwareUpdate.upToDate' })
+    expect(btn).toBeDisabled()
+  })
+
+  test('nightly change is ignored when settings are missing', async () => {
+    mockSettings = null
+    render(<SoftwareUpdate />)
+
+    const sw = await screen.findByRole('switch', { name: 'softwareUpdate.channelNightly' })
+    fireEvent.click(sw)
+    expect(mockSaveSettings).not.toHaveBeenCalled()
+  })
+
+  test('error event with an empty message does not schedule an auto-close', async () => {
+    render(<SoftwareUpdate />)
+
+    act(() => {
+      updateEventCb?.({ phase: 'ready', message: '' })
+    })
+    act(() => {
+      updateEventCb?.({ phase: 'error', message: '' })
+    })
+
+    expect(screen.getByText('softwareUpdate.close')).toBeInTheDocument()
+  })
+
+  test('error event without a message falls back to a generic failure text', async () => {
+    render(<SoftwareUpdate />)
+
+    act(() => {
+      updateEventCb?.({ phase: 'ready', message: '' })
+    })
+    act(() => {
+      updateEventCb?.({ phase: 'error' })
+    })
+
+    expect(screen.getAllByText('softwareUpdate.updateFailed').length).toBeGreaterThan(0)
+  })
+
+  test('progress without numeric fields resets percent and byte counters', async () => {
+    render(<SoftwareUpdate />)
+
+    act(() => {
+      progressCb?.({})
+    })
+
+    expect(screen.getAllByRole('progressbar').length).toBeGreaterThan(0)
+  })
+
+  test('unknown phase falls back to a generic working label', async () => {
+    render(<SoftwareUpdate />)
+
+    act(() => {
+      updateEventCb?.({ phase: 'ready', message: '' })
+    })
+    act(() => {
+      updateEventCb?.({ phase: 'mystery-phase', message: '' })
+    })
+
+    expect(screen.getByText('Working…')).toBeInTheDocument()
+  })
+
+  test('install phases show the automatic restart notice', async () => {
+    render(<SoftwareUpdate />)
+
+    act(() => {
+      updateEventCb?.({ phase: 'ready', message: '' })
+    })
+    act(() => {
+      updateEventCb?.({ phase: 'installing', message: '' })
+    })
+
+    expect(screen.getByText('softwareUpdate.restartsAutomaticallyWhenDone')).toBeInTheDocument()
+  })
+
+  test('abort button aborts the in-flight update', async () => {
+    render(<SoftwareUpdate />)
+
+    act(() => {
+      updateEventCb?.({ phase: 'ready', message: '' })
+    })
+
+    fireEvent.click(screen.getByText('softwareUpdate.abort'))
+    expect((window as any).app.abortUpdate).toHaveBeenCalled()
+  })
+
+  test('escape keeps the dialog open unless the update failed', async () => {
+    render(<SoftwareUpdate />)
+
+    act(() => {
+      updateEventCb?.({ phase: 'ready', message: '' })
+    })
+
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    expect(screen.getByText('softwareUpdate.installNow')).toBeInTheDocument()
+
+    act(() => {
+      updateEventCb?.({ phase: 'error', message: 'boom' })
+    })
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    expect(screen.queryByText('softwareUpdate.close')).not.toBeInTheDocument()
+  })
+
+  test('clicking the backdrop closes the dialog and resets state', async () => {
+    const { baseElement } = render(<SoftwareUpdate />)
+
+    act(() => {
+      updateEventCb?.({ phase: 'ready', message: '' })
+    })
+    expect(screen.getByText('softwareUpdate.installNow')).toBeInTheDocument()
+
+    const backdrop = baseElement.querySelector('.MuiBackdrop-root') as HTMLElement
+    fireEvent.click(backdrop)
+    expect(screen.queryByText('softwareUpdate.installNow')).not.toBeInTheDocument()
   })
 })

@@ -11,17 +11,10 @@ type AudioDataMsg = PortAudioLike & {
 }
 
 function toInt16(msg: unknown): Int16Array | undefined {
-  if (typeof msg === 'object' && msg !== null) {
-    const a = msg as PortAudioLike
-    if (a.data instanceof Int16Array) {
-      const src = a.data
-      const aligned =
-        src.byteOffset % 2 === 0 && src.buffer.byteLength >= src.byteOffset + src.byteLength
-      return aligned ? src : new Int16Array(src)
-    }
-    if (a.buffer instanceof ArrayBuffer) return new Int16Array(a.buffer)
-    if (a.chunk instanceof ArrayBuffer) return new Int16Array(a.chunk)
-  }
+  const a = msg as PortAudioLike
+  if (a.data instanceof Int16Array) return a.data
+  if (a.buffer instanceof ArrayBuffer) return new Int16Array(a.buffer)
+  if (a.chunk instanceof ArrayBuffer) return new Int16Array(a.chunk)
   console.error('[PROJECTION.WORKER] PCM - cannot interpret PCM data:', msg)
   return undefined
 }

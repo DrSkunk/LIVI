@@ -88,8 +88,7 @@ export function DashFrame({ children, clusterFull }: DashFrameProps) {
   const [sidePush, setSidePush] = useState(0)
 
   useEffect(() => {
-    const el = hostRef.current
-    if (!el) return
+    const el = hostRef.current as HTMLDivElement
 
     const ro = new ResizeObserver(([entry]) => {
       const r = entry?.contentRect

@@ -107,9 +107,8 @@ export function KeyBindingRow({ node }: { node: KeyBindingNode }) {
   )
 
   const reset = useCallback(async () => {
-    if (!hasDefault) return
     await applyValue(defaultValue)
-  }, [applyValue, defaultValue, hasDefault])
+  }, [applyValue, defaultValue])
 
   // key capture
   useEffect(() => {

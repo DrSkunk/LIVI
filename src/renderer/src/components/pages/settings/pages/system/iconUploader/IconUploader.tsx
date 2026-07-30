@@ -13,9 +13,9 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 function getResetDongleIconsFn(w: unknown): (() => Promise<ResetDongleIconsResult>) | null {
-  if (!isRecord(w)) return null
+  const rec = w as Record<string, unknown>
 
-  const app = w.app
+  const app = rec.app
   if (!isRecord(app)) return null
 
   const fn = app.resetDongleIcons
@@ -62,7 +62,7 @@ export function IconUploader(props: SettingsCustomPageProps<Config, unknown>) {
       const file = e.target.files?.[0]
       e.target.value = ''
       if (!file) return
-      if (!settings) return
+      const current = settings as Config
 
       try {
         setIsImporting(true)
@@ -74,7 +74,7 @@ export function IconUploader(props: SettingsCustomPageProps<Config, unknown>) {
         const b256 = resizeImageToBase64Png(img, 256)
 
         const updated: Config = {
-          ...settings,
+          ...current,
           dongleIcon120: b120,
           dongleIcon180: b180,
           dongleIcon256: b256
@@ -111,7 +111,7 @@ export function IconUploader(props: SettingsCustomPageProps<Config, unknown>) {
   }, [requestRestart])
 
   const resetToDefaults = useCallback(async () => {
-    if (!settings) return
+    const current = settings as Config
 
     try {
       setIsResetting(true)
@@ -125,10 +125,10 @@ export function IconUploader(props: SettingsCustomPageProps<Config, unknown>) {
 
       const result = await fn()
       const updated: Config = {
-        ...settings,
-        dongleIcon120: result.dongleIcon120 ?? settings.dongleIcon120,
-        dongleIcon180: result.dongleIcon180 ?? settings.dongleIcon180,
-        dongleIcon256: result.dongleIcon256 ?? settings.dongleIcon256
+        ...current,
+        dongleIcon120: result.dongleIcon120 ?? current.dongleIcon120,
+        dongleIcon180: result.dongleIcon180 ?? current.dongleIcon180,
+        dongleIcon256: result.dongleIcon256 ?? current.dongleIcon256
       }
 
       saveSettings(updated)
