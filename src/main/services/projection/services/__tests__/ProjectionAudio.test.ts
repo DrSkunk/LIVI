@@ -1044,6 +1044,17 @@ describe('ProjectionAudio state controls', () => {
     }
   })
 
+  test('musicGapResetMs uses the longer reset window on darwin', async () => {
+    const original = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    try {
+      const a = createSubject()
+      expect(a.musicGapResetMs).toBe(1000)
+    } finally {
+      Object.defineProperty(process, 'platform', { value: original, configurable: true })
+    }
+  })
+
   test('setInitialVolumes fills voiceAssistant and call while preserving omitted music and nav', async () => {
     const a = createSubject()
     a.setInitialVolumes({ voiceAssistant: 0.5, call: 0.6 })

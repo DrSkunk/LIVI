@@ -312,6 +312,21 @@ describe('main index bootstrap', () => {
     })
   })
 
+  test('skips the linux-only gvfs guard and package check off linux', async () => {
+    await mockReadyRunsCallback()
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    const { checkAndInstallGvfsGuard, startPhoneSuppression } = await import(
+      '@main/services/gvfsPhoneGuard'
+    )
+    const { checkMissingPackages } = await import('@main/services/packageCheck')
+
+    await bootIndex()
+
+    expect(checkAndInstallGvfsGuard).not.toHaveBeenCalled()
+    expect(startPhoneSuppression).not.toHaveBeenCalled()
+    expect(checkMissingPackages).not.toHaveBeenCalled()
+  })
+
   test('couples the head-unit volume to the system mixer when linked', async () => {
     await mockReadyRunsCallback()
     const cfg = {

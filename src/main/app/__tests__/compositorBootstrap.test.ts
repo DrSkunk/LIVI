@@ -130,6 +130,13 @@ describe('bootstrapCompositor', () => {
     expect(Number(size.split('x')[1])).toBeGreaterThan(480)
   })
 
+  test('falls back to /tmp for the control socket when XDG_RUNTIME_DIR is unset', () => {
+    delete process.env.XDG_RUNTIME_DIR
+    expect(bootstrapCompositor()).toBe(true)
+    const [, , opts] = mockedSpawn.mock.calls[0]
+    expect(opts.env.LIVI_COMPOSITOR_CTRL).toBe('/tmp/livi-compositor.ctrl')
+  })
+
   test('LIVI_KIOSK=1 forces kiosk sizing without a kiosk config', () => {
     process.env.LIVI_KIOSK = '1'
     mockedLoadConfig.mockReturnValueOnce({

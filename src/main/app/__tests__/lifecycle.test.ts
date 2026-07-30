@@ -144,7 +144,11 @@ describe('setupLifecycle', () => {
     expect(app.quit).not.toHaveBeenCalled()
   })
 
-  test('before-quit runs shutdown pipeline and quits app', async () => {
+  test.each([
+    ['linux', 'linux'],
+    ['darwin', 'darwin']
+  ])('before-quit runs shutdown pipeline and quits app (%s watchdog window)', async (_l, plat) => {
+    Object.defineProperty(process, 'platform', { value: plat, configurable: true })
     const projectionService = {
       beginShutdown: vi.fn(),
       disconnectPhone: vi.fn(() => Promise.resolve()),
