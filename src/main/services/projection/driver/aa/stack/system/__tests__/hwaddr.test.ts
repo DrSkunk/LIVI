@@ -78,6 +78,22 @@ describe('detectBtMac', () => {
     expect(detectBtMac('hci2')).toBe('AA:BB:CC:11:22:33')
     expect(mockReaddirSync).not.toHaveBeenCalled()
   })
+
+  test('treats a sysfs read error as no MAC and falls through', () => {
+    mockReaddirSync.mockReturnValueOnce(['hci0'])
+    mockReadFileSync.mockImplementationOnce(() => {
+      throw new Error('EACCES')
+    })
+    mockExecSync.mockReturnValueOnce('s "AA:BB:CC:DD:EE:FF"\n')
+    expect(detectBtMac()).toBe('AA:BB:CC:DD:EE:FF')
+  })
+
+  test('returns undefined when busctl and hciconfig output has no MAC', () => {
+    mockReaddirSync.mockReturnValueOnce([])
+    mockExecSync.mockReturnValueOnce('s ""\n')
+    mockExecSync.mockReturnValueOnce('no address here\n')
+    expect(detectBtMac()).toBeUndefined()
+  })
 })
 
 describe('detectWifiBssid', () => {
@@ -101,6 +117,12 @@ describe('detectWifiBssid', () => {
 
   test('returns undefined when no wlan interface has a MAC', () => {
     mockReaddirSync.mockReturnValueOnce(['eth0'])
+    expect(detectWifiBssid()).toBeUndefined()
+  })
+
+  test('skips a wlan interface whose address is not a valid MAC', () => {
+    mockReaddirSync.mockReturnValueOnce(['wlan0'])
+    mockReadFileSync.mockReturnValueOnce('garbage')
     expect(detectWifiBssid()).toBeUndefined()
   })
 

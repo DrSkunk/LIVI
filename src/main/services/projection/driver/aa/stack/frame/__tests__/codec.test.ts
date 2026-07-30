@@ -193,4 +193,18 @@ describe('FrameParser — multi-frame reassembly', () => {
       parser.push(encodeFrame(1, BULK, 0x0001, Buffer.from([1, 2])))
     }).not.toThrow()
   })
+
+  test('waits for the full extended header before parsing a FIRST fragment', () => {
+    const parser = new FrameParser()
+    const frames = collect(parser)
+    parser.push(Buffer.from([0x01, FLAG_FIRST, 0x00, 0x05]))
+    expect(frames).toHaveLength(0)
+  })
+
+  test('waits for the full payload when a short-header frame is truncated', () => {
+    const parser = new FrameParser()
+    const frames = collect(parser)
+    parser.push(Buffer.from([0x01, BULK, 0x00, 0x0a, 0xde, 0xad]))
+    expect(frames).toHaveLength(0)
+  })
 })

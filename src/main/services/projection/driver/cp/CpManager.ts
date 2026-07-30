@@ -328,7 +328,7 @@ export class CpManager {
    *  when disableBluetooth cannot drop it, so dropping here would lose CP media. */
   private _metadataTarget(): CpSession | null {
     if (this._liveSession && this._sessions.has(this._liveSession)) return this._liveSession
-    if (this._sessions.size === 1) return [...this._sessions][0] ?? null
+    if (this._sessions.size === 1) return [...this._sessions][0]!
     return null
   }
 

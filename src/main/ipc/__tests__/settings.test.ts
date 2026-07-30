@@ -1,3 +1,4 @@
+import { listWifiChannels } from '@main/app/wifiOptions'
 import { registerIpcHandle } from '@main/ipc/register'
 import { registerSettingsIpc } from '@main/ipc/settings'
 import { pickAssetForPlatform } from '@main/ipc/update/pickAsset'
@@ -23,6 +24,17 @@ vi.mock('@main/ipc/update/pickAsset', () => ({
 vi.mock('@main/ipc/utils', () => ({
   configEvents: { on: vi.fn() },
   saveSettings: vi.fn()
+}))
+
+vi.mock('@main/app/hostOutput', () => ({
+  listHostOutputModes: vi.fn(() => ['1024x600', '800x480'])
+}))
+
+vi.mock('@main/app/wifiOptions', () => ({
+  listBtAdapters: vi.fn(() => ['hci0']),
+  listWifiChannels: vi.fn(() => [36, 40]),
+  listWifiCountryCodes: vi.fn(() => ['AT', 'DE']),
+  listWifiInterfaces: vi.fn(() => ['wlan0'])
 }))
 
 describe('registerSettingsIpc', () => {
@@ -233,5 +245,67 @@ describe('registerSettingsIpc', () => {
 
     expect(pickAssetForPlatform).toHaveBeenCalledWith([])
     expect(result).toEqual({ version: '', url: undefined, commit: '', run: '' })
+  })
+
+  test('app:getLatestRelease labels nightly feed failures', async () => {
+    ;(global as any).fetch = vi.fn().mockRejectedValue(new Error('offline'))
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    registerSettingsIpc({ config: { updateNightly: true } } as never)
+    const handler = getHandler<() => Promise<{ version: string }>>('app:getLatestRelease')
+
+    await expect(handler()).resolves.toMatchObject({ version: '' })
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('nightly'), expect.any(Error))
+
+    warnSpy.mockRestore()
+  })
+
+  test('getSettings returns the runtime config', async () => {
+    registerSettingsIpc(runtimeState)
+    expect(getHandler<() => unknown>('getSettings')()).toBe(
+      (runtimeState as { config: unknown }).config
+    )
+  })
+
+  test('list handlers delegate to the host and wifi helpers', async () => {
+    const state = { config: { wifiType: '5ghz' } } as never
+    registerSettingsIpc(state)
+
+    expect(getHandler<() => string[]>('app:listDisplayModes')()).toEqual(['1024x600', '800x480'])
+    expect(getHandler<() => number[]>('app:listWifiChannels')()).toEqual([36, 40])
+    expect(listWifiChannels).toHaveBeenCalledWith('5ghz')
+    expect(getHandler<() => string[]>('app:listWifiCountryCodes')()).toEqual(['AT', 'DE'])
+    expect(getHandler<() => string[]>('app:listWifiInterfaces')()).toEqual(['wlan0'])
+    expect(getHandler<() => string[]>('app:listBtAdapters')()).toEqual(['hci0'])
+  })
+
+  test('app:getLatestRelease pulls the nightly feed and derives version, commit and run', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: 'Nightly build #123',
+        target_commitish: 'abc1234',
+        assets: []
+      })
+    })
+    ;(global as any).fetch = fetchMock
+
+    registerSettingsIpc({ config: { updateNightly: true } } as never)
+    const handler =
+      getHandler<() => Promise<{ version: string; commit: string; run: string }>>(
+        'app:getLatestRelease'
+      )
+
+    const result = await handler()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/releases/tags/nightly'),
+      expect.anything()
+    )
+    expect(result).toMatchObject({
+      version: 'Nightly build #123',
+      commit: 'abc1234',
+      run: '123'
+    })
   })
 })

@@ -198,8 +198,7 @@ function spawn(spec: SecondaryWindowSpec, runtimeState: runtimeStateProps) {
 }
 
 function close(role: SecondaryWindowRole) {
-  const win = windows.get(role)
-  if (!win) return
+  const win = windows.get(role) as BrowserWindow
   windows.delete(role)
   if (!win.isDestroyed()) win.close()
 }

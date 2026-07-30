@@ -73,6 +73,8 @@ vi.mock('@main/services/audio', () => ({
 
 import type * as net from 'node:net'
 import type { Config } from '@shared/types'
+import { CarType } from '@shared/types/Config'
+import { InputCommand } from '@shared/types/InputCommand'
 import { CommandMapping, MultiTouchAction, TouchAction } from '@shared/types/ProjectionEnums'
 import {
   SendCloseDongle,
@@ -82,7 +84,11 @@ import {
   SendTouch
 } from '../../../messages/sendable'
 import { AaSession, type AaSessionSeed } from '../AaSession'
+import { TOUCH_ACTION } from '../stack/index'
 import type { UsbAoapBridge } from '../stack/transport/UsbAoapBridge'
+
+const TOUCH_MOVED = TOUCH_ACTION.MOVED
+const TOUCH_UP = TOUCH_ACTION.UP
 
 const baseCfg = (): Config =>
   ({
@@ -708,5 +714,215 @@ describe('AaSession — codec/night-mode setters during an active session', () =
     d.requestKeyframe()
     expect(lastAaStack.instance!.requestMainKeyframe).toHaveBeenCalled()
     expect(lastAaStack.instance!.forceClusterKeyframe).toHaveBeenCalled()
+  })
+
+  test('codec/night-mode setters after close are ignored (no stored config)', async () => {
+    const d = makeSession()
+    await d.close()
+    expect(() => {
+      d.setHevcSupported(true)
+      d.setVp9Supported(true)
+      d.setAv1Supported(true)
+      d.setInitialNightMode(true)
+    }).not.toThrow()
+  })
+
+  test('usbSerial returns the descriptor serial for a wired session', () => {
+    const wired = new AaSession({
+      socket: new MockSocket() as unknown as net.Socket,
+      getConfig: () => baseCfg(),
+      wired: true,
+      wiredBridge: new MockUsbAoapBridge() as unknown as UsbAoapBridge,
+      usbSerial: 'SN-42',
+      seed: baseSeed()
+    })
+    expect(wired.usbSerial()).toBe('SN-42')
+    expect(makeSession().usbSerial()).toBe('')
+  })
+
+  test('the config-refresh callback rebuilds the stack config', () => {
+    makeSession()
+    const aa = lastAaStack.instance!
+    const refresh = aa.setConfigRefresh.mock.calls[0][0] as () => void
+    refresh()
+    expect(aa.applyDisplayConfig).toHaveBeenCalled()
+  })
+})
+
+describe('AaSession — config edge cases', () => {
+  test('explicit projection + cluster DPI are used verbatim', () => {
+    makeSession({
+      cfg: { ...baseCfg(), projectionDpi: 160, clusterDpi: 200 } as Config
+    })
+    const cfg = lastAaStack.instance!.cfg as Record<string, unknown>
+    expect(cfg.videoDpi).toBe(160)
+    expect(cfg.clusterDpi).toBe(200)
+  })
+
+  test.each([[CarType.HybridGasoline], [CarType.HybridDiesel], [CarType.Diesel]])(
+    'carType %s maps to a fuel-type list',
+    (carType) => {
+      makeSession({ cfg: { ...baseCfg(), carType } as unknown as Config })
+      const cfg = lastAaStack.instance!.cfg as Record<string, unknown>
+      expect(Array.isArray(cfg.fuelTypes)).toBe(true)
+      expect((cfg.fuelTypes as number[]).length).toBeGreaterThan(0)
+    }
+  )
+
+  test('an active cluster dashboard is advertised and its AR is logged', () => {
+    makeSession({
+      cfg: {
+        ...baseCfg(),
+        dashboards: { dash3: { main: true } }
+      } as unknown as Config
+    })
+    expect((lastAaStack.instance!.cfg as Record<string, unknown>).clusterEnabled).toBe(true)
+  })
+
+  test('a wide display yields a height margin (letterbox top/bottom)', () => {
+    expect(() =>
+      makeSession({ cfg: { ...baseCfg(), projectionWidth: 2560, projectionHeight: 720 } as Config })
+    ).not.toThrow()
+  })
+
+  test('a tall display yields a width margin (pillarbox left/right)', () => {
+    expect(() =>
+      makeSession({
+        cfg: { ...baseCfg(), projectionWidth: 1080, projectionHeight: 1920 } as Config
+      })
+    ).not.toThrow()
+  })
+
+  test('zero projection dimensions skip the aspect-ratio margin math', () => {
+    expect(() =>
+      makeSession({ cfg: { ...baseCfg(), projectionWidth: 0, projectionHeight: 0 } as Config })
+    ).not.toThrow()
+  })
+})
+
+describe('AaSession — bridge presence/lifecycle callbacks', () => {
+  test('device-status surfaces a status device-presence event', () => {
+    const d = makeSession()
+    const cb = vi.fn()
+    d.on('device-presence', cb)
+    lastAaStack.instance!.emit('device-status', { battery: 55 })
+    expect(cb).toHaveBeenCalledWith(expect.objectContaining({ kind: 'status', battery: 55 }))
+  })
+
+  test('a second connected event does not re-emit', () => {
+    const d = makeSession()
+    const cb = vi.fn()
+    d.on('connected', cb)
+    lastAaStack.instance!.emit('connected')
+    lastAaStack.instance!.emit('connected')
+    expect(cb).toHaveBeenCalledTimes(1)
+  })
+
+  test('a second disconnected event does not re-emit', () => {
+    const d = makeSession()
+    const cb = vi.fn()
+    d.on('disconnected', cb)
+    lastAaStack.instance!.emit('disconnected')
+    lastAaStack.instance!.emit('disconnected')
+    expect(cb).toHaveBeenCalledTimes(1)
+  })
+
+  test('isClosed dep is consulted when the stack reports an error', () => {
+    makeSession()
+    expect(() => lastAaStack.instance!.emit('error', new Error('transient'))).not.toThrow()
+  })
+
+  test('restarting mic capture after a stop reuses the existing Microphone', () => {
+    const d = makeSession()
+    const internal = d as unknown as {
+      _startMicCapture: (r: string) => void
+      _stopMicCapture: (r: string) => void
+      _mic: MockMicrophone | null
+    }
+    internal._startMicCapture('a')
+    const mic = internal._mic
+    internal._stopMicCapture('b')
+    internal._startMicCapture('c')
+    expect(internal._mic).toBe(mic)
+    expect(mic!.start).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('AaSession — touch + multitouch action variants', () => {
+  test('SendTouch Move and Up map to the right pointer actions', async () => {
+    const d = makeSession()
+    const aa = lastAaStack.instance!
+    await d.send(new SendTouch(0.5, 0.5, TouchAction.Move))
+    await d.send(new SendTouch(0.5, 0.5, TouchAction.Up))
+    expect(aa.sendTouch.mock.calls[0][0]).toBe(TOUCH_MOVED)
+    expect(aa.sendTouch.mock.calls[1][0]).toBe(TOUCH_UP)
+  })
+
+  test('SendTouch with an out-of-enum action falls back to MOVED', async () => {
+    const d = makeSession()
+    const aa = lastAaStack.instance!
+    await d.send(new SendTouch(0.5, 0.5, 99 as unknown as TouchAction))
+    expect(aa.sendTouch.mock.calls[0][0]).toBe(TOUCH_MOVED)
+  })
+
+  test('clamp01 handles negative, over-one and non-finite coordinates', async () => {
+    const d = makeSession()
+    const aa = lastAaStack.instance!
+    await d.send(new SendTouch(-0.5, 0.5, TouchAction.Down))
+    await d.send(new SendTouch(2, 0.5, TouchAction.Down))
+    await d.send(new SendTouch(Number.NaN, 0.5, TouchAction.Down))
+    expect(aa.sendTouch).toHaveBeenCalled()
+  })
+
+  test('all-Move multitouch uses the first pointer as the trigger', async () => {
+    const d = makeSession()
+    const aa = lastAaStack.instance!
+    await d.send(
+      new SendMultiTouch([
+        { id: 0, x: 0.2, y: 0.2, action: MultiTouchAction.Move },
+        { id: 1, x: 0.6, y: 0.6, action: MultiTouchAction.Move }
+      ])
+    )
+    expect(aa.sendTouch.mock.calls[0][0]).toBe(TOUCH_MOVED)
+    expect(aa.sendTouch.mock.calls[0][2]).toBe(0)
+  })
+
+  test('single-finger Up multitouch maps to ACTION_UP', async () => {
+    const d = makeSession()
+    const aa = lastAaStack.instance!
+    await d.send(new SendMultiTouch([{ id: 0, x: 0.3, y: 0.3, action: MultiTouchAction.Up }]))
+    expect(aa.sendTouch.mock.calls[0][0]).toBe(TOUCH_UP)
+  })
+
+  test('an unrecognised sendable message resolves to false', async () => {
+    const d = makeSession()
+    const ok = await d.send({} as never)
+    expect(ok).toBe(false)
+  })
+})
+
+describe('AaSession.handleInput', () => {
+  test('a mapped input command presses and releases the mapped key', () => {
+    const d = makeSession()
+    const aa = lastAaStack.instance!
+    d.handleInput(InputCommand.Play)
+    expect(aa.sendButton).toHaveBeenCalledWith(126, true)
+    expect(aa.sendButton).toHaveBeenCalledWith(126, false)
+  })
+
+  test('an unmapped input command is a no-op', () => {
+    const d = makeSession()
+    const aa = lastAaStack.instance!
+    d.handleInput('nonexistent' as InputCommand)
+    expect(aa.sendButton).not.toHaveBeenCalled()
+  })
+
+  test('handleInput after close does nothing', async () => {
+    const d = makeSession()
+    const aa = lastAaStack.instance!
+    await d.close()
+    aa.sendButton.mockClear()
+    d.handleInput(InputCommand.Play)
+    expect(aa.sendButton).not.toHaveBeenCalled()
   })
 })

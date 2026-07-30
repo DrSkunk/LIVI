@@ -248,6 +248,97 @@ describe('udevRule', () => {
       )
     })
 
+    test('treats an existing rule as current via the version-0 fallback marker', async () => {
+      existsFake(true)
+      mockReadFileSync.mockImplementation(function (p: string) {
+        if (typeof p === 'string' && p.endsWith('.rules.template')) {
+          return 'SUBSYSTEM=="usb", ATTR{idVendor}=="1314", MODE="0660", OWNER="__USERNAME__"\n'
+        }
+        return '# LIVI-RULE-VERSION=0\nSUBSYSTEM=="usb"\n'
+      })
+      await checkAndInstallUdevRule(mockWindow)
+      expect(mockShowMessageBox).not.toHaveBeenCalled()
+    })
+
+    test('prompts for an update when the rule file vanishes between checks', async () => {
+      let ruleChecks = 0
+      mockExistsSync.mockImplementation(function (p: string) {
+        if (typeof p === 'string' && p.endsWith('.rules.template')) return true
+        ruleChecks += 1
+        return ruleChecks === 1
+      })
+      mockShowMessageBox.mockResolvedValue({ response: 1 })
+      await checkAndInstallUdevRule(mockWindow)
+      expect(mockShowMessageBox).toHaveBeenCalledWith(
+        mockWindow,
+        expect.objectContaining({ title: 'USB Permission Update' })
+      )
+    })
+
+    test('treats an unreadable rule file as outdated', async () => {
+      existsFake(true)
+      mockReadFileSync.mockImplementation(function (p: string, enc?: string) {
+        if (typeof p === 'string' && p.endsWith('.rules.template')) {
+          return realFs.readFileSync(p, (enc as BufferEncoding) ?? 'utf8')
+        }
+        throw new Error('EACCES')
+      })
+      mockShowMessageBox.mockResolvedValue({ response: 1 })
+      await checkAndInstallUdevRule(mockWindow)
+      expect(mockShowMessageBox).toHaveBeenCalledWith(
+        mockWindow,
+        expect.objectContaining({ title: 'USB Permission Update' })
+      )
+    })
+
+    test('bundles the touch filter into the install script when present', async () => {
+      mockReadFileSync.mockImplementation(function (p: string, enc?: string) {
+        if (typeof p === 'string' && p.endsWith('.rules.template')) {
+          return realFs.readFileSync(p, (enc as BufferEncoding) ?? 'utf8')
+        }
+        if (typeof p === 'string' && p.endsWith('livi-touch-filter')) {
+          return '#!/bin/sh\nexit 0\n'
+        }
+        return ''
+      })
+      await checkAndInstallUdevRule(mockWindow)
+      const script = mockSpawn.mock.calls[0][1][2] as string
+      expect(script).toContain('LIVI_FILTER_EOF')
+      expect(script).toContain('chmod 0755')
+    })
+
+    test('installs without the touch filter when it cannot be read', async () => {
+      mockReadFileSync.mockImplementation(function (p: string, enc?: string) {
+        if (typeof p === 'string' && p.endsWith('.rules.template')) {
+          return realFs.readFileSync(p, (enc as BufferEncoding) ?? 'utf8')
+        }
+        throw new Error('missing filter asset')
+      })
+      await checkAndInstallUdevRule(mockWindow)
+      const script = mockSpawn.mock.calls[0][1][2] as string
+      expect(script).not.toContain('LIVI_FILTER_EOF')
+    })
+
+    test('stringifies non-Error spawn failures in the error dialog', async () => {
+      const proc = {
+        on: vi.fn((event: string, cb: (arg: unknown) => void) => {
+          if (event === 'error') setTimeout(() => cb('spawn exploded'), 0)
+        })
+      }
+      mockSpawn.mockReturnValue(proc)
+      mockShowMessageBox
+        .mockResolvedValueOnce({ response: 0 })
+        .mockResolvedValueOnce({ response: 1 })
+      await checkAndInstallUdevRule(mockWindow)
+      expect(mockShowMessageBox).toHaveBeenLastCalledWith(
+        mockWindow,
+        expect.objectContaining({
+          title: 'Installation Failed',
+          detail: expect.stringContaining('spawn exploded')
+        })
+      )
+    })
+
     test('retries the install and shows success when the user clicks Retry', async () => {
       mockSpawn.mockReturnValueOnce(mkProc(127)).mockReturnValueOnce(mkProc(0))
       mockShowMessageBox

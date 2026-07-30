@@ -1,4 +1,6 @@
+import { downsampleToMono } from '@main/services/audio'
 import { ProjectionAudio } from '@main/services/projection/services/ProjectionAudio'
+import type { Mock } from 'vitest'
 
 vi.mock('@main/services/audio', () => ({
   Microphone: vi.fn().mockImplementation(function () {
@@ -784,5 +786,440 @@ describe('ProjectionAudio state controls', () => {
       a.handleAudioData({ data: new Int16Array([800, -800]), decodeType: 1 })
       expect(a.musicFade.target).toBe(1)
     })
+
+    test('starts a fresh ramp when target already matches but current has drifted', () => {
+      const { a } = musicSubject()
+      a.duckLevel = 0.2
+      a.musicFade = { current: 1, target: 0.2, remainingSamples: 0 }
+      a.musicRampActive = false
+      a.musicGateMuted = false
+      a.nextMusicRampStartAt = 0
+      a.musicWarmupUntil = 0
+
+      a.handleAudioData({
+        data: new Int16Array([100, -100, 100, -100]),
+        sampleRate: 48000,
+        channels: 2
+      })
+
+      expect(a.musicRampActive).toBe(true)
+      expect(a.musicFade.remainingSamples).toBeGreaterThan(0)
+    })
+
+    test('clamps ramped music samples that overshoot the pcm range', () => {
+      const { a, player } = musicSubject()
+      a.volumes.music = 1
+      a.duckLevel = 0.2
+      a.musicFade = { current: 1.5, target: 0.2, remainingSamples: 100 }
+      a.musicRampActive = true
+      a.musicGateMuted = false
+      a.nextMusicRampStartAt = 0
+      a.musicWarmupUntil = 0
+
+      a.handleAudioData({
+        data: new Int16Array([32767, -32768]),
+        sampleRate: 48000,
+        channels: 2
+      })
+
+      const out = player.write.mock.calls[0][0] as Int16Array
+      expect(out[0]).toBe(32767)
+      expect(out[1]).toBe(-32768)
+    })
+
+    test('completes the ramp and settles gain when remaining samples run out mid-chunk', () => {
+      const { a } = musicSubject()
+      a.volumes.music = 1
+      a.duckLevel = 0.5
+      a.musicFade = { current: 1, target: 0.5, remainingSamples: 1 }
+      a.musicRampActive = true
+      a.musicGateMuted = false
+      a.nextMusicRampStartAt = 0
+      a.musicWarmupUntil = 0
+
+      a.handleAudioData({
+        data: new Int16Array([100, -100, 100, -100]),
+        sampleRate: 48000,
+        channels: 2
+      })
+
+      expect(a.musicRampActive).toBe(false)
+      expect(a.musicFade.current).toBe(0.5)
+      expect(a.musicFade.remainingSamples).toBe(0)
+    })
+  })
+
+  test('setStreamVolume ignores an empty stream key', async () => {
+    const a = createSubject()
+    const before = { ...a.volumes }
+    a.setStreamVolume('' as any, 0.5)
+    expect(a.volumes).toEqual(before)
+  })
+
+  test('unduck resets duck level to unity with the given ramp duration', async () => {
+    const a = createSubject()
+    a.duckLevel = 0.3
+    a.unduck(300)
+    expect(a.duckLevel).toBe(1)
+    expect(a.duckRampMs).toBe(300)
+  })
+
+  test('unduck clamps negative durations to zero', async () => {
+    const a = createSubject()
+    a.unduck(-50)
+    expect(a.duckLevel).toBe(1)
+    expect(a.duckRampMs).toBe(0)
+  })
+
+  test('restoreDuck clamps level, resets fade and clears gate state', async () => {
+    const a = createSubject()
+    a.musicGateMuted = true
+    a.musicRampActive = true
+    a.nextMusicRampStartAt = 999
+    a.musicWarmupUntil = 999
+
+    a.restoreDuck(2, -10)
+
+    expect(a.duckLevel).toBe(1)
+    expect(a.duckRampMs).toBe(0)
+    expect(a.musicGateMuted).toBe(false)
+    expect(a.musicRampActive).toBe(false)
+    expect(a.musicFade).toEqual({ current: 1, target: 1, remainingSamples: 0 })
+    expect(a.nextMusicRampStartAt).toBe(0)
+    expect(a.musicWarmupUntil).toBe(0)
+  })
+
+  test('handleAudioData remembers the voiceAssistant player key for data streams', async () => {
+    const a = createSubject()
+    const player = { write: vi.fn() }
+    a.getAudioOutputForStream = vi.fn(() => player)
+    a.getLogicalStreamKey = vi.fn(() => 'voiceAssistant')
+
+    a.handleAudioData({
+      data: new Int16Array([1, 2]),
+      sampleRate: 48000,
+      channels: 2,
+      audioType: 9
+    })
+
+    expect(a.lastVoiceAssistantPlayerKey).toBe('voiceAssistant:at9:48000:2')
+  })
+
+  test('handleAudioData remembers the call player key for data streams', async () => {
+    const a = createSubject()
+    const player = { write: vi.fn() }
+    a.getAudioOutputForStream = vi.fn(() => player)
+    a.getLogicalStreamKey = vi.fn(() => 'call')
+
+    a.handleAudioData({ data: new Int16Array([1, 2]), sampleRate: 48000, channels: 2 })
+
+    expect(a.lastCallPlayerKey).toBe('call:at0:48000:2')
+  })
+
+  test('handleAudioData AudioMediaStart learns the music audioType', async () => {
+    const a = createSubject()
+    a.audioOpenArmed = true
+
+    a.handleAudioData({ command: 11, audioType: 7 })
+
+    expect(a.musicAudioType).toBe(7)
+  })
+
+  test('getLogicalStreamKey routes music by learned music audioType', async () => {
+    const a = createSubject()
+    a.musicAudioType = 3
+    expect(a.getLogicalStreamKey({ audioType: 3 })).toBe('music')
+  })
+
+  test('stopPlayerByKey ignores a null key', async () => {
+    const a = createSubject()
+    expect(() => a.stopPlayerByKey(null)).not.toThrow()
+  })
+
+  test('stopPlayerByKey ignores an unknown key', async () => {
+    const a = createSubject()
+    expect(() => a.stopPlayerByKey('does-not-exist')).not.toThrow()
+  })
+
+  test('mic data handler forwards pcm and guards empty buffers and missing decodeType', async () => {
+    const sendMicPcm = vi.fn()
+    const a = new ProjectionAudio(
+      () => ({ micType: 0, disableAudioOutput: false }) as any,
+      vi.fn(),
+      vi.fn(),
+      sendMicPcm
+    ) as any
+    a._mic = null
+
+    a.handleAudioData({ command: 4, decodeType: 1 })
+
+    const dataHandler = a._mic.on.mock.calls.find(([e]: [string]) => e === 'data')?.[1]
+
+    dataHandler(null)
+    dataHandler(Buffer.alloc(0))
+    expect(sendMicPcm).not.toHaveBeenCalled()
+
+    a.currentMicDecodeType = null
+    dataHandler(Buffer.from([1, 2, 3, 4]))
+    expect(sendMicPcm).not.toHaveBeenCalled()
+
+    a.currentMicDecodeType = 1
+    dataHandler(Buffer.from([1, 2, 3, 4]))
+    expect(sendMicPcm).toHaveBeenCalledWith(expect.any(Int16Array), 1)
+  })
+
+  test('mic data handler swallows sendMicPcm errors', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const sendMicPcm = vi.fn(() => {
+      throw new Error('send failed')
+    })
+    const a = new ProjectionAudio(
+      () => ({ micType: 0, disableAudioOutput: false }) as any,
+      vi.fn(),
+      vi.fn(),
+      sendMicPcm
+    ) as any
+    a._mic = null
+
+    a.handleAudioData({ command: 4, decodeType: 1 })
+    const dataHandler = a._mic.on.mock.calls.find(([e]: [string]) => e === 'data')?.[1]
+    a.currentMicDecodeType = 1
+
+    expect(() => dataHandler(Buffer.from([1, 2, 3, 4]))).not.toThrow()
+    expect(errSpy).toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
+  test('onAudioDeviceChanged stops players and restarts a capturing mic', async () => {
+    const a = createSubject()
+    a.audioPlayers.set('k', { stop: vi.fn() })
+    const mic = {
+      isCapturing: vi.fn(() => true),
+      stop: vi.fn(),
+      setDevice: vi.fn(),
+      start: vi.fn()
+    }
+    a._mic = mic
+    a.currentMicDecodeType = 2
+
+    a.onAudioDeviceChanged()
+
+    expect(a.audioPlayers.size).toBe(0)
+    expect(mic.stop).toHaveBeenCalled()
+    expect(mic.setDevice).toHaveBeenCalled()
+    expect(mic.start).toHaveBeenCalledWith(2)
+  })
+
+  test('onAudioDeviceChanged does not restart a mic that was not capturing', async () => {
+    const a = createSubject()
+    const mic = {
+      isCapturing: vi.fn(() => false),
+      stop: vi.fn(),
+      setDevice: vi.fn(),
+      start: vi.fn()
+    }
+    a._mic = mic
+    a.currentMicDecodeType = 2
+
+    a.onAudioDeviceChanged()
+
+    expect(mic.stop).toHaveBeenCalled()
+    expect(mic.start).not.toHaveBeenCalled()
+  })
+
+  test('onAudioDeviceChanged is a no-op for the mic when none exists', async () => {
+    const a = createSubject()
+    a._mic = null
+    expect(() => a.onAudioDeviceChanged()).not.toThrow()
+  })
+
+  test('musicGapResetMs uses the shorter reset window on non-darwin platforms', async () => {
+    const original = process.platform
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+    try {
+      const a = createSubject()
+      expect(a.musicGapResetMs).toBe(500)
+    } finally {
+      Object.defineProperty(process, 'platform', { value: original, configurable: true })
+    }
+  })
+
+  test('setInitialVolumes fills voiceAssistant and call while preserving omitted music and nav', async () => {
+    const a = createSubject()
+    a.setInitialVolumes({ voiceAssistant: 0.5, call: 0.6 })
+    expect(a.volumes).toEqual({ music: 1, nav: 1, voiceAssistant: 0.5, call: 0.6 })
+  })
+
+  test('setStreamVolume treats a non-finite volume as zero', async () => {
+    const a = createSubject()
+    a.volumes.music = 0.5
+    a.setStreamVolume('music', Number.NaN)
+    expect(a.volumes.music).toBe(0)
+  })
+
+  test('handleAudioData ignores messages that carry neither data nor command', async () => {
+    const a = createSubject()
+    const player = { write: vi.fn() }
+    a.getAudioOutputForStream = vi.fn(() => player)
+    expect(() => a.handleAudioData({})).not.toThrow()
+    expect(player.write).not.toHaveBeenCalled()
+  })
+
+  test('handleAudioData skips visualizer chunking when the downsampled buffer is empty', async () => {
+    ;(downsampleToMono as unknown as Mock).mockReturnValueOnce(new Int16Array(0))
+    const sendChunked = vi.fn()
+    const a = new ProjectionAudio(
+      () => ({ mediaDelay: 120 }) as any,
+      vi.fn(),
+      sendChunked,
+      vi.fn()
+    ) as any
+    const player = { write: vi.fn() }
+    a.getAudioOutputForStream = vi.fn(() => player)
+    a.getLogicalStreamKey = vi.fn(() => 'music')
+    a.mediaActive = true
+    a.setVisualizerEnabled(true)
+
+    a.handleAudioData({ data: new Int16Array([1, 2, 3]), sampleRate: 48000, channels: 2 })
+
+    expect(sendChunked).not.toHaveBeenCalled()
+  })
+
+  test('handleAudioData VoiceAssistantStart does not re-emit hint when already active', async () => {
+    const emitAttention = vi.fn()
+    const a = createSubject({ micType: 0, disableAudioOutput: true })
+    a.emitAttention = emitAttention
+    a.uiVoiceAssistantHintActive = true
+
+    a.handleAudioData({ command: 4 })
+
+    expect(emitAttention).not.toHaveBeenCalledWith('voiceAssistant', true)
+  })
+
+  test('handleAudioData NaviStart keeps hint and audioType when already active and no audioType given', async () => {
+    const emitAttention = vi.fn()
+    const a = createSubject()
+    a.emitAttention = emitAttention
+    a.uiNavHintActive = true
+    a.navAudioType = 5
+
+    a.handleAudioData({ command: 6 })
+
+    expect(emitAttention).not.toHaveBeenCalled()
+    expect(a.navAudioType).toBe(5)
+  })
+
+  test('handleAudioData AudioMediaStart is a no-op when unarmed and media already active', async () => {
+    const a = createSubject()
+    a.audioOpenArmed = false
+    a.mediaActive = true
+    a.musicWarmupUntil = 0
+
+    a.handleAudioData({ command: 11 })
+
+    expect(a.mediaActive).toBe(true)
+    expect(a.musicWarmupUntil).toBe(0)
+  })
+
+  test('handleAudioData AudioMediaStop skips music player teardown when no key is remembered', async () => {
+    const a = createSubject()
+    a.mediaActive = true
+    a.lastMusicPlayerKey = null
+    a.stopPlayerByKey = vi.fn()
+
+    a.handleAudioData({ command: 12 })
+
+    expect(a.stopPlayerByKey).not.toHaveBeenCalled()
+    expect(a.mediaActive).toBe(false)
+  })
+
+  test('handleAudioData AudioOutputStop with a specific audioType only stops the matching stream', async () => {
+    const a = createSubject()
+    a.musicAudioType = 1
+    a.navAudioType = 2
+    a.lastMusicPlayerKey = 'm'
+    a.lastNavPlayerKey = 'n'
+    a.lastVoiceAssistantPlayerKey = 'va'
+    a.lastCallPlayerKey = 'call'
+    a.stopPlayerByKey = vi.fn()
+
+    a.handleAudioData({ command: 13, audioType: 1 })
+
+    expect(a.stopPlayerByKey).toHaveBeenCalledWith('m')
+    expect(a.stopPlayerByKey).not.toHaveBeenCalledWith('n')
+    expect(a.stopPlayerByKey).not.toHaveBeenCalledWith('va')
+    expect(a.lastMusicPlayerKey).toBeNull()
+    expect(a.lastNavPlayerKey).toBe('n')
+  })
+
+  test('handleAudioData AudioOutputStop with an unmatched audioType stops nothing', async () => {
+    const a = createSubject()
+    a.musicAudioType = 1
+    a.navAudioType = 2
+    a.lastMusicPlayerKey = 'm'
+    a.lastNavPlayerKey = 'n'
+    a.stopPlayerByKey = vi.fn()
+
+    a.handleAudioData({ command: 13, audioType: 99 })
+
+    expect(a.stopPlayerByKey).not.toHaveBeenCalled()
+    expect(a.lastMusicPlayerKey).toBe('m')
+    expect(a.lastNavPlayerKey).toBe('n')
+  })
+
+  test('handleAudioData AudioOutputStop leaves voiceAssistant/call keys when none are remembered', async () => {
+    const a = createSubject()
+    a.lastMusicPlayerKey = null
+    a.lastNavPlayerKey = null
+    a.lastVoiceAssistantPlayerKey = null
+    a.lastCallPlayerKey = null
+    a.stopPlayerByKey = vi.fn()
+
+    a.handleAudioData({ command: 13 })
+
+    expect(a.stopPlayerByKey).not.toHaveBeenCalled()
+  })
+
+  test('handleAudioData AudioInputConfig without a decodeType is a no-op', async () => {
+    const a = createSubject()
+    a.currentMicDecodeType = 7
+
+    a.handleAudioData({ command: 14 })
+
+    expect(a.currentMicDecodeType).toBe(7)
+  })
+
+  test('handleAudioData VoiceAssistantStop clears state even without a remembered player', async () => {
+    const a = createSubject()
+    a.voiceAssistantActive = true
+    a.lastVoiceAssistantPlayerKey = null
+    a.stopPlayerByKey = vi.fn()
+    a._mic = { stop: vi.fn() }
+
+    a.handleAudioData({ command: 5 })
+
+    expect(a.voiceAssistantActive).toBe(false)
+    expect(a.stopPlayerByKey).not.toHaveBeenCalled()
+    expect(a._mic.stop).toHaveBeenCalled()
+  })
+
+  test('handleAudioData settles a ramp whose current already equals its target', async () => {
+    const a = createSubject()
+    const player = { write: vi.fn() }
+    a.getAudioOutputForStream = vi.fn(() => player)
+    a.getLogicalStreamKey = vi.fn(() => 'music')
+    a.mediaActive = true
+    a.volumes.music = 1
+    a.duckLevel = 0.5
+    a.musicFade = { current: 0.5, target: 0.5, remainingSamples: 10 }
+    a.musicRampActive = true
+    a.musicGateMuted = false
+    a.nextMusicRampStartAt = 0
+    a.musicWarmupUntil = 0
+
+    a.handleAudioData({ data: new Int16Array([100, -100]), sampleRate: 48000, channels: 2 })
+
+    expect(a.musicRampActive).toBe(false)
+    expect(a.musicFade.current).toBe(0.5)
   })
 })

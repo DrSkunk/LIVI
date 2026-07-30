@@ -252,7 +252,7 @@ export class ProjectionAudio {
         this.lastNavPlayerKey = keyForStream
       } else if (logicalKey === 'voiceAssistant') {
         this.lastVoiceAssistantPlayerKey = keyForStream
-      } else if (logicalKey === 'call') {
+      } else {
         this.lastCallPlayerKey = keyForStream
       }
 
@@ -604,7 +604,7 @@ export class ProjectionAudio {
         if (cmd === AudioCommand.AudioVoiceAssistantStart) {
           this.voiceAssistantActive = true
           this.phonecallActive = false
-        } else if (cmd === AudioCommand.AudioPhonecallStart) {
+        } else {
           this.phonecallActive = true
           this.voiceAssistantActive = false
         }
@@ -657,7 +657,7 @@ export class ProjectionAudio {
             this.stopPlayerByKey(this.lastVoiceAssistantPlayerKey)
             this.lastVoiceAssistantPlayerKey = null
           }
-        } else if (cmd === AudioCommand.AudioPhonecallStop) {
+        } else {
           this.phonecallActive = false
         }
 

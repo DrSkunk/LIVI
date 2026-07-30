@@ -72,6 +72,25 @@ describe('pickAssetForPlatform', () => {
     expect(result).toEqual({ url: 'https://example.com/x64' })
   })
 
+  test('returns an undefined url when no AppImage matches the arch patterns', () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+    Object.defineProperty(process, 'arch', { value: 'x64', configurable: true })
+    expect(
+      pickAssetForPlatform([
+        { name: 'LIVI-riscv64.AppImage', browser_download_url: 'https://example.com/r' }
+      ] as never)
+    ).toEqual({ url: undefined })
+  })
+
+  test('returns empty object on unsupported platforms', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    expect(
+      pickAssetForPlatform([
+        { name: 'LIVI-x86_64.AppImage', browser_download_url: 'https://example.com/a' }
+      ] as never)
+    ).toEqual({})
+  })
+
   test('returns empty object for unsupported linux arch', () => {
     setPlatform('linux')
     setArch('arm')

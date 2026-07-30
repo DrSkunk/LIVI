@@ -33,10 +33,12 @@ function baseCfg(over: Partial<AAStackConfig> = {}): AAStackConfig {
   } as AAStackConfig
 }
 
-function makeBridge(over: Partial<AaEventBridgeDeps> = {}) {
+function makeBridge(over: Partial<AaEventBridgeDeps> = {}, cfgOver?: AAStackConfig) {
   const aa = new EventEmitter() as unknown as AAStack
   const emitMessage = vi.fn<void, [Message]>()
   const emitCodec = vi.fn<void, ['video-codec' | 'cluster-video-codec', string]>()
+  const emitDevicePresence = vi.fn()
+  const emitDeviceStatus = vi.fn()
   const startMic = vi.fn<void, [string]>()
   const stopMic = vi.fn<void, [string]>()
   const consumeWiredBridge = vi.fn<UsbAoapBridge | null, []>(() => null)
@@ -44,13 +46,16 @@ function makeBridge(over: Partial<AaEventBridgeDeps> = {}) {
   const deps: AaEventBridgeDeps = {
     emitMessage,
     emitCodec,
+    emitDevicePresence,
+    emitDeviceStatus,
     startMic,
     stopMic,
     consumeWiredBridge,
     isClosed,
     ...over
   }
-  const bridge = new AaEventBridge(aa, baseCfg(), deps)
+  const cfg = cfgOver ?? baseCfg()
+  const bridge = new AaEventBridge(aa, cfg, deps)
   bridge.wire()
   return {
     aa: aa as unknown as EventEmitter,
@@ -58,6 +63,8 @@ function makeBridge(over: Partial<AaEventBridgeDeps> = {}) {
     deps,
     emitMessage,
     emitCodec,
+    emitDevicePresence,
+    emitDeviceStatus,
     startMic,
     stopMic,
     consumeWiredBridge,
@@ -142,6 +149,61 @@ describe('AaEventBridge', () => {
       const { aa } = makeBridge({ consumeWiredBridge: consume })
       aa.emit('disconnected', 'normal')
       expect(consume).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('device presence + status', () => {
+    test('device-info forwards to emitDevicePresence', () => {
+      const { aa, emitDevicePresence } = makeBridge()
+      const d = { name: 'Pixel', model: 'P9', instanceId: 'i', ip: '10.0.0.2' }
+      aa.emit('device-info', d)
+      expect(emitDevicePresence).toHaveBeenCalledWith(d)
+    })
+
+    test('device-status forwards to emitDeviceStatus', () => {
+      const { aa, emitDeviceStatus } = makeBridge()
+      aa.emit('device-status', { battery: 90 })
+      expect(emitDeviceStatus).toHaveBeenCalledWith({ battery: 90 })
+    })
+  })
+
+  describe('audio focus ducking', () => {
+    test('focusType 3 ducks to a low level, other types restore', () => {
+      const { aa, emitMessage } = makeBridge()
+      aa.emit('audio-focus', 3)
+      aa.emit('audio-focus', 1)
+      const ducks = emitMessage.mock.calls
+        .map((c) => c[0] as { level?: number })
+        .filter((m) => typeof m.level === 'number')
+      expect(ducks.map((d) => d.level)).toEqual([0.2, 1])
+    })
+  })
+
+  describe('watchdog with no wired bridge', () => {
+    test('watchdog disconnect with a null bridge is a no-op', () => {
+      const { aa } = makeBridge({ consumeWiredBridge: () => null })
+      expect(() => aa.emit('disconnected', 'pre-RUNNING watchdog')).not.toThrow()
+    })
+  })
+
+  describe('video dimension defaults', () => {
+    test('video + cluster frames fall back to 1280x720 when unset', () => {
+      const cfg = baseCfg({ videoWidth: undefined, videoHeight: undefined })
+      const { aa, emitMessage } = makeBridge({}, cfg)
+      aa.emit('video-frame', Buffer.alloc(8), 0n)
+      aa.emit('cluster-video-frame', Buffer.alloc(8), 0n)
+      expect(messagesOfType(emitMessage, MessageType.VideoData).length).toBeGreaterThan(0)
+      expect(messagesOfType(emitMessage, MessageType.ClusterVideoData).length).toBeGreaterThan(0)
+    })
+
+    test('cluster frame does not re-request focus once already projected', () => {
+      const { aa, emitMessage } = makeBridge()
+      aa.emit('cluster-video-focus-projected')
+      emitMessage.mockClear()
+      aa.emit('cluster-video-frame', Buffer.alloc(8), 0n)
+      expect(
+        commands(emitMessage).some((c) => c.value === CommandMapping.requestClusterFocus)
+      ).toBe(false)
     })
   })
 
@@ -233,6 +295,12 @@ describe('AaEventBridge', () => {
       aa.emit('audio-stop', 'speech', 0)
       const msgs = messagesOfType(emitMessage, MessageType.AudioData)
       expect(msgs.length).toBeGreaterThan(0)
+    })
+
+    test('audio-stop on the media channel emits the media-stop command', async () => {
+      const { aa, emitMessage } = makeBridge()
+      aa.emit('audio-stop', 'media', 0)
+      expect(messagesOfType(emitMessage, MessageType.AudioData).length).toBeGreaterThan(0)
     })
   })
 
@@ -405,6 +473,59 @@ describe('AaEventBridge', () => {
       const { aa, emitMessage } = makeBridge()
       aa.emit('nav-turn', {})
       expect(metas(emitMessage)).toHaveLength(0)
+    })
+
+    test('nav-turn maps event/side/angle/turn-number into the nav bag', async () => {
+      const { aa, emitMessage } = makeBridge()
+      aa.emit('nav-turn', {
+        road: 'Main St',
+        event: 'turn',
+        turnSide: 'right',
+        turnAngle: 90,
+        turnNumber: 2
+      })
+      expect(naviInfo(metas(emitMessage)[0])).toMatchObject({
+        NaviRoadName: 'Main St',
+        NaviManeuverType: 2,
+        NaviTurnSide: 0,
+        NaviTurnAngle: 90,
+        NaviRoundaboutExitNumber: 2
+      })
+    })
+
+    test('nav-distance without display fields carries only the raw distance', async () => {
+      const { aa, emitMessage } = makeBridge()
+      aa.emit('nav-distance', { distanceMeters: 250, timeToTurnSeconds: 10 })
+      const info = naviInfo(metas(emitMessage)[0])
+      expect(info.NaviRemainDistance).toBe(250)
+      expect(info.NaviDisplayDistanceE3).toBeUndefined()
+      expect(info.NaviDisplayDistanceUnit).toBeUndefined()
+    })
+
+    test('nav-state with an unmapped maneuver and no road/dest publishes nothing', async () => {
+      const { aa, emitMessage } = makeBridge()
+      aa.emit('nav-state', { maneuverType: 999 })
+      expect(metas(emitMessage)).toHaveLength(0)
+    })
+
+    test('nav-state with no fields at all publishes nothing', async () => {
+      const { aa, emitMessage } = makeBridge()
+      aa.emit('nav-state', {})
+      expect(metas(emitMessage)).toHaveLength(0)
+    })
+
+    test('nav-position with no fields publishes nothing', async () => {
+      const { aa, emitMessage } = makeBridge()
+      aa.emit('nav-position', {})
+      expect(metas(emitMessage)).toHaveLength(0)
+    })
+
+    test('publishNavi injects naviApp when the bag has lost its app name', async () => {
+      const { aa, bridge, emitMessage } = makeBridge()
+      ;(bridge as unknown as { naviApp: string }).naviApp = 'Waze'
+      ;(bridge as unknown as { naviBag: Record<string, unknown> }).naviBag = {}
+      aa.emit('nav-status', { state: 'active' })
+      expect(asNavi(metas(emitMessage)[0]).navi?.NaviAPPName).toBe('Waze')
     })
 
     test('disconnect resets the nav bag', async () => {

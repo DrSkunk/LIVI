@@ -18,6 +18,7 @@ const { MockDongleDriver, MockAaManager, MockCpManager, lastManager, lastCpManag
     class MockAaManager {
       opts: { onSpawn: (s: unknown) => void }
       startWireless = vi.fn()
+      close = vi.fn(async () => undefined)
       stopWireless = vi.fn()
       bringUpWired = vi.fn(async () => true)
       setHevcSupported = vi.fn()
@@ -83,6 +84,7 @@ type Spies = {
   onCpDisconnected: Mock
   onCpPresence: Mock
   onCpHelperPresence: Mock
+  onCpHelperConnect: Mock
   onCpCreated: Mock
   onCpReleased: Mock
   onPhoneReenumerate: Mock
@@ -111,6 +113,7 @@ function buildDeps(over: Partial<DriverManagerDeps> = {}): {
   const onCpDisconnected = vi.fn()
   const onCpPresence = vi.fn()
   const onCpHelperPresence = vi.fn()
+  const onCpHelperConnect = vi.fn()
   const onCpCreated = vi.fn()
   const onCpReleased = vi.fn()
   const onPhoneReenumerate = vi.fn()
@@ -131,6 +134,7 @@ function buildDeps(over: Partial<DriverManagerDeps> = {}): {
     onCpDisconnected,
     onCpPresence,
     onCpHelperPresence,
+    onCpHelperConnect,
     onCpCreated,
     onCpReleased,
     getCpConfigSeed: () => ({
@@ -156,6 +160,7 @@ function buildDeps(over: Partial<DriverManagerDeps> = {}): {
       onCpDisconnected,
       onCpPresence,
       onCpHelperPresence,
+      onCpHelperConnect,
       onCpCreated,
       onCpReleased,
       onPhoneReenumerate
@@ -375,6 +380,123 @@ describe('ProjectionDriverManager', () => {
     session.emit('disconnected')
     expect(spies.onCpDisconnected).toHaveBeenCalledWith(session)
     expect(spies.onCpReleased).toHaveBeenCalledWith(session)
+    expect(mgr.getActive()).toBe(mgr.dongle)
+  })
+
+  test('helper connect flows to onCpHelperConnect', () => {
+    const { deps, spies } = buildDeps()
+    const mgr = new ProjectionDriverManager(deps)
+    mgr.ensureCpManager()
+    const m = lastCpManager.instance as { opts: { onHelperConnect?: () => void } }
+
+    m.opts.onHelperConnect?.()
+    expect(spies.onCpHelperConnect).toHaveBeenCalledTimes(1)
+  })
+
+  test('remaining CP capability setters delegate to the CP manager', () => {
+    const { deps } = buildDeps()
+    const mgr = new ProjectionDriverManager(deps)
+    mgr.ensureCpManager()
+    const m = lastCpManager.instance as unknown as InstanceType<typeof MockCpManager>
+
+    mgr.setCpVp9Supported(true)
+    mgr.setCpAv1Supported(true)
+    mgr.setCpInitialNightMode(false)
+
+    expect(m.setVp9Supported).toHaveBeenLastCalledWith(true)
+    expect(m.setAv1Supported).toHaveBeenLastCalledWith(true)
+    expect(m.setInitialNightMode).toHaveBeenLastCalledWith(false)
+  })
+
+  test('releaseCp without a manager resolves quietly', async () => {
+    const { deps } = buildDeps()
+    const mgr = new ProjectionDriverManager(deps)
+    await expect(mgr.releaseCp()).resolves.toBeUndefined()
+  })
+
+  test('releaseCp closes and drops the manager', async () => {
+    const { deps } = buildDeps()
+    const mgr = new ProjectionDriverManager(deps)
+    mgr.ensureCpManager()
+    const m = lastCpManager.instance as unknown as InstanceType<typeof MockCpManager>
+
+    await mgr.releaseCp()
+    expect(m.close).toHaveBeenCalledTimes(1)
+    expect(mgr.getCpManager()).toBeNull()
+  })
+
+  test('releaseCp swallows a throwing close', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(function () {})
+    const { deps } = buildDeps()
+    const mgr = new ProjectionDriverManager(deps)
+    mgr.ensureCpManager()
+    const m = lastCpManager.instance as unknown as InstanceType<typeof MockCpManager>
+    m.close.mockImplementation(function () {
+      throw new Error('cp close boom')
+    })
+
+    await expect(mgr.releaseCp()).resolves.toBeUndefined()
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  test('releaseAa without a manager resolves quietly', async () => {
+    const { deps } = buildDeps()
+    const mgr = new ProjectionDriverManager(deps)
+    await expect(mgr.releaseAa()).resolves.toBeUndefined()
+  })
+
+  test('releaseAa closes and drops the manager', async () => {
+    const { deps } = buildDeps()
+    const mgr = new ProjectionDriverManager(deps)
+    mgr.ensureAaManager()
+    const m = lastManager.instance as unknown as InstanceType<typeof MockAaManager>
+
+    await mgr.releaseAa()
+    expect(m.close).toHaveBeenCalledTimes(1)
+    expect(mgr.getAaManager()).toBeNull()
+  })
+
+  test('releaseAa swallows a throwing close', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(function () {})
+    const { deps } = buildDeps()
+    const mgr = new ProjectionDriverManager(deps)
+    mgr.ensureAaManager()
+    const m = lastManager.instance as unknown as InstanceType<typeof MockAaManager>
+    m.close.mockImplementation(async () => {
+      throw new Error('aa close boom')
+    })
+
+    await expect(mgr.releaseAa()).resolves.toBeUndefined()
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  test('an unrouted CP session that disconnects leaves the dongle routed', () => {
+    const { deps, spies } = buildDeps()
+    const mgr = new ProjectionDriverManager(deps)
+    mgr.ensureCpManager()
+    const session = spawnCpSession()
+
+    session.emit('disconnected')
+    expect(spies.onCpDisconnected).toHaveBeenCalledWith(session)
+    expect(mgr.getActive()).toBe(mgr.dongle)
+  })
+
+  test('spawning the same session twice attaches its meta listener only once', () => {
+    const { deps, spies } = buildDeps()
+    const mgr = new ProjectionDriverManager(deps)
+    mgr.ensureAaManager()
+
+    const session = spawnSession()
+    const mgrInstance = lastManager.instance as { opts: { onSpawn: (s: unknown) => void } }
+    mgrInstance.opts.onSpawn(session)
+
+    session.emit('message', new MediaData())
+    expect(spies.handlers.onMetaMessage).toHaveBeenCalledTimes(1)
+
+    session.emit('disconnected')
+    expect(spies.onAaDisconnected).toHaveBeenCalledTimes(2)
     expect(mgr.getActive()).toBe(mgr.dongle)
   })
 

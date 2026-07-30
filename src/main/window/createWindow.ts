@@ -146,14 +146,14 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
   )
 
   mainWindow.once('ready-to-show', () => {
-    if (!mainWindow) return
+    const win = mainWindow as BrowserWindow
 
     const baseW = savedBounds?.width || runtimeState.config.mainScreenWidth || 1200
     const baseH = savedBounds?.height || runtimeState.config.mainScreenHeight || 720
 
     // In compositor mode the compositor owns the size (tiled toplevel); else start windowed.
-    if (!compositorMode) applyWindowedContentSize(mainWindow, baseW, baseH)
-    mainWindow.show()
+    if (!compositorMode) applyWindowedContentSize(win, baseW, baseH)
+    win.show()
 
     // Snapshot the geometry
     scheduleMainBoundsSave()
@@ -161,23 +161,24 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     const forceKiosk = process.env.LIVI_KIOSK === '1'
     if (runtimeState.config.kiosk?.main || forceKiosk) {
       const goFullscreen = () => {
-        if (!mainWindow || mainWindow.isDestroyed()) return
+        if (win.isDestroyed()) return
 
-        const d = screen.getDisplayMatching(mainWindow.getBounds())
-        const [cw, ch] = mainWindow.getContentSize()
+        const d = screen.getDisplayMatching(win.getBounds())
+        const [cw, ch] = win.getContentSize()
+
         console.log(
           `[kiosk] enter: screen=${d.size.width}x${d.size.height} ` +
             `workArea=${d.workAreaSize.width}x${d.workAreaSize.height} window=${cw}x${ch}`
         )
 
         if (isMac) {
-          mainWindow.setFullScreen(true)
+          win.setFullScreen(true)
         } else if (compositorMode) {
-          mainWindow.setContentSize(d.size.width, d.size.height)
-          mainWindow.setFullScreen(true)
+          win.setContentSize(d.size.width, d.size.height)
+          win.setFullScreen(true)
         } else {
-          mainWindow.setKiosk(true)
-          mainWindow.setContentSize(d.workAreaSize.width, d.workAreaSize.height)
+          win.setKiosk(true)
+          win.setContentSize(d.workAreaSize.width, d.workAreaSize.height)
         }
       }
 
@@ -192,13 +193,17 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
       }
     }
 
-    mainWindow.webContents.setZoomFactor((runtimeState.config.uiZoomPercent ?? 100) / 100)
+    win.webContents.setZoomFactor((runtimeState.config.uiZoomPercent ?? 100) / 100)
+
     pushSettingsToRenderer(runtimeState, {
       kiosk: { ...runtimeState.config.kiosk, main: currentKiosk(runtimeState.config) }
     })
 
-    if (is.dev) mainWindow.webContents.openDevTools({ mode: 'detach' })
-    projectionService.attachRenderer(mainWindow.webContents)
+    if (is.dev) {
+      win.webContents.openDevTools({ mode: 'detach' })
+    }
+
+    projectionService.attachRenderer(win.webContents)
   })
 
   if (isMac) {

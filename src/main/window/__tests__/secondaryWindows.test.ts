@@ -11,6 +11,7 @@ class MockWebContents {
 }
 
 class MockBrowserWindow extends EventEmitter {
+  __opts: Record<string, unknown> = {}
   webContents = new MockWebContents()
   loadURL = vi.fn()
   close = vi.fn()
@@ -33,13 +34,24 @@ class MockBrowserWindow extends EventEmitter {
 const lastWindows: MockBrowserWindow[] = []
 
 vi.mock('electron', () => ({
-  BrowserWindow: vi.fn().mockImplementation(function () {
+  BrowserWindow: vi.fn().mockImplementation(function (opts: Record<string, unknown>) {
     const w = new MockBrowserWindow()
+    w.__opts = opts
     lastWindows.push(w)
     return w
   }),
   shell: { openExternal: vi.fn() },
   screen: { getAllDisplays: vi.fn(() => []) }
+}))
+
+const { setCompositorScreenMock, setMacBackdropMock } = vi.hoisted(() => ({
+  setCompositorScreenMock: vi.fn(),
+  setMacBackdropMock: vi.fn()
+}))
+vi.mock('@main/services/video/GstVideo', () => ({
+  backdropHex: vi.fn(() => '#000000'),
+  setMacBackdrop: setMacBackdropMock,
+  setCompositorScreen: setCompositorScreenMock
 }))
 
 const { configEvents } = vi.hoisted(() => ({
@@ -55,7 +67,10 @@ vi.mock('@electron-toolkit/utils', () => ({
   is: { dev: false }
 }))
 
+import { is } from '@electron-toolkit/utils'
+import { COMPOSITOR_TITLEBAR_H } from '@main/app/compositorLayout'
 import type { runtimeStateProps } from '@main/types'
+import { shell } from 'electron'
 import {
   closeAllSecondaryWindows,
   getSecondaryWindow,
@@ -82,6 +97,8 @@ beforeEach(() => {
   lastWindows.length = 0
   saveSettingsMock.mockReset()
   configEvents.on.mockReset()
+  setCompositorScreenMock.mockClear()
+  setMacBackdropMock.mockClear()
   vi.useFakeTimers()
   closeAllSecondaryWindows()
 })
@@ -304,5 +321,196 @@ describe('secondaryWindows — bounds + ready-to-show', () => {
       dashScreenHeight: 480
     } as never)
     expect(win.setContentSize).not.toHaveBeenCalled()
+  })
+
+  test('spawn falls back to default sizes for invalid config values', () => {
+    const rt = baseState({ dashScreenActive: true, dashScreenWidth: 0, dashScreenHeight: 0 })
+    syncSecondaryWindows(rt)
+    const win = lastWindows[0]
+    expect(win.__opts.width).toBe(800)
+    expect(win.__opts.height).toBe(480)
+  })
+
+  test('spawned window denies popups and filters permissions', () => {
+    const rt = baseState({ dashScreenActive: true })
+    syncSecondaryWindows(rt)
+    const win = lastWindows[0]
+    const openHandler = win.webContents.setWindowOpenHandler.mock.calls[0][0]
+    const result = openHandler({ url: 'https://example.com' })
+    expect(shell.openExternal).toHaveBeenCalledWith('https://example.com')
+    expect(result).toEqual({ action: 'deny' })
+    const check = win.webContents.session.setPermissionCheckHandler.mock.calls[0][0]
+    expect(check({}, 'usb')).toBe(true)
+    expect(check({}, 'geolocation')).toBe(false)
+    const request = win.webContents.session.setPermissionRequestHandler.mock.calls[0][0]
+    const cb = vi.fn()
+    request({}, 'media', cb)
+    expect(cb).toHaveBeenCalledWith(true)
+  })
+
+  test('dev mode loads the renderer url with a role query', () => {
+    const original = process.env.ELECTRON_RENDERER_URL
+    ;(is as { dev: boolean }).dev = true
+    process.env.ELECTRON_RENDERER_URL = 'http://localhost:5173'
+    const rt = baseState({ dashScreenActive: true })
+    syncSecondaryWindows(rt)
+    expect(lastWindows[0].loadURL).toHaveBeenCalledWith('http://localhost:5173?role=dash')
+    ;(is as { dev: boolean }).dev = false
+    if (original === undefined) delete process.env.ELECTRON_RENDERER_URL
+    else process.env.ELECTRON_RENDERER_URL = original
+  })
+
+  test('ready-to-show handlers bail out on a destroyed window', () => {
+    const rt = baseState({
+      dashScreenActive: true,
+      dashScreenBounds: { x: 1, y: 2, width: 640, height: 400 },
+      kiosk: { dash: true }
+    } as never)
+    syncSecondaryWindows(rt)
+    const win = lastWindows[0]
+    win.isDestroyed.mockReturnValue(true)
+    win.emit('ready-to-show')
+    expect(win.setContentSize).not.toHaveBeenCalled()
+    expect(win.setPosition).not.toHaveBeenCalled()
+    expect(win.setFullScreen).not.toHaveBeenCalled()
+    expect(win.setKiosk).not.toHaveBeenCalled()
+    expect(setMacBackdropMock).not.toHaveBeenCalled()
+  })
+
+  test('ready-to-show paints the mac backdrop', () => {
+    const rt = baseState({ dashScreenActive: true })
+    syncSecondaryWindows(rt)
+    const win = lastWindows[0]
+    win.emit('ready-to-show')
+    expect(setMacBackdropMock).toHaveBeenCalledWith(win, '#000000')
+  })
+
+  test('closed clears a pending bounds timer and skips save when flag already false', () => {
+    const rt = baseState({ dashScreenActive: true })
+    syncSecondaryWindows(rt)
+    const win = lastWindows[0]
+    win.emit('move')
+    rt.config.dashScreenActive = false
+    win.emit('closed')
+    vi.advanceTimersByTime(500)
+    expect(saveSettingsMock).not.toHaveBeenCalled()
+  })
+
+  test('resize is a no-op when the window is destroyed', () => {
+    const rt = baseState({ dashScreenActive: true })
+    syncSecondaryWindows(rt)
+    const win = lastWindows[0]
+    win.isDestroyed.mockReturnValue(true)
+    rt.config.dashScreenWidth = 1024
+    syncSecondaryWindows(rt, {
+      dashScreenActive: true,
+      dashScreenWidth: 800,
+      dashScreenHeight: 480
+    } as never)
+    expect(win.setContentSize).not.toHaveBeenCalled()
+  })
+
+  test('a height-only change still triggers a resize', () => {
+    const rt = baseState({ dashScreenActive: true })
+    syncSecondaryWindows(rt)
+    const win = lastWindows[0]
+    rt.config.dashScreenHeight = 600
+    syncSecondaryWindows(rt, {
+      dashScreenActive: true,
+      dashScreenWidth: 800,
+      dashScreenHeight: 480
+    } as never)
+    expect(win.setContentSize).toHaveBeenCalledWith(800, 600)
+  })
+
+  test('applyKiosk is a no-op when the window is destroyed', () => {
+    const rt = baseState({ dashScreenActive: true, kiosk: { dash: false } } as never)
+    syncSecondaryWindows(rt)
+    const win = lastWindows[0]
+    win.isDestroyed.mockReturnValue(true)
+    rt.config.kiosk = { dash: true } as never
+    syncSecondaryWindows(rt, { dashScreenActive: true, kiosk: { dash: false } } as never)
+    expect(win.setFullScreen).not.toHaveBeenCalled()
+    expect(win.setKiosk).not.toHaveBeenCalled()
+  })
+
+  test('applyKiosk skips when darwin fullscreen already matches', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    const rt = baseState({ dashScreenActive: true, kiosk: { dash: false } } as never)
+    syncSecondaryWindows(rt)
+    const win = lastWindows[0]
+    win.isFullScreen.mockReturnValue(true)
+    rt.config.kiosk = { dash: true } as never
+    syncSecondaryWindows(rt, { dashScreenActive: true, kiosk: { dash: false } } as never)
+    expect(win.setFullScreen).not.toHaveBeenCalled()
+  })
+
+  test('applyKiosk skips when linux kiosk already matches', () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+    const rt = baseState({ dashScreenActive: true, kiosk: { dash: false } } as never)
+    syncSecondaryWindows(rt)
+    const win = lastWindows[0]
+    win.isKiosk.mockReturnValue(true)
+    rt.config.kiosk = { dash: true } as never
+    syncSecondaryWindows(rt, {
+      dashScreenActive: true,
+      dashScreenWidth: 800,
+      dashScreenHeight: 480,
+      kiosk: { dash: false }
+    } as never)
+    expect(win.setKiosk).not.toHaveBeenCalled()
+    expect(win.setContentSize).not.toHaveBeenCalled()
+  })
+})
+
+describe('secondaryWindows — compositor mode', () => {
+  const loadCompositor = async () => {
+    vi.resetModules()
+    process.env.LIVI_COMPOSITOR = '1'
+    return await import('../secondaryWindows')
+  }
+
+  afterEach(() => {
+    delete process.env.LIVI_COMPOSITOR
+  })
+
+  test('spawn ignores saved bounds, titles by role and skips bounds persistence', async () => {
+    const mod = await loadCompositor()
+    const rt = baseState({
+      dashScreenActive: true,
+      dashScreenBounds: { x: 1, y: 2, width: 640, height: 400 }
+    } as never)
+    mod.syncSecondaryWindows(rt)
+    const win = lastWindows[0]
+    expect(win.__opts.title).toBe('livi:dash')
+    expect(win.__opts.x).toBeUndefined()
+    expect(win.__opts.transparent).toBe(true)
+    win.emit('move')
+    vi.advanceTimersByTime(500)
+    expect(saveSettingsMock).not.toHaveBeenCalled()
+    mod.closeAllSecondaryWindows()
+  })
+
+  test('size change reopens the compositor output', async () => {
+    const mod = await loadCompositor()
+    const rt = baseState({ dashScreenActive: true })
+    mod.syncSecondaryWindows(rt)
+    const win = lastWindows[0]
+    setCompositorScreenMock.mockClear()
+    rt.config.dashScreenWidth = 1024
+    mod.syncSecondaryWindows(rt, {
+      dashScreenActive: true,
+      dashScreenWidth: 800,
+      dashScreenHeight: 480
+    } as never)
+    expect(win.setContentSize).toHaveBeenCalledWith(1024, 480)
+    expect(setCompositorScreenMock).toHaveBeenCalledWith('dash', false)
+    expect(setCompositorScreenMock).toHaveBeenCalledWith(
+      'dash',
+      true,
+      1024,
+      480 + COMPOSITOR_TITLEBAR_H
+    )
+    mod.closeAllSecondaryWindows()
   })
 })

@@ -125,6 +125,20 @@ describe('MicChannel — pcm flow control', () => {
     expect(framesSentAfter).toBe(2)
   })
 
+  test('ACK with no outstanding frames leaves the counter at zero', () => {
+    const { send } = freshSend()
+    const ch = new MicChannel(MIC, send)
+    expect(() => ch.handleMessage(AV_MSG.AV_MEDIA_ACK, Buffer.alloc(0), dummyFrame())).not.toThrow()
+  })
+
+  test('OPEN_REQUEST ignores fields other than open and max_unacked', () => {
+    const { send, calls } = freshSend()
+    const ch = new MicChannel(MIC, send)
+    const req = Buffer.concat([fieldVarint(1, 1), fieldVarint(2, 9), fieldVarint(4, 3)])
+    ch.handleMessage(AV_MSG.AV_INPUT_OPEN_REQUEST, req, dummyFrame())
+    expect(calls.some((c) => c.msgId === AV_MSG.AV_INPUT_OPEN_RESPONSE)).toBe(true)
+  })
+
   test('drops oldest queued frame if backlog grows beyond 64', () => {
     const { send } = freshSend()
     const ch = new MicChannel(MIC, send)
@@ -144,6 +158,21 @@ describe('MicChannel.handleSetupRequest', () => {
     const { send } = freshSend()
     const ch = new MicChannel(MIC, send)
     expect(() => ch.handleSetupRequest(5, 44100, 1)).not.toThrow()
+  })
+
+  test('keeps defaults when sampleRate/channels are zero', () => {
+    const { send } = freshSend()
+    const ch = new MicChannel(MIC, send)
+    expect(() => ch.handleSetupRequest(5, 0, 0)).not.toThrow()
+  })
+})
+
+describe('MicChannel — setup request message', () => {
+  test('SETUP_REQUEST is accepted without side effects', () => {
+    const { send, calls } = freshSend()
+    const ch = new MicChannel(MIC, send)
+    ch.handleMessage(AV_MSG.SETUP_REQUEST, Buffer.alloc(0), dummyFrame())
+    expect(calls).toHaveLength(0)
   })
 })
 

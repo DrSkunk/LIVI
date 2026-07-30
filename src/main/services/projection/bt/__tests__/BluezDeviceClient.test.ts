@@ -169,6 +169,32 @@ describe('BluezDeviceClient.subscribe', () => {
     expect(events).toHaveLength(0)
   })
 
+  test('skips empty lines in the event stream', () => {
+    const { client, nextSocket } = makeClient()
+    const events: unknown[] = []
+    client.subscribe((ev) => events.push(ev))
+    const sock = nextSocket()
+    sock.emit('connect')
+    sock.emit('data', Buffer.from('\n' + JSON.stringify({ event: 'x' }) + '\n\n'))
+    expect(events).toEqual([{ event: 'x' }])
+  })
+
+  test('fires onOpen once the subscription socket connects', () => {
+    const { client, nextSocket } = makeClient()
+    const onOpen = vi.fn()
+    client.subscribe(() => {}, undefined, onOpen)
+    const sock = nextSocket()
+    sock.emit('connect')
+    expect(onOpen).toHaveBeenCalledTimes(1)
+  })
+
+  test('close without an onClose callback is harmless', () => {
+    const { client, nextSocket } = makeClient()
+    client.subscribe(() => {})
+    const sock = nextSocket()
+    expect(() => sock.emit('close')).not.toThrow()
+  })
+
   test('fires onClose on socket close', async () => {
     const { client, nextSocket } = makeClient()
     const onClose = vi.fn()
@@ -245,6 +271,46 @@ describe('BluezDeviceClient — request internals', () => {
     expect(sock.write).toHaveBeenCalledWith(expectedWrite + '\n')
     sock.emit('data', Buffer.from(JSON.stringify({ ok: true }) + '\n'))
     await expect(p).resolves.toEqual({ ok: true })
+  })
+
+  test('connect with a uuid appends it to the command line', async () => {
+    const { client, nextSocket } = makeClient()
+    const p = client.connect('AA:BB', 500, 'uuid-1234')
+    const sock = nextSocket()
+    sock.emit('connect')
+    expect(sock.write).toHaveBeenCalledWith('connect AA:BB uuid-1234\n')
+    sock.emit('data', Buffer.from(JSON.stringify({ ok: true }) + '\n'))
+    await expect(p).resolves.toEqual({ ok: true })
+  })
+
+  test('setWiredPhones serializes the id list', async () => {
+    const { client, nextSocket } = makeClient()
+    const p = client.setWiredPhones(['id1', 'id2'], 500)
+    const sock = nextSocket()
+    sock.emit('connect')
+    expect(sock.write).toHaveBeenCalledWith('wired-phones ["id1","id2"]\n')
+    sock.emit('data', Buffer.from(JSON.stringify({ ok: true }) + '\n'))
+    await expect(p).resolves.toEqual({ ok: true })
+  })
+
+  test('deauthApClients with the default timeout writes deauth-ap', async () => {
+    const { client, nextSocket } = makeClient()
+    const p = client.deauthApClients()
+    const sock = nextSocket()
+    sock.emit('connect')
+    expect(sock.write).toHaveBeenCalledWith('deauth-ap\n')
+    sock.emit('data', Buffer.from(JSON.stringify({ ok: true }) + '\n'))
+    await expect(p).resolves.toEqual({ ok: true })
+  })
+
+  test('a late socket error after settling is ignored', async () => {
+    const { client, nextSocket } = makeClient()
+    const p = client.listPaired(1000)
+    const sock = nextSocket()
+    sock.emit('connect')
+    sock.emit('data', Buffer.from(JSON.stringify({ ok: true, devices: [] }) + '\n'))
+    sock.emit('error', new Error('late'))
+    await expect(p).resolves.toEqual([])
   })
 
   test('socket.destroy throwing is swallowed', async () => {

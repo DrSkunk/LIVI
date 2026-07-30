@@ -22,6 +22,12 @@ describe('parseManifest', () => {
     ])
   })
 
+  it('tolerates an absent purpose field', () => {
+    expect(parseManifest('core|bluez|cmd:bluetoothctl')).toEqual([
+      { section: 'core', name: 'bluez', probe: 'cmd:bluetoothctl', purpose: '' }
+    ])
+  })
+
   it('drops lines with an unknown section, no package or no probe', () => {
     expect(parseManifest('bogus|x|cmd:x|y\ncore||cmd:x|y\ncore|x||y')).toEqual([])
   })

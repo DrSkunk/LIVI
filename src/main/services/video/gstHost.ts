@@ -172,7 +172,7 @@ class GstHost {
         resolve({ port, receiverId })
       }
       const timer = setTimeout(() => {
-        if (this.portWaiters.get(receiverId) === done) this.portWaiters.delete(receiverId)
+        this.portWaiters.delete(receiverId)
         resolve({ port: 0, receiverId })
       }, 4000)
       this.portWaiters.set(receiverId, done)

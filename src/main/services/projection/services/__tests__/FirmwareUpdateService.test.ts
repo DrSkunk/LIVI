@@ -1175,4 +1175,466 @@ describe('FirmwareUpdateService', () => {
     // When total=0, percent is reported as 0
     expect(onProgress).toHaveBeenCalledWith({ received: 3, total: 0, percent: 0 })
   })
+
+  test('getLocalFirmwareStatus normalizes string boxInfo that parses to a non-object', async () => {
+    const svc = new FirmwareUpdateService()
+
+    const out = await svc.getLocalFirmwareStatus({ boxInfo: '123' } as any)
+
+    expect(out).toEqual({ ok: true, ready: false, reason: 'Missing boxInfo.productType' })
+  })
+
+  test('downloadToFile fails when write stream throws during data chunk', async () => {
+    const svc = new FirmwareUpdateService() as any
+    const { net } = await import('electron')
+    const { createWriteStream } = await import('fs')
+
+    const mockStream = {
+      on: vi.fn(),
+      write: vi.fn(() => {
+        throw new Error('disk full')
+      }),
+      end: vi.fn(),
+      destroy: vi.fn()
+    }
+    ;(createWriteStream as Mock).mockReturnValue(mockStream)
+
+    const mockReq = { on: vi.fn(), write: vi.fn(), end: vi.fn() }
+    ;(net.request as Mock).mockReturnValue(mockReq)
+
+    const promise = svc.downloadToFile({
+      url: 'http://test.com/down',
+      body: 'key=value',
+      token: 'tok',
+      tmpPath: '/tmp/fw.part'
+    })
+
+    const resHandler = mockReq.on.mock.calls.find(([e]: [string]) => e === 'response')?.[1]
+    const mockRes = { statusCode: 200, headers: { 'content-length': '5' }, on: vi.fn() }
+    resHandler(mockRes)
+
+    const dataHandler = mockRes.on.mock.calls.find(([e]: [string]) => e === 'data')?.[1]
+    dataHandler(Buffer.alloc(5))
+
+    await expect(promise).rejects.toThrow('disk full')
+    expect(fsp.unlink).toHaveBeenCalledWith('/tmp/fw.part')
+  })
+
+  test('downloadToFile fails when end stream throws on response end', async () => {
+    const svc = new FirmwareUpdateService() as any
+    const { net } = await import('electron')
+    const { createWriteStream } = await import('fs')
+
+    const mockStream = {
+      on: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(() => {
+        throw new Error('flush failed')
+      }),
+      destroy: vi.fn()
+    }
+    ;(createWriteStream as Mock).mockReturnValue(mockStream)
+
+    const mockReq = { on: vi.fn(), write: vi.fn(), end: vi.fn() }
+    ;(net.request as Mock).mockReturnValue(mockReq)
+
+    const promise = svc.downloadToFile({
+      url: 'http://test.com/down',
+      body: 'key=value',
+      token: 'tok',
+      tmpPath: '/tmp/fw.part'
+    })
+
+    const resHandler = mockReq.on.mock.calls.find(([e]: [string]) => e === 'response')?.[1]
+    const mockRes = { statusCode: 200, headers: { 'content-length': '5' }, on: vi.fn() }
+    resHandler(mockRes)
+
+    const endHandler = mockRes.on.mock.calls.find(([e]: [string]) => e === 'end')?.[1]
+    endHandler()
+
+    await expect(promise).rejects.toThrow('flush failed')
+    expect(fsp.unlink).toHaveBeenCalledWith('/tmp/fw.part')
+  })
+
+  test('getLocalFirmwareStatus normalizes empty string boxInfo to null', async () => {
+    const svc = new FirmwareUpdateService()
+
+    const out = await svc.getLocalFirmwareStatus({ boxInfo: '   ' } as any)
+
+    expect(out).toEqual({ ok: true, ready: false, reason: 'Missing boxInfo.productType' })
+  })
+
+  test('downloadToFile fail ignores a second failure after the first', async () => {
+    const svc = new FirmwareUpdateService() as any
+    const { net } = await import('electron')
+    const { createWriteStream } = await import('fs')
+
+    const mockStream = {
+      on: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+      destroy: vi.fn()
+    }
+    ;(createWriteStream as Mock).mockReturnValue(mockStream)
+
+    const mockReq = { on: vi.fn(), write: vi.fn(), end: vi.fn() }
+    ;(net.request as Mock).mockReturnValue(mockReq)
+
+    const promise = svc.downloadToFile({
+      url: 'http://test.com/down',
+      body: 'key=value',
+      token: 'tok',
+      tmpPath: '/tmp/fw.part'
+    })
+
+    const resHandler = mockReq.on.mock.calls.find(([e]: [string]) => e === 'response')?.[1]
+    const mockRes = { statusCode: 200, headers: { 'content-length': '5' }, on: vi.fn() }
+    resHandler(mockRes)
+
+    const outErrorHandler = mockStream.on.mock.calls.find(([e]: [string]) => e === 'error')?.[1]
+    const resErrorHandler = mockRes.on.mock.calls.find(([e]: [string]) => e === 'error')?.[1]
+
+    outErrorHandler(new Error('first stream error'))
+    resErrorHandler(new Error('second stream error'))
+
+    await expect(promise).rejects.toThrow('first stream error')
+    expect(fsp.unlink).toHaveBeenCalledTimes(1)
+  })
+
+  test('downloadToFile fails via request-level error after response started', async () => {
+    const svc = new FirmwareUpdateService() as any
+    const { net } = await import('electron')
+    const { createWriteStream } = await import('fs')
+
+    const mockStream = {
+      on: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+      destroy: vi.fn()
+    }
+    ;(createWriteStream as Mock).mockReturnValue(mockStream)
+
+    const mockReq = { on: vi.fn(), write: vi.fn(), end: vi.fn() }
+    ;(net.request as Mock).mockReturnValue(mockReq)
+
+    const promise = svc.downloadToFile({
+      url: 'http://test.com/down',
+      body: 'key=value',
+      token: 'tok',
+      tmpPath: '/tmp/fw.part'
+    })
+
+    const resHandler = mockReq.on.mock.calls.find(([e]: [string]) => e === 'response')?.[1]
+    const mockRes = { statusCode: 200, headers: { 'content-length': '5' }, on: vi.fn() }
+    resHandler(mockRes)
+
+    const resErrorHandler = mockRes.on.mock.calls.find(([e]: [string]) => e === 'error')?.[1]
+    resErrorHandler(new Error('response stream error'))
+
+    await expect(promise).rejects.toThrow('response stream error')
+  })
+
+  test('getLocalFirmwareStatus normalizes a non-string non-object boxInfo to null', async () => {
+    const svc = new FirmwareUpdateService()
+
+    const out = await svc.getLocalFirmwareStatus({ boxInfo: 42 } as any)
+
+    expect(out).toEqual({ ok: true, ready: false, reason: 'Missing boxInfo.productType' })
+  })
+
+  test('checkForUpdate honors numeric lang and code overrides', async () => {
+    const svc = new FirmwareUpdateService() as any
+    svc.httpPostForm = vi.fn(async () => JSON.stringify({ err: 0, ver: '2.0.0' }))
+
+    const result = await svc.checkForUpdate({
+      appVer: '1.0.0',
+      dongleFwVersion: '1.0.0',
+      lang: 2,
+      code: 5,
+      boxInfo: { uuid: 'u', MFD: 'm', productType: 'A15W' }
+    })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.request?.lang).toBe(2)
+      expect(result.request?.code).toBe(5)
+    }
+  })
+
+  test('checkForUpdate reports unknown error when response is not an object', async () => {
+    const svc = new FirmwareUpdateService() as any
+    svc.httpPostForm = vi.fn(async () => '123')
+
+    await expect(
+      svc.checkForUpdate({
+        appVer: '1.0.0',
+        dongleFwVersion: '1.0.0',
+        boxInfo: { uuid: 'u', MFD: 'm', productType: 'A15W' }
+      })
+    ).resolves.toEqual({ ok: false, error: 'checkBox err=unknown' })
+  })
+
+  test('checkForUpdate leaves latestVer undefined when response omits ver', async () => {
+    const svc = new FirmwareUpdateService() as any
+    svc.httpPostForm = vi.fn(async () => JSON.stringify({ err: 0 }))
+
+    const result = await svc.checkForUpdate({
+      appVer: '1.0.0',
+      dongleFwVersion: '1.0.0',
+      boxInfo: { uuid: 'u', MFD: 'm', productType: 'A15W' }
+    })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.hasUpdate).toBe(false)
+      expect(result.latestVer).toBeUndefined()
+    }
+  })
+
+  test('checkForUpdate returns String(e) for non-Error throwables', async () => {
+    const svc = new FirmwareUpdateService() as any
+    svc.httpPostForm = vi.fn(async () => {
+      throw 'boom-string'
+    })
+
+    await expect(
+      svc.checkForUpdate({
+        appVer: '1.0.0',
+        dongleFwVersion: '1.0.0',
+        boxInfo: { uuid: 'u', MFD: 'm', productType: 'A15W' }
+      })
+    ).resolves.toEqual({ ok: false, error: 'boom-string' })
+  })
+
+  test('downloadFirmwareToHost coerces a non-numeric size to zero via toInt', async () => {
+    const svc = new FirmwareUpdateService() as any
+    svc.downloadToFile = vi.fn(async () => ({ bytes: 7 }))
+    svc.writeManifest = vi.fn(async () => undefined)
+
+    const out = await svc.downloadFirmwareToHost({
+      ok: true,
+      hasUpdate: true,
+      latestVer: '2.0.0',
+      size: 'abc' as any,
+      token: 'tok',
+      request: {
+        lang: 0,
+        code: 37,
+        appVer: '1.0.0',
+        ver: '1.0.0',
+        uuid: 'u',
+        mfd: 'm',
+        fwn: 'A15W_Update.img',
+        model: 'A15W'
+      },
+      raw: {}
+    })
+
+    expect(out).toEqual({
+      ok: true,
+      path: '/tmp/app-user-data/firmware/A15W_Update.img',
+      bytes: 7
+    })
+  })
+
+  test('downloadFirmwareToHost returns String(e) for non-Error throwables', async () => {
+    const svc = new FirmwareUpdateService() as any
+    svc.downloadToFile = vi.fn(async () => {
+      throw 'download-string'
+    })
+
+    const out = await svc.downloadFirmwareToHost({
+      ok: true,
+      hasUpdate: true,
+      token: 'tok',
+      request: {
+        lang: 0,
+        code: 37,
+        appVer: '1.0.0',
+        ver: '1.0.0',
+        uuid: 'u',
+        mfd: 'm',
+        fwn: 'A15W_Update.img',
+        model: 'A15W'
+      },
+      raw: {}
+    })
+
+    expect(out).toEqual({ ok: false, error: 'download-string' })
+  })
+
+  test('startUpdate reports percent 1 when the firmware buffer is empty', async () => {
+    const svc = new FirmwareUpdateService() as any
+    svc.getLocalFirmwareStatus = vi.fn(async () => ({
+      ok: true,
+      ready: true,
+      path: '/tmp/firmware/A15W_Update.img',
+      bytes: 0,
+      model: 'A15W',
+      latestVer: '2.0.0'
+    }))
+
+    vi.spyOn(fsp, 'readFile').mockResolvedValue(Buffer.alloc(0))
+    const driver = { send: vi.fn(async () => true) }
+    const onProgress = vi.fn()
+
+    const out = await svc.startUpdate({ appVer: '1.0.0' } as any, driver as any, { onProgress })
+
+    expect(out).toEqual({ ok: true })
+    expect(onProgress).toHaveBeenCalledWith({ sent: 0, total: 0, percent: 1 })
+  })
+
+  test('startUpdate returns String(e) for non-Error throwables', async () => {
+    const svc = new FirmwareUpdateService() as any
+    svc.getLocalFirmwareStatus = vi.fn(async () => ({
+      ok: true,
+      ready: true,
+      path: '/tmp/firmware/A15W_Update.img',
+      bytes: 4,
+      model: 'A15W',
+      latestVer: '2.0.0'
+    }))
+
+    vi.spyOn(fsp, 'readFile').mockRejectedValue('read-string')
+    const driver = { send: vi.fn(async () => true) }
+
+    const out = await svc.startUpdate({ appVer: '1.0.0' } as any, driver as any)
+
+    expect(out).toEqual({ ok: false, error: 'read-string' })
+  })
+
+  test('downloadToFile wraps a non-Error failure into an Error', async () => {
+    const svc = new FirmwareUpdateService() as any
+    const { net } = await import('electron')
+    const { createWriteStream } = await import('fs')
+
+    const mockStream = {
+      on: vi.fn(),
+      write: vi.fn(() => {
+        throw 'raw-write-error'
+      }),
+      end: vi.fn(),
+      destroy: vi.fn()
+    }
+    ;(createWriteStream as Mock).mockReturnValue(mockStream)
+
+    const mockReq = { on: vi.fn(), write: vi.fn(), end: vi.fn() }
+    ;(net.request as Mock).mockReturnValue(mockReq)
+
+    const promise = svc.downloadToFile({
+      url: 'http://test.com/down',
+      body: 'key=value',
+      token: 'tok',
+      tmpPath: '/tmp/fw.part'
+    })
+
+    const resHandler = mockReq.on.mock.calls.find(([e]: [string]) => e === 'response')?.[1]
+    const mockRes = { statusCode: 200, headers: { 'content-length': '5' }, on: vi.fn() }
+    resHandler(mockRes)
+
+    const dataHandler = mockRes.on.mock.calls.find(([e]: [string]) => e === 'data')?.[1]
+    dataHandler(Buffer.alloc(5))
+
+    await expect(promise).rejects.toThrow('raw-write-error')
+  })
+
+  test('downloadToFile treats a missing status code as HTTP 0', async () => {
+    const svc = new FirmwareUpdateService() as any
+    const { net } = await import('electron')
+
+    const mockReq = { on: vi.fn(), write: vi.fn(), end: vi.fn() }
+    ;(net.request as Mock).mockReturnValue(mockReq)
+
+    const promise = svc.downloadToFile({
+      url: 'http://test.com/down',
+      body: 'key=value',
+      token: 'tok',
+      tmpPath: '/tmp/fw.part'
+    })
+
+    const resHandler = mockReq.on.mock.calls.find(([e]: [string]) => e === 'response')?.[1]
+    resHandler({ headers: {}, on: vi.fn() })
+
+    await expect(promise).rejects.toThrow('HTTP 0')
+  })
+
+  test('downloadToFile treats a non-numeric content-length as zero total', async () => {
+    const svc = new FirmwareUpdateService() as any
+    const { net } = await import('electron')
+    const { createWriteStream } = await import('fs')
+
+    const mockStream = {
+      on: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn((cb: () => void) => cb()),
+      destroy: vi.fn()
+    }
+    ;(createWriteStream as Mock).mockReturnValue(mockStream)
+
+    const mockReq = { on: vi.fn(), write: vi.fn(), end: vi.fn() }
+    ;(net.request as Mock).mockReturnValue(mockReq)
+
+    const onProgress = vi.fn()
+    const promise = svc.downloadToFile({
+      url: 'http://test.com/down',
+      body: 'key=value',
+      token: 'tok',
+      tmpPath: '/tmp/fw.part',
+      onProgress
+    })
+
+    const resHandler = mockReq.on.mock.calls.find(([e]: [string]) => e === 'response')?.[1]
+    const mockRes = { statusCode: 200, headers: { 'content-length': 'abc' }, on: vi.fn() }
+    resHandler(mockRes)
+
+    const dataHandler = mockRes.on.mock.calls.find(([e]: [string]) => e === 'data')?.[1]
+    dataHandler(Buffer.alloc(3))
+
+    const endHandler = mockRes.on.mock.calls.find(([e]: [string]) => e === 'end')?.[1]
+    endHandler()
+
+    await expect(promise).resolves.toEqual({ bytes: 3 })
+    expect(onProgress).toHaveBeenCalledWith({ received: 3, total: 0, percent: 0 })
+  })
+
+  test('downloadToFile ignores a second end callback once resolved', async () => {
+    const svc = new FirmwareUpdateService() as any
+    const { net } = await import('electron')
+    const { createWriteStream } = await import('fs')
+
+    const endCallbacks: Array<() => void> = []
+    const mockStream = {
+      on: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn((cb: () => void) => {
+        endCallbacks.push(cb)
+        cb()
+      }),
+      destroy: vi.fn()
+    }
+    ;(createWriteStream as Mock).mockReturnValue(mockStream)
+
+    const mockReq = { on: vi.fn(), write: vi.fn(), end: vi.fn() }
+    ;(net.request as Mock).mockReturnValue(mockReq)
+
+    const promise = svc.downloadToFile({
+      url: 'http://test.com/down',
+      body: 'key=value',
+      token: 'tok',
+      tmpPath: '/tmp/fw.part'
+    })
+
+    const resHandler = mockReq.on.mock.calls.find(([e]: [string]) => e === 'response')?.[1]
+    const mockRes = { statusCode: 200, headers: { 'content-length': '5' }, on: vi.fn() }
+    resHandler(mockRes)
+
+    const dataHandler = mockRes.on.mock.calls.find(([e]: [string]) => e === 'data')?.[1]
+    dataHandler(Buffer.alloc(5))
+
+    const endHandler = mockRes.on.mock.calls.find(([e]: [string]) => e === 'end')?.[1]
+    endHandler()
+    endHandler()
+
+    await expect(promise).resolves.toEqual({ bytes: 5 })
+  })
 })

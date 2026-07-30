@@ -63,6 +63,13 @@ function makeDevice(
     openThrows?: boolean
     claimError?: Error
     stuck?: boolean
+    inStatus?: string
+    inNoData?: boolean
+    protocolBytes?: number
+    outStatus?: string
+    noConfiguration?: boolean
+    emptyConfigurations?: boolean
+    selectThrows?: boolean
   } = {}
 ): FakeDevice {
   const { vid = GOOGLE_VID, pid = 0x4ee1, protocol = 2, ctrlError, openThrows, claimError } = opts
@@ -76,12 +83,19 @@ function makeDevice(
     calls.push({ request: setup.request, value: setup.value, index: setup.index, data: length })
     if (opts.stuck) return stuckPromise<USBInTransferResult>()
     if (ctrlError) throw ctrlError
+    if (opts.inStatus || opts.inNoData) {
+      return {
+        status: opts.inStatus,
+        data: opts.inNoData ? undefined : new DataView(new ArrayBuffer(2))
+      } as unknown as USBInTransferResult
+    }
     if (setup.request === REQ_GET_PROTOCOL) {
-      const buf = Buffer.alloc(2)
+      const n = opts.protocolBytes ?? 2
+      const buf = Buffer.alloc(Math.max(n, 2))
       buf.writeUInt16LE(protocol, 0)
       return {
         status: 'ok',
-        data: new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+        data: new DataView(buf.buffer, buf.byteOffset, n)
       } as USBInTransferResult
     }
     return { status: 'ok', data: new DataView(new ArrayBuffer(0)) } as USBInTransferResult
@@ -104,6 +118,7 @@ function makeDevice(
       })
       if (opts.stuck) return stuckPromise<USBOutTransferResult>()
       if (ctrlError) throw ctrlError
+      if (opts.outStatus) return { status: opts.outStatus } as unknown as USBOutTransferResult
       return { status: 'ok', bytesWritten: payload.length } as USBOutTransferResult
     }
   )
@@ -111,14 +126,16 @@ function makeDevice(
   return {
     vendorId: vid,
     productId: pid,
-    configuration: config,
-    configurations: [config],
+    configuration: opts.noConfiguration ? undefined : config,
+    configurations: opts.emptyConfigurations ? [] : [config],
     open: vi.fn(async () => {
       if (openThrows) throw new Error('open failed')
     }),
     close: vi.fn(async () => undefined),
     reset: vi.fn(async () => undefined),
-    selectConfiguration: vi.fn(async () => undefined),
+    selectConfiguration: vi.fn(async () => {
+      if (opts.selectThrows) throw new Error('select failed')
+    }),
     claimInterface: vi.fn(async () => {
       if (claimError) throw claimError
     }),
@@ -219,6 +236,49 @@ describe('runAoapHandshake', () => {
   test('propagates a control-transfer error', async () => {
     const d = makeDevice({ pid: 0x4ee1, ctrlError: new Error('boom') })
     await expect(runAoapHandshake(d as unknown as Device)).rejects.toThrow('boom')
+  })
+
+  test('rejects when a control IN transfer reports a non-ok status', async () => {
+    const d = makeDevice({ pid: 0x4ee1, inStatus: 'stall' })
+    await expect(runAoapHandshake(d as unknown as Device)).rejects.toThrow('status=stall')
+  })
+
+  test('rejects with no-data when a control IN transfer omits its payload', async () => {
+    const d = makeDevice({ pid: 0x4ee1, inNoData: true })
+    await expect(runAoapHandshake(d as unknown as Device)).rejects.toThrow('no-data')
+  })
+
+  test('rejects when getProtocol returns fewer than 2 bytes', async () => {
+    const d = makeDevice({ pid: 0x4ee1, protocolBytes: 1 })
+    await expect(runAoapHandshake(d as unknown as Device)).rejects.toThrow('returned no data')
+  })
+
+  test('rejects when a control OUT transfer reports a non-ok status', async () => {
+    const d = makeDevice({ pid: 0x4ee1, outStatus: 'stall' })
+    await expect(runAoapHandshake(d as unknown as Device)).rejects.toThrow('OUT req')
+  })
+
+  test('selects the first configuration when the device has none active', async () => {
+    const d = makeDevice({ pid: 0x4ee1, protocol: 2, noConfiguration: true })
+    await runAoapHandshake(d as unknown as Device)
+    expect(d.selectConfiguration).toHaveBeenCalledWith(1)
+  })
+
+  test('a failed selectConfiguration is swallowed and the handshake continues', async () => {
+    const d = makeDevice({ pid: 0x4ee1, protocol: 2, noConfiguration: true, selectThrows: true })
+    await runAoapHandshake(d as unknown as Device)
+    expect(d.calls.find((c) => c.request === REQ_START)).toBeDefined()
+  })
+
+  test('skips selectConfiguration when the device lists no configurations', async () => {
+    const d = makeDevice({
+      pid: 0x4ee1,
+      protocol: 2,
+      noConfiguration: true,
+      emptyConfigurations: true
+    })
+    await runAoapHandshake(d as unknown as Device)
+    expect(d.selectConfiguration).not.toHaveBeenCalled()
   })
 
   test('times out when the control transfer never completes', async () => {

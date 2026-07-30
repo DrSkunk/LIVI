@@ -223,6 +223,156 @@ describe('TransportArbiter', () => {
     })
   })
 
+  describe('presence — debounce guards', () => {
+    test('a second dongle detach while the debounce is pending is a no-op', async () => {
+      const { arbiter, stubs } = makeArbiter()
+      arbiter.markDongleConnected(true)
+      stubs.onChange.mockClear()
+
+      arbiter.markDongleConnected(false)
+      arbiter.markDongleConnected(false)
+      vi.advanceTimersByTime(4_000)
+
+      expect(arbiter.isDongleDetected()).toBe(false)
+      expect(stubs.onChange).toHaveBeenCalledTimes(1)
+    })
+
+    test('a second phone detach while the debounce is pending is a no-op', async () => {
+      const { arbiter, stubs } = makeArbiter()
+      arbiter.markPhoneConnected(true, fakeDevice())
+      stubs.onChange.mockClear()
+
+      arbiter.markPhoneConnected(false)
+      arbiter.markPhoneConnected(false)
+      vi.advanceTimersByTime(1_000)
+
+      expect(arbiter.isPhoneConnected()).toBe(false)
+      expect(stubs.onChange).toHaveBeenCalledTimes(1)
+    })
+
+    test('a throwing stop after dongle unplug is contained', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(function () {})
+      const { arbiter, stubs } = makeArbiter({ dongleSessionActive: true, active: 'dongle' })
+      stubs.onShouldStop.mockRejectedValue(new Error('stop boom'))
+      arbiter.markDongleConnected(true)
+
+      arbiter.markDongleConnected(false)
+      vi.runOnlyPendingTimers()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(arbiter.isDongleDetected()).toBe(false)
+      expect(warn).toHaveBeenCalled()
+      warn.mockRestore()
+    })
+
+    test('re-attach during detach debounce without a wired session skips the teardown', async () => {
+      const { arbiter, stubs } = makeArbiter({ wiredSession: false })
+      arbiter.markPhoneConnected(true, fakeDevice())
+      arbiter.markPhoneConnected(false)
+      stubs.onShouldAutoStart.mockClear()
+
+      arbiter.markPhoneConnected(true, fakeDevice())
+
+      expect(stubs.onWiredPhoneGone).not.toHaveBeenCalled()
+      expect(arbiter.isPhoneConnected()).toBe(true)
+      expect(stubs.onShouldAutoStart).toHaveBeenCalledTimes(1)
+    })
+
+    test('phone attach without a device object keeps the stored device', async () => {
+      const { arbiter } = makeArbiter()
+      arbiter.markPhoneConnected(true)
+      expect(arbiter.isPhoneConnected()).toBe(true)
+      expect(arbiter.getPhoneDevice()).toBeNull()
+    })
+  })
+
+  describe('hasNativeCandidate', () => {
+    test('true when a wired phone is attached', async () => {
+      const { arbiter } = makeArbiter()
+      arbiter.markPhoneConnected(true, fakeDevice())
+      expect(arbiter.hasNativeCandidate()).toBe(true)
+    })
+
+    test('true when wireless is enabled and a phone is in range', async () => {
+      const { arbiter } = makeArbiter({ wirelessAaEnabled: true, wirelessPhoneInRange: true })
+      expect(arbiter.hasNativeCandidate()).toBe(true)
+    })
+
+    test('false when wireless is disabled and no phone is attached', async () => {
+      const { arbiter } = makeArbiter({ wirelessAaEnabled: false })
+      expect(arbiter.hasNativeCandidate()).toBe(false)
+    })
+  })
+
+  describe('candidates and overrides', () => {
+    const CP_WIRED = { transport: 'cp', mode: 'wired' }
+    const AA_WIRED = { transport: 'aa', mode: 'wired' }
+    const AA_WIRELESS = { transport: 'aa', mode: 'wireless' }
+
+    function appleDevice(): Device {
+      return { vendorId: 0x05ac } as unknown as Device
+    }
+
+    test('an Apple wired phone is offered as wired CarPlay', async () => {
+      const { arbiter } = makeArbiter()
+      arbiter.markPhoneConnected(true, appleDevice())
+      expect(arbiter.pickPreferred()).toEqual(CP_WIRED)
+    })
+
+    test('wireless is offered during a wired AA session even without a phone in range', async () => {
+      const { arbiter } = makeArbiter({
+        wirelessAaEnabled: true,
+        wirelessPhoneInRange: false,
+        wiredAaSessionActive: true
+      })
+      expect(arbiter.pickPreferred()).toEqual(AA_WIRELESS)
+    })
+
+    test('an active CP session anchors on wired or wireless CarPlay', async () => {
+      const wired = makeArbiter({ active: 'cp', wiredCpSessionActive: true })
+      wired.arbiter.markDongleConnected(true)
+      wired.arbiter.markPhoneConnected(true, appleDevice())
+      expect(wired.arbiter.pickPreferred()).toEqual(CP_WIRED)
+
+      const wireless = makeArbiter({ active: 'cp', wiredCpSessionActive: false })
+      wireless.arbiter.markDongleConnected(true)
+      expect(wireless.arbiter.pickPreferred()).toEqual({ transport: 'dongle', mode: 'wired' })
+    })
+
+    test('setOverride forces the candidate and fires onChange', async () => {
+      const { arbiter, stubs } = makeArbiter()
+      arbiter.markPhoneConnected(true, fakeDevice())
+      stubs.onChange.mockClear()
+
+      arbiter.setOverride(AA_WIRED)
+      expect(arbiter.getOverride()).toEqual(AA_WIRED)
+      expect(stubs.onChange).toHaveBeenCalledTimes(1)
+      expect(arbiter.pickPreferred()).toEqual(AA_WIRED)
+    })
+
+    test('pickPreferred drops an override that is no longer detected', async () => {
+      const { arbiter } = makeArbiter()
+      arbiter.markDongleConnected(true)
+      arbiter.setOverride(AA_WIRED)
+
+      expect(arbiter.pickPreferred()).toEqual({ transport: 'dongle', mode: 'wired' })
+      expect(arbiter.getOverride()).toBeNull()
+    })
+
+    test('a detach commit keeps an override that is still detected', async () => {
+      const { arbiter } = makeArbiter()
+      arbiter.markDongleConnected(true)
+      arbiter.markPhoneConnected(true, fakeDevice())
+      arbiter.setOverride(AA_WIRED)
+
+      arbiter.markDongleConnected(false)
+      vi.advanceTimersByTime(4_000)
+
+      expect(arbiter.getOverride()).toEqual(AA_WIRED)
+    })
+  })
+
   describe('re-enumeration window', () => {
     test('isExpectingPhoneReenumeration is time-bounded', async () => {
       const { arbiter } = makeArbiter()
@@ -365,6 +515,38 @@ describe('TransportArbiter', () => {
   })
 
   describe('snapshot', () => {
+    test('reports an active wired CP session with no wireless phone anywhere', async () => {
+      const { arbiter } = makeArbiter({
+        active: 'cp',
+        wiredCpSessionActive: true,
+        wirelessAaEnabled: true,
+        wirelessPhoneInRange: false
+      })
+      arbiter.markPhoneConnected(true, { vendorId: 0x05ac } as unknown as Device)
+
+      const snap = arbiter.getSnapshot()
+      expect(snap.active).toBe('cp')
+      expect(snap.targetTransport).toBe('cp')
+      expect(snap.targetMode).toBe('wired')
+      expect(snap.wiredPhoneActive).toBe(true)
+      expect(snap.wirelessPhoneActive).toBe(false)
+      expect(snap.wirelessPhoneDetected).toBe(false)
+    })
+
+    test('reports an active wireless CP session as a detected wireless phone', async () => {
+      const { arbiter } = makeArbiter({
+        active: 'cp',
+        wiredCpSessionActive: false,
+        wirelessAaEnabled: true,
+        wirelessPhoneInRange: false
+      })
+
+      const snap = arbiter.getSnapshot()
+      expect(snap.wiredPhoneActive).toBe(false)
+      expect(snap.wirelessPhoneActive).toBe(true)
+      expect(snap.wirelessPhoneDetected).toBe(true)
+    })
+
     test('reflects current presence + preference', async () => {
       const { arbiter, stubs } = makeArbiter({ active: 'aa' })
       arbiter.markDongleConnected(true)

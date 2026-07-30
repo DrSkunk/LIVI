@@ -482,11 +482,8 @@ export class USBService {
   }
 
   private async resetDongle(dongle: Device): Promise<boolean> {
-    let opened = false
-
     try {
       await dongle.open()
-      opened = true
     } catch (openErr) {
       console.warn('[USB] Could not open device for reset:', openErr)
       return false
@@ -506,12 +503,10 @@ export class USBService {
       console.error('[USB] reset error', err)
       return false
     } finally {
-      if (opened) {
-        try {
-          await dongle.close()
-        } catch (e) {
-          console.warn('[USB] Failed to close dongle after reset:', e)
-        }
+      try {
+        await dongle.close()
+      } catch (e) {
+        console.warn('[USB] Failed to close dongle after reset:', e)
       }
     }
   }

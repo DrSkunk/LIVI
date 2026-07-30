@@ -9,30 +9,44 @@ import {
   MessageType
 } from '@main/services/projection/messages/common'
 import {
+  AudioData,
   BluetoothPeerConnected,
   BoxInfo,
   DongleReady,
+  DuckAudio,
   Opened,
   PhoneType,
   Plugged,
   SoftwareVersion,
   Unplugged,
-  VendorSessionInfo
+  VendorSessionInfo,
+  VideoData
 } from '@main/services/projection/messages/readable'
 import {
+  SendAudio,
   SendAutoConnectByBtAddress,
   SendBluetoothPairedList,
+  SendCloseDongle,
   SendCommand,
   SendDisconnectPhone,
+  SendFile,
   SendGnssData,
   SendOpen,
   SendSafeArea,
   SendString
 } from '@main/services/projection/messages/sendable'
+import { CARLINKIT_PIDS, CARLINKIT_VID } from '@main/services/usb/constants'
 import { CommandMapping, MicType, PhoneWorkMode } from '@shared/types'
+import { InputCommand } from '@shared/types/InputCommand'
+import { AudioCommand } from '@shared/types/ProjectionEnums'
+import { usb } from 'usb'
 
 vi.mock('@main/helpers/vendorSessionInfo', () => ({
   decryptVendorSessionText: vi.fn(async () => 'decrypted-session')
+}))
+
+vi.mock('usb', () => ({
+  usb: { getDevices: vi.fn(async () => []) }
 }))
 
 describe('DongleDriver core behavior', () => {
@@ -2163,5 +2177,393 @@ describe('DongleDriver core behavior', () => {
 
     await expect(d.waitForReaderStop()).resolves.toBeUndefined()
     expect(d.sleep).not.toHaveBeenCalled()
+  })
+})
+
+describe('DongleDriver additional coverage', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  test('isUp reflects device presence', () => {
+    const d = new DongleDriver() as any
+    expect(d.isUp).toBe(false)
+    d._device = { opened: true }
+    expect(d.isUp).toBe(true)
+  })
+
+  test('handleInput sends the mapped command and ignores unmapped ones', () => {
+    const d = new DongleDriver() as any
+    d.send = vi.fn(async () => true)
+    d.handleInput(InputCommand.Play)
+    expect(d.send).toHaveBeenCalledTimes(1)
+    expect(d.send.mock.calls[0][0]).toBeInstanceOf(SendCommand)
+    d.send.mockClear()
+    d.handleInput('bogus')
+    expect(d.send).not.toHaveBeenCalled()
+  })
+
+  test('requestKeyframe / requestClusterFocus / sendPhoneAudio / uploadHostIcons dispatch', () => {
+    const d = new DongleDriver() as any
+    d.send = vi.fn(async () => true)
+    d.requestKeyframe()
+    d.requestClusterFocus()
+    d.sendPhoneAudio(new Int16Array([1, 2]), 5)
+    d.uploadHostIcons(Buffer.from([1]), Buffer.from([2]), Buffer.from([3]))
+    const classes = d.send.mock.calls.map((c: unknown[]) => (c[0] as object).constructor.name)
+    expect(classes).toContain('SendCommand')
+    expect(classes).toContain('SendAudio')
+    expect(classes.filter((n: string) => n === 'SendFile')).toHaveLength(3)
+  })
+
+  test('send closes the driver when transferOut throws a disconnect error', async () => {
+    const d = new DongleDriver() as any
+    d._device = {
+      opened: true,
+      transferOut: vi.fn(async () => {
+        throw new Error('device disconnected')
+      })
+    }
+    d._outEP = { endpointNumber: 2 }
+    d.close = vi.fn(async () => undefined)
+    const ok = await d.send(new SendCommand('frame'))
+    expect(ok).toBe(false)
+    expect(d.close).toHaveBeenCalled()
+  })
+
+  test('_frameWatchdog polls for frames only when video is stalled', () => {
+    const d = new DongleDriver() as any
+    d.send = vi.fn(async () => true)
+    d._started = false
+    d._frameWatchdog()
+    d._frameWatchdog()
+    vi.advanceTimersByTime(700)
+    expect(d.send).not.toHaveBeenCalled()
+
+    d._started = true
+    d._videoFlowing = true
+    vi.advanceTimersByTime(700)
+    expect(d.send).not.toHaveBeenCalled()
+    expect(d._videoFlowing).toBe(false)
+
+    vi.advanceTimersByTime(700)
+    expect(d.send).toHaveBeenCalledTimes(1)
+  })
+
+  test('_clearFramePoke stops the running poll timer', () => {
+    const d = new DongleDriver() as any
+    d.send = vi.fn(async () => true)
+    d._started = true
+    d._frameWatchdog()
+    d._clearFramePoke()
+    vi.advanceTimersByTime(2100)
+    expect(d.send).not.toHaveBeenCalled()
+    expect(d._frameTimer).toBeNull()
+  })
+
+  test('disconnectPhone sends both teardown messages and sleeps when acked', async () => {
+    const d = new DongleDriver() as any
+    d.send = vi.fn(async () => true)
+    d.sleep = vi.fn(async () => undefined)
+    const ok = await d.disconnectPhone()
+    expect(ok).toBe(true)
+    expect(d.send.mock.calls[0][0]).toBeInstanceOf(SendDisconnectPhone)
+    expect(d.send.mock.calls[1][0]).toBeInstanceOf(SendCloseDongle)
+    expect(d.sleep).toHaveBeenCalledWith(150)
+  })
+
+  test('disconnectPhone swallows send errors and skips the sleep when nothing acked', async () => {
+    const d = new DongleDriver() as any
+    d.send = vi.fn(async () => {
+      throw new Error('gone')
+    })
+    d.sleep = vi.fn(async () => undefined)
+    const ok = await d.disconnectPhone()
+    expect(ok).toBe(false)
+    expect(d.sleep).not.toHaveBeenCalled()
+  })
+
+  test('disconnectPhone returns false when both teardown sends are rejected by the dongle', async () => {
+    const d = new DongleDriver() as any
+    d.send = vi.fn(async () => false)
+    d.sleep = vi.fn(async () => undefined)
+    const ok = await d.disconnectPhone()
+    expect(ok).toBe(false)
+    expect(d.send).toHaveBeenCalledTimes(2)
+    expect(d.sleep).not.toHaveBeenCalled()
+  })
+
+  test('send closes the driver even when the thrown disconnect value is not an Error', async () => {
+    const d = new DongleDriver() as any
+    d._device = {
+      opened: true,
+      transferOut: vi.fn(async () => {
+        throw 'device was disconnected'
+      })
+    }
+    d._outEP = { endpointNumber: 2 }
+    d.close = vi.fn(async () => undefined)
+    const ok = await d.send(new SendCommand('frame'))
+    expect(ok).toBe(false)
+    expect(d.close).toHaveBeenCalled()
+  })
+
+  test('a frame-interval poll does not send while the driver is not started', async () => {
+    const d = new DongleDriver() as any
+    d.send = vi.fn(async () => true)
+    d.reconcileModes = vi.fn(async () => undefined)
+    d._started = false
+    d._cfg = { phoneConfig: { [PhoneType.AndroidAuto]: { frameInterval: 100 } } }
+    await d.onPlugged({ phoneType: PhoneType.AndroidAuto })
+    d.send.mockClear()
+    vi.advanceTimersByTime(100)
+    expect(d.send).not.toHaveBeenCalled()
+    d._clearFramePoke()
+  })
+
+  test('readLoop stringifies a non-Error rejection before classifying it', async () => {
+    const d = new DongleDriver() as any
+    d._device = { opened: true }
+    d._closing = false
+    d.readOneMessage = vi
+      .fn()
+      .mockRejectedValueOnce('plain string failure')
+      .mockImplementationOnce(async () => {
+        d._closing = true
+        return null
+      })
+    d.isBenignUsbShutdownError = vi.fn(() => false)
+    await d.readLoop()
+    expect(d._readerActive).toBe(false)
+  })
+
+  test('translateDuck tracks nav + voice ducking and emits DuckAudio', () => {
+    const d = new DongleDriver() as any
+    const msgs: DuckAudio[] = []
+    d.on('message', (m: unknown) => {
+      if (m instanceof DuckAudio) msgs.push(m)
+    })
+    d.translateDuck(AudioCommand.AudioNaviStart)
+    d.translateDuck(AudioCommand.AudioVoiceAssistantStart)
+    d.translateDuck(AudioCommand.AudioVoiceAssistantStop)
+    d.translateDuck(AudioCommand.AudioNaviStop)
+    d.translateDuck(AudioCommand.AudioTurnByTurnStart)
+    d.translateDuck(AudioCommand.AudioTurnByTurnStop)
+    d.translateDuck(AudioCommand.AudioPhonecallStart)
+    d.translateDuck(AudioCommand.AudioPhonecallStop)
+    d.translateDuck(999999)
+    const levels = msgs.map((m) => m.level)
+    expect(levels).toContain(0.2)
+    expect(levels).toContain(0)
+    expect(levels).toContain(1)
+  })
+
+  test('handleMessage flags first video frame as link-up and forwards audio ducking', async () => {
+    const d = new DongleDriver() as any
+    d.send = vi.fn(async () => true)
+    const connected = vi.fn()
+    d.on('phone-connected', connected)
+    d._started = true
+
+    const video = Object.create(VideoData.prototype)
+    await d.handleMessage(video)
+    expect(connected).toHaveBeenCalledTimes(1)
+    expect(d._linkUp).toBe(true)
+
+    await d.handleMessage(video)
+    expect(connected).toHaveBeenCalledTimes(1)
+
+    const audio = Object.create(AudioData.prototype)
+    audio.command = AudioCommand.AudioNaviStart
+    const duckSpy = vi.spyOn(d, 'translateDuck')
+    await d.handleMessage(audio)
+    expect(duckSpy).toHaveBeenCalledWith(AudioCommand.AudioNaviStart)
+
+    d._clearFramePoke()
+  })
+
+  test('onOpened starts the heartbeat interval when none is running', () => {
+    const d = new DongleDriver() as any
+    d.send = vi.fn(async () => true)
+    d.sendPostOpenConfig = vi.fn(async () => undefined)
+    d.onOpened()
+    expect(d._heartbeatInterval).not.toBeNull()
+    vi.advanceTimersByTime(2000)
+    expect(
+      d.send.mock.calls.some((c: unknown[]) => (c[0] as object).constructor.name === 'HeartBeat')
+    ).toBe(true)
+    clearInterval(d._heartbeatInterval)
+  })
+
+  test('sendPostOpenConfig advertises cluster area files when a cluster is displayed', async () => {
+    const d = new DongleDriver() as any
+    d._cfg = {
+      projectionWidth: 800,
+      projectionHeight: 480,
+      projectionFps: 30,
+      carName: 'Car',
+      oemName: '',
+      wifiType: '5ghz',
+      disableAudioOutput: false,
+      projectionViewAreaTop: 0,
+      projectionViewAreaBottom: 0,
+      projectionViewAreaLeft: 0,
+      projectionViewAreaRight: 0,
+      projectionSafeAreaTop: 0,
+      projectionSafeAreaBottom: 0,
+      projectionSafeAreaLeft: 0,
+      projectionSafeAreaRight: 0,
+      projectionSafeAreaDrawOutside: false,
+      clusterWidth: 400,
+      clusterHeight: 240,
+      clusterViewAreaTop: 0,
+      clusterViewAreaBottom: 0,
+      clusterViewAreaLeft: 0,
+      clusterViewAreaRight: 0,
+      clusterSafeAreaTop: 0,
+      clusterSafeAreaBottom: 0,
+      clusterSafeAreaLeft: 0,
+      clusterSafeAreaRight: 0,
+      dashboards: { dash3: { main: true } }
+    }
+    d._device = { opened: true }
+    d._closing = false
+    d._androidWorkModeRuntime = AndroidWorkMode.AndroidAuto
+    d.send = vi.fn(async () => true)
+    d.sleep = vi.fn(async () => undefined)
+    d.scheduleWifiConnect = vi.fn()
+    await d.sendPostOpenConfig()
+    expect(d._postOpenConfigSent).toBe(true)
+  })
+
+  test('onPlugged installs a frame-interval poll timer from phone config', async () => {
+    const d = new DongleDriver() as any
+    d.send = vi.fn(async () => true)
+    d.reconcileModes = vi.fn(async () => undefined)
+    d._started = true
+    d._cfg = {
+      phoneConfig: { [PhoneType.AndroidAuto]: { frameInterval: 100 } }
+    }
+    await d.onPlugged({ phoneType: PhoneType.AndroidAuto })
+    expect(d._frameTimer).not.toBeNull()
+    vi.advanceTimersByTime(100)
+    expect(
+      d.send.mock.calls.some((c: unknown[]) => (c[0] as object).constructor.name === 'SendCommand')
+    ).toBe(true)
+    d._clearFramePoke()
+  })
+
+  test('readLoop retries after a timeout error and breaks when closing mid-error', async () => {
+    const d = new DongleDriver() as any
+    d._device = { opened: true }
+    d._closing = false
+    d.readOneMessage = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('operation timed out'))
+      .mockImplementationOnce(async () => {
+        d._closing = true
+        throw new Error('late failure')
+      })
+    d.isBenignUsbShutdownError = vi.fn(() => false)
+    await d.readLoop()
+    expect(d._readerActive).toBe(false)
+  })
+
+  test('close clears the pair timer and skips the disconnect event when no device was present', async () => {
+    const d = new DongleDriver() as any
+    d._started = true
+    d._device = null
+    d._pairTimer = setTimeout(() => {}, 100000)
+    const disc = vi.fn()
+    d.on('phone-disconnected', disc)
+    await d.close()
+    expect(d._pairTimer).toBeNull()
+    expect(disc).not.toHaveBeenCalled()
+  })
+})
+
+describe('DongleDriver.bringUp', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  test('returns early when a device is already up', async () => {
+    const d = new DongleDriver() as any
+    d._device = { opened: true }
+    ;(usb.getDevices as unknown as ReturnType<typeof vi.fn>).mockClear()
+    await d.bringUp({} as any)
+    expect(usb.getDevices).not.toHaveBeenCalled()
+  })
+
+  test('returns early when no Carlinkit dongle is present', async () => {
+    const d = new DongleDriver() as any
+    ;(usb.getDevices as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { vendorId: 0x1234, productId: 0x5678 }
+    ] as never)
+    await d.bringUp({} as any)
+    expect(d._device).toBeNull()
+  })
+
+  test('opens, initialises and starts the dongle, then schedules wifi pairing', async () => {
+    const d = new DongleDriver() as any
+    const device = {
+      vendorId: CARLINKIT_VID,
+      productId: CARLINKIT_PIDS[0],
+      open: vi.fn(async () => {})
+    }
+    ;(usb.getDevices as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([device] as never)
+    d.initialise = vi.fn(async () => undefined)
+    d.start = vi.fn(async () => undefined)
+    d.setPendingStartupConnectTarget = vi.fn()
+    d.clearPendingStartupConnectTarget = vi.fn()
+    d.send = vi.fn(async () => true)
+    await d.bringUp({} as any, { deviceName: 'X' } as any)
+    expect(device.open).toHaveBeenCalled()
+    expect(d.start).toHaveBeenCalled()
+    expect(d.setPendingStartupConnectTarget).toHaveBeenCalled()
+    vi.advanceTimersByTime(15000)
+    expect(
+      d.send.mock.calls.some((c: unknown[]) => (c[0] as object).constructor.name === 'SendCommand')
+    ).toBe(true)
+    d._pairTimer && clearTimeout(d._pairTimer)
+  })
+
+  test('clears the pending target when none is supplied', async () => {
+    const d = new DongleDriver() as any
+    const device = {
+      vendorId: CARLINKIT_VID,
+      productId: CARLINKIT_PIDS[0],
+      open: vi.fn(async () => {})
+    }
+    ;(usb.getDevices as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([device] as never)
+    d.initialise = vi.fn(async () => undefined)
+    d.start = vi.fn(async () => undefined)
+    d.clearPendingStartupConnectTarget = vi.fn()
+    d.send = vi.fn(async () => true)
+    await d.bringUp({} as any)
+    expect(d.clearPendingStartupConnectTarget).toHaveBeenCalled()
+    d._pairTimer && clearTimeout(d._pairTimer)
+  })
+
+  test('closes on a bring-up failure', async () => {
+    const d = new DongleDriver() as any
+    const device = {
+      vendorId: CARLINKIT_VID,
+      productId: CARLINKIT_PIDS[0],
+      open: vi.fn(async () => {})
+    }
+    ;(usb.getDevices as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([device] as never)
+    d.initialise = vi.fn(async () => {
+      throw new Error('init boom')
+    })
+    d.close = vi.fn(async () => undefined)
+    await d.bringUp({} as any)
+    expect(d.close).toHaveBeenCalled()
   })
 })

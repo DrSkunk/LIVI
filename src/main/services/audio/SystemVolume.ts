@@ -86,7 +86,6 @@ export function startSystemVolumeMonitor(
     if (readTimer) clearTimeout(readTimer)
     readTimer = setTimeout(async () => {
       readTimer = null
-      if (stopped) return
       if (Date.now() - lastWriteAt < ECHO_WINDOW_MS) return
       const level = await getSystemVolume(configuredDevice())
       if (level === null || stopped) return
@@ -98,7 +97,6 @@ export function startSystemVolumeMonitor(
   }
 
   const spawnMonitor = (): void => {
-    if (stopped) return
     const proc = spawn(PACTL, ['subscribe'], { stdio: ['ignore', 'pipe', 'ignore'] })
     child = proc
 

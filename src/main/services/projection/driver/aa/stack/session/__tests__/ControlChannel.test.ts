@@ -39,7 +39,12 @@ function fakeProto(): ProtoTypes {
     ChannelOpenRequest: fakeProtoType('ChannelOpenRequest', { serviceId: 9 }),
     ChannelOpenResponse: fakeProtoType('ChannelOpenResponse', { status: STATUS_OK }),
     BindingRequest: fakeProtoType('BindingRequest', { scan_codes: [21] }),
-    BindingResponse: fakeProtoType('BindingResponse')
+    BindingResponse: fakeProtoType('BindingResponse'),
+    BatteryStatusNotification: fakeProtoType('BatteryStatusNotification', {
+      batteryLevel: 80,
+      criticalBattery: false,
+      timeRemainingS: 3600
+    })
   } as unknown as ProtoTypes
 }
 
@@ -80,6 +85,71 @@ describe('ControlChannel — ServiceDiscoveryRequest', () => {
     ch.handleMessage(CTRL_MSG.SERVICE_DISCOVERY_REQUEST, Buffer.alloc(0))
     expect(cb).toHaveBeenCalledWith({})
     warn.mockRestore()
+  })
+})
+
+describe('ControlChannel — ServiceDiscoveryRequest optional fields', () => {
+  test('missing name/brand/phone_info fall back to defaults', () => {
+    const proto = fakeProto()
+    ;(proto.ServiceDiscoveryRequest as unknown as ProtoType).decode.mockReturnValueOnce({})
+    const { send } = makeSend()
+    const ch = new ControlChannel(proto, send)
+    const cb = vi.fn()
+    ch.on('service-discovery-request', cb)
+    ch.handleMessage(CTRL_MSG.SERVICE_DISCOVERY_REQUEST, Buffer.alloc(0))
+    expect(cb).toHaveBeenCalledWith({})
+  })
+})
+
+describe('ControlChannel — battery', () => {
+  test('BATTERY_STATUS_NOTIFICATION emits parsed battery info', () => {
+    const proto = fakeProto()
+    const { send } = makeSend()
+    const ch = new ControlChannel(proto, send)
+    const cb = vi.fn()
+    ch.on('battery', cb)
+    ch.handleMessage(CTRL_MSG.BATTERY_STATUS_NOTIFICATION, Buffer.alloc(0))
+    expect(cb).toHaveBeenCalledWith({ level: 80, critical: false, timeRemaining: 3600 })
+  })
+
+  test('non-numeric level/timeRemaining become undefined', () => {
+    const proto = fakeProto()
+    ;(proto.BatteryStatusNotification as unknown as ProtoType).decode.mockReturnValueOnce({
+      criticalBattery: true
+    })
+    const { send } = makeSend()
+    const ch = new ControlChannel(proto, send)
+    const cb = vi.fn()
+    ch.on('battery', cb)
+    ch.handleMessage(CTRL_MSG.BATTERY_STATUS_NOTIFICATION, Buffer.alloc(0))
+    expect(cb).toHaveBeenCalledWith({ level: undefined, critical: true, timeRemaining: undefined })
+  })
+
+  test('battery parse error is logged but does not throw', () => {
+    const proto = fakeProto()
+    ;(proto.BatteryStatusNotification as unknown as ProtoType).decode.mockImplementationOnce(() => {
+      throw new Error('bad')
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(function () {})
+    const { send } = makeSend()
+    const ch = new ControlChannel(proto, send)
+    expect(() =>
+      ch.handleMessage(CTRL_MSG.BATTERY_STATUS_NOTIFICATION, Buffer.alloc(0))
+    ).not.toThrow()
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+})
+
+describe('ControlChannel — shutdown response', () => {
+  test('SHUTDOWN_RESPONSE emits shutdown-complete', () => {
+    const proto = fakeProto()
+    const { send } = makeSend()
+    const ch = new ControlChannel(proto, send)
+    const cb = vi.fn()
+    ch.on('shutdown-complete', cb)
+    ch.handleMessage(CTRL_MSG.SHUTDOWN_RESPONSE, Buffer.alloc(0))
+    expect(cb).toHaveBeenCalled()
   })
 })
 
@@ -233,6 +303,18 @@ describe('ControlChannel — audio focus', () => {
     ch.handleMessage(CTRL_MSG.AUDIO_FOCUS_REQUEST, buildFocusReq(1))
     expect(cb).toHaveBeenCalled()
   })
+
+  test('malformed request (no 0x08 tag) defaults focusType to 0', () => {
+    const proto = fakeProto()
+    const { send, calls } = makeSend()
+    const ch = new ControlChannel(proto, send)
+    const cb = vi.fn()
+    ch.on('audio-focus-request', cb)
+    ch.handleMessage(CTRL_MSG.AUDIO_FOCUS_REQUEST, Buffer.from([0x10, 0x02]))
+    const resp = calls.find((c) => c.msgId === CTRL_MSG.AUDIO_FOCUS_RESPONSE)!
+    expect(resp.data[1]).toBe(3)
+    expect(cb).toHaveBeenCalledWith(0)
+  })
 })
 
 describe('ControlChannel — navigation focus', () => {
@@ -265,6 +347,26 @@ describe('ControlChannel — voice session', () => {
     const cb = vi.fn()
     ch.on('voice-session', cb)
     ch.handleMessage(CTRL_MSG.VOICE_SESSION_NOTIFICATION, Buffer.from([0x08, 0x02]))
+    expect(cb).toHaveBeenCalledWith(false)
+  })
+
+  test('unknown status → emits voice-session(false)', () => {
+    const proto = fakeProto()
+    const { send } = makeSend()
+    const ch = new ControlChannel(proto, send)
+    const cb = vi.fn()
+    ch.on('voice-session', cb)
+    ch.handleMessage(CTRL_MSG.VOICE_SESSION_NOTIFICATION, Buffer.from([0x08, 0x09]))
+    expect(cb).toHaveBeenCalledWith(false)
+  })
+
+  test('empty payload keeps status 0 and emits voice-session(false)', () => {
+    const proto = fakeProto()
+    const { send } = makeSend()
+    const ch = new ControlChannel(proto, send)
+    const cb = vi.fn()
+    ch.on('voice-session', cb)
+    ch.handleMessage(CTRL_MSG.VOICE_SESSION_NOTIFICATION, Buffer.alloc(0))
     expect(cb).toHaveBeenCalledWith(false)
   })
 })

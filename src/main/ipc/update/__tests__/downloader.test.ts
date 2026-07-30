@@ -68,6 +68,36 @@ describe('downloadWithProgress', () => {
     expect(progress).toHaveBeenCalledWith({ received: 5, total: 5, percent: 1 })
   })
 
+  test('ignores errors and finish raised after the promise settled', async () => {
+    const file = makeFile()
+    ;(createWriteStream as Mock).mockReturnValue(file)
+    let req!: ReturnType<typeof makeReq>
+    let res!: EventEmitter & {
+      statusCode: number
+      headers: Record<string, unknown>
+      pipe: (dest: EventEmitter) => void
+    }
+    ;(https.get as Mock).mockImplementation(function (_url, cb) {
+      req = makeReq()
+      res = new EventEmitter() as typeof res
+      res.statusCode = 200
+      res.headers = {}
+      res.pipe = () => {}
+      cb(res)
+      return req
+    })
+
+    const { promise } = downloadWithProgress('https://example.com/a', '/tmp/file', vi.fn())
+
+    res.emit('error', new Error('first'))
+    res.emit('error', new Error('second'))
+    file.emit('error', new Error('third'))
+    req.emit('error', new Error('fourth'))
+    file.emit('finish')
+
+    await expect(promise).rejects.toThrow('first')
+  })
+
   test('rejects on non-200 response', async () => {
     ;(https.get as Mock).mockImplementation(function (_url, cb) {
       const req = makeReq()

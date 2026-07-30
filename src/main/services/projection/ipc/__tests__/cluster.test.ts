@@ -46,6 +46,15 @@ describe('cluster ipc — cluster:request', () => {
     expect(r).toEqual({ ok: true, enabled: false })
   })
 
+  test('enabled=false keeps the cached size while another window still requests the cluster', async () => {
+    const host = freshHost()
+    host.isClusterRequested.mockReturnValue(true)
+    registerClusterIpc(host)
+    const r = await handlers.get('cluster:request')!({ sender: { id: 1 } }, false)
+    expect(host.resetLastClusterVideoSize).not.toHaveBeenCalled()
+    expect(r).toEqual({ ok: true, enabled: false })
+  })
+
   test('enabled=true with cluster off in config still resets', async () => {
     const host = freshHost()
     host.getConfig.mockReturnValue({
@@ -159,6 +168,24 @@ describe('cluster ipc — cluster:repaint-nudge', () => {
 
     vi.advanceTimersByTime(60)
     expect(win.setSize).toHaveBeenLastCalledWith(800, 480)
+    vi.useRealTimers()
+  })
+
+  test('skips the restore when the window is destroyed before the timeout fires', async () => {
+    vi.useFakeTimers()
+    const win = {
+      isDestroyed: vi.fn().mockReturnValueOnce(false).mockReturnValue(true),
+      getSize: vi.fn(() => [800, 480]),
+      setSize: vi.fn()
+    }
+    fromWebContents.mockReturnValue(win)
+    registerClusterIpc(freshHost())
+
+    await handlers.get('cluster:repaint-nudge')!({ sender: {} })
+    expect(win.setSize).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(60)
+    expect(win.setSize).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
   })
 })

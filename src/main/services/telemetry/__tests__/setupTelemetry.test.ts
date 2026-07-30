@@ -42,6 +42,8 @@ function fakeProjection(): ProjectionService {
   return {
     getAaDriver: vi.fn(() => null),
     getDongleDriver: vi.fn(() => null),
+    getCpDriver: vi.fn(() => null),
+    setBlinkerSoundActive: vi.fn(),
     addPluggedHook: vi.fn(() => () => {})
   } as unknown as ProjectionService
 }
@@ -105,6 +107,8 @@ describe('setupTelemetry', () => {
     ) => void
     onChange({ appearanceMode: 'night' } as Config)
     expect(store.snapshot().nightMode).toBe(true)
+    onChange({ appearanceMode: 'night' } as Config)
+    expect(store.snapshot().nightMode).toBe(true)
   })
 
   test('initialConfig.lastKnownGps hydrates the store', () => {
@@ -135,5 +139,65 @@ describe('setupTelemetry', () => {
     expect(removeAllListenersMock).toHaveBeenCalledWith('telemetry:push')
     expect(removeHandlerMock).toHaveBeenCalledWith('telemetry:snapshot')
     expect(configEvents.off).toHaveBeenCalled()
+  })
+
+  test('adapters resolve their drivers through the projection service', () => {
+    const store = new TelemetryStore()
+    const proj = fakeProjection()
+    setupTelemetry({ store, projectionService: proj })
+
+    store.merge({ nightMode: true, turn: 'left' })
+    expect(proj.getAaDriver).toHaveBeenCalled()
+    expect(proj.getCpDriver).toHaveBeenCalled()
+    expect(proj.setBlinkerSoundActive).toHaveBeenCalledWith(true)
+
+    const hook = (proj.addPluggedHook as Mock).mock.calls[0][0] as () => void
+    hook()
+    expect(proj.getDongleDriver).toHaveBeenCalled()
+  })
+
+  test('a throwing hydrate is contained per adapter', () => {
+    const store = new TelemetryStore()
+    const proj = fakeProjection()
+    ;(proj.getAaDriver as Mock).mockImplementation(() => {
+      throw new Error('aa gone')
+    })
+    ;(proj.getDongleDriver as Mock).mockImplementation(() => {
+      throw new Error('dongle gone')
+    })
+    ;(proj.getCpDriver as Mock).mockImplementation(() => {
+      throw new Error('cp gone')
+    })
+    store.merge({ nightMode: true })
+    setupTelemetry({ store, projectionService: proj })
+
+    const hook = (proj.addPluggedHook as Mock).mock.calls[0][0] as () => void
+    expect(() => hook()).not.toThrow()
+    expect(console.warn).toHaveBeenCalledWith(
+      '[setupTelemetry] aa.hydrate threw (ignored)',
+      expect.any(Error)
+    )
+    expect(console.warn).toHaveBeenCalledWith(
+      '[setupTelemetry] dongle.hydrate threw (ignored)',
+      expect.any(Error)
+    )
+    expect(console.warn).toHaveBeenCalledWith(
+      '[setupTelemetry] cp.hydrate threw (ignored)',
+      expect.any(Error)
+    )
+  })
+
+  test('dispose with a projection service detaches the adapters too', () => {
+    const store = new TelemetryStore()
+    const proj = fakeProjection()
+    const offPlug = vi.fn()
+    ;(proj.addPluggedHook as Mock).mockReturnValue(offPlug)
+    const handle = setupTelemetry({ store, projectionService: proj })
+    handle.dispose()
+    expect(offPlug).toHaveBeenCalledTimes(1)
+
+    ;(proj.getAaDriver as Mock).mockClear()
+    store.merge({ nightMode: true })
+    expect(proj.getAaDriver).not.toHaveBeenCalled()
   })
 })

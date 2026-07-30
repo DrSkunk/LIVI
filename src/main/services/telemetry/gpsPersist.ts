@@ -37,8 +37,7 @@ export function attachGpsPersist({ store, initialGps }: GpsPersistDeps): GpsPers
   let lastWrittenLng: number | undefined
 
   const persist = (gps: GpsPayload): void => {
-    const v = validateGps(gps.lat, gps.lng)
-    if (!v) return
+    const v = validateGps(gps.lat, gps.lng) as { lat: number; lng: number }
     if (v.lat === lastWrittenLat && v.lng === lastWrittenLng) return
 
     const payload: LastKnownGps = {

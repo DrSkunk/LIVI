@@ -1873,8 +1873,6 @@ export class ProjectionService {
         this.mediaStore.reset('session-start')
         this.navStore.reset('session-start')
 
-        const useAa = target === 'aa'
-
         if (target === 'cp') {
           // The CarPlay :7000 listener + helper feed are owned by CpManager. Ensure
           // they are up; a CpSession spawns and auto-activates when the phone connects.
@@ -1889,8 +1887,9 @@ export class ProjectionService {
           return
         }
 
-        if (useAa) {
-          // Two AA paths: Wired (per-device AOAP bring-up) + Wireless (:5277 listener)
+        // Reaching here means target === 'aa' (cp + dongle returned above).
+        // Two AA paths: Wired (per-device AOAP bring-up) + Wireless (:5277 listener)
+        {
           const wantWired = candidate?.mode === 'wired'
           const wiredDevice = wantWired ? this.arbiter.getPhoneDevice() : null
 

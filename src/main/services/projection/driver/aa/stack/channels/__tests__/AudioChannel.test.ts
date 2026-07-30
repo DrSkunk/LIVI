@@ -119,6 +119,19 @@ describe('AudioChannel.handleMessage', () => {
     expect(start).toHaveBeenCalledWith('media', CH.MEDIA_AUDIO)
   })
 
+  test('START_INDICATION without a session_id keeps the default session', () => {
+    const { send } = freshSend()
+    const ch = new AudioChannel(CH.MEDIA_AUDIO, send)
+    const start = vi.fn()
+    ch.on('start', start)
+    ch.handleMessage(
+      AV_MSG.START_INDICATION,
+      fieldVarint(2, 5),
+      dummyFrame(CH.MEDIA_AUDIO, AV_MSG.START_INDICATION, Buffer.alloc(0))
+    )
+    expect(start).toHaveBeenCalledWith('media', CH.MEDIA_AUDIO)
+  })
+
   test('STOP_INDICATION emits stop', () => {
     const { send } = freshSend()
     const ch = new AudioChannel(CH.MEDIA_AUDIO, send)

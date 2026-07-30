@@ -32,6 +32,11 @@ vi.mock('../../projection/driver/aa/stack/aoap/handshake', () => ({
   isAccessoryMode: (...a: unknown[]) => isAccessoryModeMock(...a)
 }))
 
+const phoneVendorIdsMock = vi.fn((): Set<number> | null => null)
+vi.mock('../udevRule', () => ({
+  phoneVendorIdsFromUdevTemplate: () => phoneVendorIdsMock()
+}))
+
 import { USBService } from '@main/services/usb/USBService'
 
 const projection = {
@@ -74,6 +79,7 @@ function disconnectHandler(): (ev: unknown) => void {
 beforeEach(async () => {
   vi.clearAllMocks()
   isAccessoryModeMock.mockReset().mockReturnValue(false)
+  phoneVendorIdsMock.mockReset().mockReturnValue(null)
   ;(usb.getDevices as Mock).mockReset().mockResolvedValue([])
   projection.markDongleConnected.mockReset()
   projection.markPhoneConnected.mockReset()
@@ -172,6 +178,64 @@ describe('USBService — phone attach paths', () => {
     disconnectHandler()(evt(mkPhoneCandidate()))
     expect(projection.markPhoneConnected).not.toHaveBeenCalled()
   })
+
+  test('apple phones are detected but never marked connected', async () => {
+    new USBService(projection)
+    connectHandler()(evt(mkPhoneCandidate(0x05ac, 0x12a8)))
+    expect(projection.markPhoneConnected).not.toHaveBeenCalled()
+  })
+
+  test('accessory re-attach after the reenum window resets and re-claims', async () => {
+    isAccessoryModeMock.mockReturnValue(true)
+    const phone = mkPhoneCandidate()
+    new USBService(projection)
+    connectHandler()(evt(phone))
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.now() + 20_000)
+    projection.markPhoneConnected.mockClear()
+    connectHandler()(evt(phone))
+    expect(projection.markPhoneConnected).toHaveBeenCalledWith(false)
+    expect(projection.markPhoneConnected).toHaveBeenCalledWith(true, phone)
+    vi.useRealTimers()
+  })
+
+  test('accessory re-attach with pending bridge reset keeps bridge ownership', async () => {
+    isAccessoryModeMock.mockReturnValue(true)
+    const phone = mkPhoneCandidate()
+    new USBService(projection)
+    connectHandler()(evt(phone))
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.now() + 20_000)
+    projection.isExpectingPhoneReenumeration.mockReturnValue(true)
+    projection.markPhoneConnected.mockClear()
+    connectHandler()(evt(phone))
+    expect(projection.markPhoneConnected).toHaveBeenCalledWith(true, phone)
+    expect(projection.markPhoneConnected).not.toHaveBeenCalledWith(false)
+    vi.useRealTimers()
+  })
+
+  test('dongle detach while AA is active suppresses the renderer broadcast', async () => {
+    projection.getActiveTransport.mockReturnValue('aa')
+    const svc = new USBService(projection)
+    ;(svc as unknown as { lastDongleState: boolean }).lastDongleState = true
+    const dongle = { vendorId: 0x1314, productId: 0x1520, deviceClass: 0x00 } as never
+    disconnectHandler()(evt(dongle))
+    expect(projection.markDongleConnected).toHaveBeenCalledWith(false)
+  })
+
+  test('detach of an unrelated device while no phone is tracked does nothing', async () => {
+    new USBService(projection)
+    disconnectHandler()(evt(mkPhoneCandidate()))
+    expect(projection.markPhoneConnected).not.toHaveBeenCalled()
+  })
+
+  test('detach with phone state but no tracked device does nothing', async () => {
+    const svc = new USBService(projection)
+    ;(svc as unknown as { lastPhoneState: boolean }).lastPhoneState = true
+    ;(svc as unknown as { connectedPhoneDevice: unknown }).connectedPhoneDevice = null
+    disconnectHandler()(evt(mkPhoneCandidate()))
+    expect(projection.markPhoneConnected).not.toHaveBeenCalled()
+  })
 })
 
 describe('USBService — startup scan', () => {
@@ -191,9 +255,132 @@ describe('USBService — startup scan', () => {
     await new Promise((r) => setImmediate(r))
     expect(projection.markPhoneConnected).not.toHaveBeenCalled()
   })
+
+  test('claims a phone already in accessory mode at startup', async () => {
+    isAccessoryModeMock.mockReturnValue(true)
+    const phone = mkPhoneCandidate()
+    ;(usb.getDevices as Mock).mockResolvedValue([phone])
+    new USBService(projection)
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    expect(projection.markPhoneConnected).toHaveBeenCalledWith(true, phone)
+  })
+
+  test('startup scan logs placeholders for devices without descriptors', async () => {
+    const ghost = { vendorId: undefined, productId: undefined, deviceClass: undefined } as never
+    ;(usb.getDevices as Mock).mockResolvedValue([ghost])
+    new USBService(projection)
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    expect(projection.markPhoneConnected).not.toHaveBeenCalled()
+  })
+})
+
+describe('USBService — interface class filter', () => {
+  test('skips class-0 devices exposing only non-phone interfaces', async () => {
+    new USBService(projection)
+    const dev = {
+      vendorId: 0x1000,
+      productId: 0x2000,
+      deviceClass: 0x00,
+      configuration: {
+        interfaces: [
+          { alternate: { interfaceClass: 0x03 } },
+          { alternate: { interfaceClass: 0x08 } }
+        ]
+      }
+    } as never
+    connectHandler()(evt(dev))
+    expect(projection.markPhoneConnected).not.toHaveBeenCalled()
+  })
+
+  test('accepts class-0 devices with a vendor-specific interface', async () => {
+    new USBService(projection)
+    const dev = {
+      vendorId: 0x1000,
+      productId: 0x2000,
+      deviceClass: 0x00,
+      configuration: {
+        interfaces: [
+          { alternate: { interfaceClass: 0x03 } },
+          { alternate: { interfaceClass: 0xff } }
+        ]
+      }
+    } as never
+    connectHandler()(evt(dev))
+    expect(projection.markPhoneConnected).toHaveBeenCalledWith(true, dev)
+  })
+
+  test('treats devices whose configuration read throws as non-phones', async () => {
+    new USBService(projection)
+    const dev = {
+      vendorId: 0x1000,
+      productId: 0x2000,
+      deviceClass: 0x00,
+      get configuration(): never {
+        throw new Error('device vanished')
+      }
+    } as never
+    connectHandler()(evt(dev))
+    expect(projection.markPhoneConnected).not.toHaveBeenCalled()
+  })
+})
+
+describe('USBService — linux vendor allowlist', () => {
+  const originalPlatform = process.platform
+
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+  })
+
+  test('skips candidates whose vendor is not in the udev allowlist', async () => {
+    phoneVendorIdsMock.mockReturnValue(new Set([0x0b05]))
+    new USBService(projection)
+    connectHandler()(evt(mkPhoneCandidate(0x18d1)))
+    expect(projection.markPhoneConnected).not.toHaveBeenCalled()
+  })
+
+  test('accepts candidates whose vendor is in the allowlist', async () => {
+    phoneVendorIdsMock.mockReturnValue(new Set([0x18d1]))
+    new USBService(projection)
+    connectHandler()(evt(mkPhoneCandidate(0x18d1)))
+    expect(projection.markPhoneConnected).toHaveBeenCalledWith(true, expect.anything())
+  })
+
+  test('accepts candidates when no allowlist could be parsed', async () => {
+    phoneVendorIdsMock.mockReturnValue(null)
+    new USBService(projection)
+    connectHandler()(evt(mkPhoneCandidate()))
+    expect(projection.markPhoneConnected).toHaveBeenCalledWith(true, expect.anything())
+  })
+
+  test('accepts candidates without a vendor id', async () => {
+    phoneVendorIdsMock.mockReturnValue(new Set([0x18d1]))
+    new USBService(projection)
+    const dev = { vendorId: undefined, productId: 0x4ee1, deviceClass: 0x00 } as never
+    connectHandler()(evt(dev))
+    expect(projection.markPhoneConnected).toHaveBeenCalledWith(true, dev)
+  })
 })
 
 describe('USBService — isPhoneCandidate filter', () => {
+  test('non-Linux hosts skip the udev vendor allowlist and accept the candidate', async () => {
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    phoneVendorIdsMock.mockReturnValue(new Set([0x0b05]))
+    try {
+      new USBService(projection)
+      connectHandler()(evt(mkPhoneCandidate(0x18d1)))
+      expect(projection.markPhoneConnected).toHaveBeenCalledWith(true, expect.anything())
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+    }
+  })
+
   test('skips non-phone device classes (HID/HUB/etc.)', async () => {
     new USBService(projection)
     const hub = {

@@ -96,6 +96,17 @@ describe('readVarint', () => {
     const [, n] = readVarint(Buffer.from([0x80, 0x80, 0x80, 0x80, 0x80, 0x01]), 0)
     expect(n).toBeGreaterThan(0)
   })
+
+  test('skips trailing continuation bytes after 32-bit overflow', () => {
+    const [, n] = readVarint(Buffer.from([0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01]), 0)
+    expect(n).toBeGreaterThan(5)
+  })
+
+  test('returns what it has when the buffer ends mid-varint', () => {
+    const [v, n] = readVarint(Buffer.from([0x80]), 0)
+    expect(v).toBe(0)
+    expect(n).toBe(1)
+  })
 })
 
 describe('decodeStart', () => {

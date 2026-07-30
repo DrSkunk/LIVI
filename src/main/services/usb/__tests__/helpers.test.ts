@@ -1,3 +1,4 @@
+import { isCarlinkitDongle } from '@main/services/usb/constants'
 import { findDongle } from '@main/services/usb/helpers'
 import { usb } from 'usb'
 import type { Mock } from 'vitest'
@@ -27,5 +28,11 @@ describe('findDongle', () => {
     getDevices.mockResolvedValue([{ vendorId: 0x1111, productId: 0x2222 }])
 
     await expect(findDongle()).resolves.toBeNull()
+  })
+})
+
+describe('isCarlinkitDongle', () => {
+  test('rejects a matching vendor id without a product id', () => {
+    expect(isCarlinkitDongle(0x1314, undefined)).toBe(false)
   })
 })

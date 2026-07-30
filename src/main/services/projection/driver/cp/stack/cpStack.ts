@@ -390,9 +390,7 @@ export class CpStack extends EventEmitter {
           const decoded = decodeBplist(req.body)
           console.log(
             '[cpStack]   body:',
-            JSON.stringify(decoded, (_k, v) =>
-              typeof v === 'bigint' ? Number(v) : Buffer.isBuffer(v) ? `<${v.length}B>` : v
-            )
+            JSON.stringify(decoded, (_k, v) => (typeof v === 'bigint' ? Number(v) : v))
           )
         } catch {
           console.log(`[cpStack]   body: not a plist (${req.body.length}B)`)
@@ -449,7 +447,7 @@ export class CpStack extends EventEmitter {
           const ask = decodeBplist(req.body)
           console.log(
             `[cpStack] /info request from phone: ${JSON.stringify(ask, (_k, v) =>
-              typeof v === 'bigint' ? Number(v) : Buffer.isBuffer(v) ? `<${v.length}B>` : v
+              typeof v === 'bigint' ? Number(v) : v
             )}`
           )
         } catch {
@@ -488,7 +486,7 @@ export class CpStack extends EventEmitter {
     if (!Array.isArray(appStates)) return
     let active = this._speechActive
     for (const s of appStates) {
-      const st = (s ?? {}) as Record<string, PlistValue>
+      const st = s as Record<string, PlistValue>
       if (Number(st.appStateID) !== 1 || st.speechMode === undefined) continue
       const mode = Number(st.speechMode)
       active = mode === 1 || mode === 2
@@ -503,7 +501,7 @@ export class CpStack extends EventEmitter {
   private _handleCommand(req: RtspRequest, session: CpSession): RtspResponse {
     let body: Record<string, PlistValue> = {}
     try {
-      body = (decodeBplist(req.body) ?? {}) as Record<string, PlistValue>
+      body = decodeBplist(req.body) as Record<string, PlistValue>
     } catch {
       /* empty or non-plist body: nothing to route */
     }
@@ -615,7 +613,7 @@ export class CpStack extends EventEmitter {
       console.warn('[cpStack] SETUP body is not a plist:', (e as Error).message)
       return { status: 400 }
     }
-    const dict = (body ?? {}) as Record<string, PlistValue>
+    const dict = body as Record<string, PlistValue>
     const streams = dict.streams
 
     if (Array.isArray(streams)) {

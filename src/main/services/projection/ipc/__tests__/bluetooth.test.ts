@@ -215,4 +215,34 @@ describe('bluetooth ipc — edge cases', () => {
     const h = handlers.get('projection-bt-connect-device')!
     await expect(h(null, '   ')).resolves.toEqual({ ok: false })
   })
+
+  test('connect tolerates a nullish mac payload', async () => {
+    const host = fakeHost()
+    registerBluetoothIpc(host)
+    const h = handlers.get('projection-bt-connect-device')!
+    await expect(h(null, undefined)).resolves.toEqual({ ok: false })
+    await expect(h(null, null)).resolves.toEqual({ ok: false })
+  })
+
+  test('connect dongle-path skips DevList entries without an id', async () => {
+    const host = fakeHost({
+      getBoxInfo: vi.fn(function () {
+        return { DevList: [{ type: 'AndroidAuto' }, { id: 'AA:BB', type: 'AndroidAuto' }] }
+      })
+    })
+    registerBluetoothIpc(host)
+    const h = handlers.get('projection-bt-connect-device')!
+    await expect(h(null, 'AA:BB')).resolves.toEqual({ ok: true })
+    expect(host.setPendingStartupConnectTarget).toHaveBeenCalledWith({
+      btMac: 'AA:BB',
+      phoneWorkMode: expect.any(Number)
+    })
+  })
+
+  test('forget tolerates a nullish mac payload', async () => {
+    const host = fakeHost()
+    registerBluetoothIpc(host)
+    const h = handlers.get('projection-bt-forget-device')!
+    await expect(h(null, undefined)).resolves.toEqual({ ok: false })
+  })
 })

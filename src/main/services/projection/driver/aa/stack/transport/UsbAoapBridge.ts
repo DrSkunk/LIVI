@@ -67,7 +67,9 @@ export class UsbAoapBridge extends EventEmitter {
     if (!this._running) return
 
     const remaining = Math.max(0, timeoutMs - yieldMs)
-    let timer: NodeJS.Timeout | null = null
+    // The timer promise's executor runs synchronously, so `timer` is always set
+    // by the time `finally` runs; clearTimeout tolerates undefined regardless.
+    let timer: NodeJS.Timeout | undefined
     try {
       await Promise.race([
         this._outChain,
@@ -76,7 +78,7 @@ export class UsbAoapBridge extends EventEmitter {
         })
       ])
     } finally {
-      if (timer) clearTimeout(timer)
+      clearTimeout(timer)
     }
   }
 

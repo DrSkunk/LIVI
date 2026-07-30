@@ -123,6 +123,19 @@ describe('TelemetrySocket', () => {
     await expect(ts.disconnect()).resolves.toBeUndefined()
   })
 
+  test('logs http server errors without crashing', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(function () {})
+    const store = new TelemetryStore()
+    const ts = new TelemetrySocket(store, 4010)
+    const httpServer = (ts as unknown as { httpServer: EventEmitter }).httpServer
+    httpServer.emit('error', new Error('EADDRINUSE'))
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining('server error on port 4010'),
+      'EADDRINUSE'
+    )
+    await ts.disconnect()
+  })
+
   test('disconnect is a no-op when nothing was started yet', async () => {
     const store = new TelemetryStore()
     const ts = new TelemetrySocket(store, 4009)

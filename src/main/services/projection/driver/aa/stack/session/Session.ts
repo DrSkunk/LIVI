@@ -500,32 +500,22 @@ export class Session extends EventEmitter {
     }
 
     // AV START_INDICATION — phone announces it's about to send media frames.
+    // Video/cluster START_INDICATION never reaches here (routed to their channels
+    // above); this covers the audio + auxiliary channels that are otherwise unhandled.
     if (msgId === AV_MSG.START_INDICATION) {
       const start = decodeStart(payload)
       const sessionId = start?.sessionId ?? -1
       const configIdx = start?.configIndex ?? -1
 
-      if (channelId === CH.VIDEO && configIdx >= 0) {
-        const codec = this._videoCodecByIndex[configIdx] ?? 'h264'
-        if (codec !== this._videoCodec) {
-          this._videoCodec = codec
-          this.emit('video-codec', codec)
-        }
-      }
-
       if (DEBUG) {
         const label =
-          channelId === CH.VIDEO
-            ? 'video'
-            : channelId === CH.MEDIA_AUDIO ||
-                channelId === CH.SPEECH_AUDIO ||
-                channelId === CH.SYSTEM_AUDIO
-              ? 'audio'
-              : `ch${channelId}`
-        const codecSuffix =
-          channelId === CH.VIDEO && this._videoCodec ? ` codec=${this._videoCodec}` : ''
+          channelId === CH.MEDIA_AUDIO ||
+          channelId === CH.SPEECH_AUDIO ||
+          channelId === CH.SYSTEM_AUDIO
+            ? 'audio'
+            : `ch${channelId}`
         console.log(
-          `[Session] ${label} START_INDICATION ch=${channelId} sessionId=${sessionId} configIdx=${configIdx}${codecSuffix} — stream starting`
+          `[Session] ${label} START_INDICATION ch=${channelId} sessionId=${sessionId} configIdx=${configIdx} — stream starting`
         )
       }
       return
@@ -1056,7 +1046,7 @@ export class Session extends EventEmitter {
     }
     // Wait for the encrypted ByeBye to actually leave the TLS stack and hit
     // the underlying socket buffer
-    let writeTimer: NodeJS.Timeout | null = null
+    let writeTimer: NodeJS.Timeout | undefined
     try {
       await Promise.race([
         this._tls?.drain() ?? Promise.resolve(),
@@ -1065,15 +1055,13 @@ export class Session extends EventEmitter {
         })
       ])
     } finally {
-      if (writeTimer) clearTimeout(writeTimer)
+      clearTimeout(writeTimer)
     }
 
-    // Wait for the phone's ByeByeResponse (SHUTDOWN_RESPONSE) before closing
+    // Wait for the phone's ByeByeResponse (SHUTDOWN_RESPONSE) before closing.
+    // finish() runs exactly once: the ack path and the timeout each remove the other.
     await new Promise<void>((resolve) => {
-      let settled = false
       const finish = (how: string): void => {
-        if (settled) return
-        settled = true
         clearTimeout(ackTimer)
         this._control?.removeListener('shutdown-complete', onAck)
         console.log(`[Session] shutdown ${how}`)
@@ -1252,7 +1240,7 @@ export class Session extends EventEmitter {
       this.emit('connected')
       if (DEBUG)
         console.log(
-          `[Session] Video channel ready — waiting for ${this._videoCodec ?? 'h264'} frames from phone`
+          `[Session] Video channel ready — waiting for ${this._videoCodec} frames from phone`
         )
     } else if (channelId === CH.CLUSTER_VIDEO) {
       // Hold the cluster stream request until the first main frame so the main plane is claimed first

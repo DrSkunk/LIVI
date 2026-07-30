@@ -57,6 +57,12 @@ describe('window utils', () => {
     expect(win.setAspectRatio).toHaveBeenCalledWith(2, { width: 0, height: 0 })
   })
 
+  test('applyAspectRatioFullscreen clears the ratio when a dimension is missing', () => {
+    const win = { setAspectRatio: vi.fn() } as any
+    applyAspectRatioFullscreen(win, 0, 480)
+    expect(win.setAspectRatio).toHaveBeenCalledWith(0, { width: 0, height: 0 })
+  })
+
   test('applyAspectRatioWindowed resets constraints when dimensions are missing', () => {
     const win = {
       setAspectRatio: vi.fn(),
@@ -212,6 +218,17 @@ describe('window utils', () => {
     expect(saveSettings).toHaveBeenCalledWith(runtimeState, {
       kiosk: { main: false, dash: false, aux: false }
     })
+  })
+
+  test('persistKioskAndBroadcast defaults kiosk flags when config has none', () => {
+    const runtimeState = { config: {}, wmExitedKiosk: false } as any
+
+    persistKioskAndBroadcast(false, runtimeState)
+
+    expect(pushSettingsToRenderer).toHaveBeenCalledWith(runtimeState, {
+      kiosk: { main: false, dash: false, aux: false }
+    })
+    expect(saveSettings).not.toHaveBeenCalled()
   })
 
   test('sendKioskSync emits kiosk sync event', () => {
@@ -467,6 +484,57 @@ describe('window utils', () => {
     expect(pushSettingsToRenderer).not.toHaveBeenCalled()
   })
 
+  test('attachKioskStateSync reads fullscreen state in compositor mode', () => {
+    Object.defineProperty(process, 'platform', { value: 'linux' })
+    process.env.LIVI_COMPOSITOR = '1'
+
+    const win = {
+      isDestroyed: vi.fn(() => false),
+      isFullScreen: vi.fn(() => false),
+      isKiosk: vi.fn(() => false),
+      on: vi.fn()
+    }
+    ;(getMainWindow as Mock).mockReturnValue(win)
+
+    const runtimeState = {
+      config: { kiosk: { main: false, dash: false, aux: false } },
+      wmExitedKiosk: false
+    } as any
+
+    attachKioskStateSync(runtimeState)
+
+    expect(win.isFullScreen).toHaveBeenCalled()
+    expect(win.isKiosk).not.toHaveBeenCalled()
+    expect(pushSettingsToRenderer).toHaveBeenCalledWith(runtimeState, {
+      kiosk: { main: false, dash: false, aux: false }
+    })
+    delete process.env.LIVI_COMPOSITOR
+  })
+
+  test('attachKioskStateSync persists kiosk entered from outside electron', () => {
+    Object.defineProperty(process, 'platform', { value: 'linux' })
+
+    const win = {
+      isDestroyed: vi.fn(() => false),
+      isKiosk: vi.fn(() => true),
+      on: vi.fn()
+    }
+    ;(getMainWindow as Mock).mockReturnValue(win)
+
+    const runtimeState = {
+      config: { kiosk: { main: false, dash: false, aux: false } },
+      wmExitedKiosk: false
+    } as any
+
+    attachKioskStateSync(runtimeState)
+
+    expect(runtimeState.wmExitedKiosk).toBe(false)
+    expect(saveSettings).toHaveBeenCalledWith(runtimeState, {
+      kiosk: { main: true, dash: false, aux: false }
+    })
+    expect(pushSettingsToRenderer).not.toHaveBeenCalled()
+  })
+
   test('attachKioskStateSync restores kiosk on focus', () => {
     Object.defineProperty(process, 'platform', { value: 'linux' })
 
@@ -540,6 +608,14 @@ describe('window utils', () => {
       mockedGetAllDisplays.mockReturnValue([])
       const b = { x: 4000, y: 4000, width: 800, height: 480 }
       expect(sanitizeBounds(b)).toBe(b)
+    })
+
+    test('trusts the rect when the screen api lacks getAllDisplays', () => {
+      const original = screen.getAllDisplays
+      ;(screen as any).getAllDisplays = undefined
+      const b = { x: 1, y: 2, width: 800, height: 480 }
+      expect(sanitizeBounds(b)).toBe(b)
+      ;(screen as any).getAllDisplays = original
     })
   })
 
@@ -624,6 +700,25 @@ describe('window utils', () => {
       win.handlers.resize()
       vi.advanceTimersByTime(200)
       expect(win.setContentSize).not.toHaveBeenCalled()
+      vi.useRealTimers()
+    })
+
+    test('skips the restore when the window is destroyed mid-nudge', () => {
+      vi.useFakeTimers()
+      process.env.LIVI_COMPOSITOR = '1'
+      const win = fakeWin()
+      mockedGetMainWindow.mockReturnValue(win)
+      attachResizeReflow()
+
+      win.handlers.resize()
+      vi.advanceTimersByTime(200)
+      expect(win.setContentSize).toHaveBeenCalledWith(800, 481)
+
+      win.isDestroyed.mockReturnValue(true)
+      vi.advanceTimersByTime(60)
+      expect(win.setContentSize).toHaveBeenCalledTimes(1)
+
+      vi.advanceTimersByTime(60)
       vi.useRealTimers()
     })
 

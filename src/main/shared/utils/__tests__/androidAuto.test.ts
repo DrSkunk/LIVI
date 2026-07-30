@@ -154,4 +154,13 @@ describe('androidAuto utils', () => {
     expect(dongleDisplayName('CarPlay')).toBe('CarPlay (D)')
     expect(dongleDisplayName('')).toBe(' (D)')
   })
+
+  test('computeAndroidAutoDpi interpolates within the first tier interval', () => {
+    expect(computeAndroidAutoDpi(1000, 600)).toBe(160)
+  })
+
+  test('computeAndroidAutoDpi interpolates within an upper tier interval', () => {
+    expect(computeAndroidAutoDpi(2560, 1440)).toBe(250)
+    expect(computeAndroidAutoDpi(3000, 1700)).toBeGreaterThan(250)
+  })
 })

@@ -13,6 +13,7 @@ import {
   boxUpdateStatusToString,
   Command,
   DongleReady,
+  DuckAudio,
   GnssData,
   HiCarLink,
   ManufacturerInfo,
@@ -547,5 +548,44 @@ describe('readable messages', () => {
 
     expect(msg.rawUtf8).toBe('{"NaviDestinationName":"Home"}')
     expect(msg.navi).toEqual({ NaviDestinationName: 'Home' })
+  })
+
+  test('DuckAudio clamps level to [0,1] and duration to >= 0', () => {
+    const msg = new DuckAudio(0.5, 200)
+    expect(msg.level).toBe(0.5)
+    expect(msg.durationMs).toBe(200)
+
+    const clamped = new DuckAudio(2, -50)
+    expect(clamped.level).toBe(1)
+    expect(clamped.durationMs).toBe(0)
+
+    expect(new DuckAudio(-1, 0).level).toBe(0)
+  })
+
+  test('AudioData falls back to 48kHz stereo for an unknown decodeType', () => {
+    const buf = Buffer.alloc(12)
+    buf.writeUInt32LE(999, 0)
+    buf.writeFloatLE(1.0, 4)
+    buf.writeUInt32LE(2, 8)
+
+    const msg = new AudioData(fakeHeader() as any, buf)
+
+    expect(msg.decodeType).toBe(999)
+    expect(msg.sampleRate).toBe(48000)
+    expect(msg.channels).toBe(2)
+  })
+
+  test('parseMetaMessage returns null for unknown payloads without logging empty utf8', () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(function () {})
+    const innerType = Buffer.alloc(4)
+    innerType.writeUInt32LE(999, 0)
+    const body = Buffer.from('\0\0', 'utf8')
+
+    const msg = parseMetaMessage(fakeHeader() as any, Buffer.concat([innerType, body]))
+
+    expect(msg).toBeNull()
+    expect(infoSpy).toHaveBeenCalledTimes(1)
+
+    infoSpy.mockRestore()
   })
 })

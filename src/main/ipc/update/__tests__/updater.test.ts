@@ -63,6 +63,20 @@ describe('Updater', () => {
     }
   }
 
+  test('perform emits an error on unsupported platforms', async () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    const { Updater, sendUpdateEvent, downloadWithProgress } = await loadSubject()
+
+    const updater = new Updater({ config: {} } as never, {} as never)
+    await updater.perform({} as never, 'https://example.com/LIVI.exe')
+
+    expect(sendUpdateEvent).toHaveBeenCalledWith({
+      phase: 'error',
+      message: 'Unsupported platform'
+    })
+    expect(downloadWithProgress).not.toHaveBeenCalled()
+  })
+
   test('perform downloads direct URL and reports progress/ready', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux' })
     const { Updater, sendUpdateEvent, sendUpdateProgress, downloadWithProgress } =
@@ -247,6 +261,15 @@ describe('Updater', () => {
     await performPromise
 
     expect(cancel).toHaveBeenCalledTimes(1)
+    expect(sendUpdateEvent).toHaveBeenCalledWith({ phase: 'error', message: 'Aborted' })
+  })
+
+  test('abort while idle just resets and reports aborted', async () => {
+    const { Updater, sendUpdateEvent } = await loadSubject()
+
+    const updater = new Updater({} as never, {} as never)
+    await updater.abort()
+
     expect(sendUpdateEvent).toHaveBeenCalledWith({ phase: 'error', message: 'Aborted' })
   })
 

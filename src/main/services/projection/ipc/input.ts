@@ -4,8 +4,6 @@ import type { ProjectionIpcHost } from './types'
 
 type MultiTouchPoint = { id: number; x: number; y: number; action: number }
 
-const ONE_BASED_IDS = false
-
 const to01 = (v: number): number => {
   const n = Number.isFinite(v) ? v : 0
   return n < 0 ? 0 : n > 1 ? 1 : n
@@ -28,7 +26,7 @@ export function registerInputIpc(host: Deps): void {
     try {
       if (!Array.isArray(points) || points.length === 0) return
       const safe = points.map((p) => ({
-        id: (p.id | 0) + (ONE_BASED_IDS ? 1 : 0),
+        id: p.id | 0,
         x: to01(p.x),
         y: to01(p.y),
         action: p.action | 0

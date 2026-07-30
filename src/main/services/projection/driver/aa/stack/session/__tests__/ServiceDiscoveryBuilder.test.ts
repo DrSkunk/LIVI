@@ -306,6 +306,100 @@ describe('buildServiceDiscoveryResponse', () => {
     expect(cfg.heightMargin).toBe(0)
   })
 
+  test('applies defaults when video/hu/driver fields are all omitted', () => {
+    const { proto, capture } = stubProto()
+    const minimal = { clusterEnabled: false } as unknown as SessionConfig
+    buildServiceDiscoveryResponse(minimal, proto)
+    expect(capture.fields).toMatchObject({ displayName: 'LIVI', driverPosition: 0 })
+    const video = channelById(capture.fields!, CH.VIDEO)!
+    const cfg = (
+      video.mediaSinkService as {
+        videoConfigs: { codecResolution: number; frameRate: number; density: number }[]
+      }
+    ).videoConfigs[0]
+    expect(cfg.codecResolution).toBe(2) // 1280 default
+    expect(cfg.frameRate).toBe(2) // 30 fps default
+    expect(cfg.density).toBe(140)
+  })
+
+  test('cluster hMargin when cluster is wider than its tier (tier 1280x720, 60fps)', () => {
+    const { proto, capture } = stubProto()
+    buildServiceDiscoveryResponse(
+      baseConfig({
+        clusterEnabled: true,
+        clusterWidth: 1280,
+        clusterHeight: 480,
+        clusterTierWidth: 1280,
+        clusterTierHeight: 720,
+        clusterFps: 60
+      }),
+      proto
+    )
+    const cv = channelById(capture.fields!, CH.CLUSTER_VIDEO)!
+    const cfg = (
+      cv.mediaSinkService as {
+        videoConfigs: { heightMargin: number; widthMargin: number; frameRate: number }[]
+      }
+    ).videoConfigs[0]
+    expect(cfg.heightMargin).toBeGreaterThan(0)
+    expect(cfg.widthMargin).toBe(0)
+    expect(cfg.frameRate).toBe(1) // 60 fps
+    expect(cfg.codecResolution).toBe(2) // 1280x720 tier
+  })
+
+  test('cluster wMargin when cluster is narrower than its tier (tier 1920x1080)', () => {
+    const { proto, capture } = stubProto()
+    buildServiceDiscoveryResponse(
+      baseConfig({
+        clusterEnabled: true,
+        clusterWidth: 800,
+        clusterHeight: 720,
+        clusterTierWidth: 1920,
+        clusterTierHeight: 1080
+      }),
+      proto
+    )
+    const cv = channelById(capture.fields!, CH.CLUSTER_VIDEO)!
+    const cfg = (
+      cv.mediaSinkService as { videoConfigs: { heightMargin: number; widthMargin: number }[] }
+    ).videoConfigs[0]
+    expect(cfg.widthMargin).toBeGreaterThan(0)
+    expect(cfg.heightMargin).toBe(0)
+    expect(cfg.codecResolution).toBe(3) // 1920x1080 tier
+  })
+
+  test('cluster width/height default to 0 when omitted', () => {
+    const { proto, capture } = stubProto()
+    buildServiceDiscoveryResponse(
+      baseConfig({
+        clusterEnabled: true,
+        clusterWidth: undefined,
+        clusterHeight: undefined,
+        clusterDpi: undefined
+      }),
+      proto
+    )
+    expect(channelById(capture.fields!, CH.CLUSTER_VIDEO)).toBeDefined()
+  })
+
+  test('explicit non-empty fuelTypes are forwarded as-is', () => {
+    const { proto, capture } = stubProto()
+    buildServiceDiscoveryResponse(baseConfig({ fuelTypes: [2, 3] }), proto)
+    const sensor = channelById(capture.fields!, CH.SENSOR)!
+    expect(
+      (sensor.sensorSourceService as { supportedFuelTypes: number[] }).supportedFuelTypes
+    ).toEqual([2, 3])
+  })
+
+  test('an empty fuelTypes array falls back to [1]', () => {
+    const { proto, capture } = stubProto()
+    buildServiceDiscoveryResponse(baseConfig({ fuelTypes: [] }), proto)
+    const sensor = channelById(capture.fields!, CH.SENSOR)!
+    expect(
+      (sensor.sensorSourceService as { supportedFuelTypes: number[] }).supportedFuelTypes
+    ).toEqual([1])
+  })
+
   test('cluster falls back to main vRes when tier dimensions are non-standard', () => {
     const { proto, capture } = stubProto()
     buildServiceDiscoveryResponse(

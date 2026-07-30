@@ -76,8 +76,8 @@ export class Updater {
 
   abort = async () => {
     try {
-      if (updateSession.state === 'downloading' && updateSession.cancel) {
-        updateSession.cancel()
+      if (updateSession.state === 'downloading') {
+        ;(updateSession.cancel as () => void)()
       } else if (updateSession.state === 'ready') {
         if (updateSession.tmpFile && existsSync(updateSession.tmpFile)) {
           try {

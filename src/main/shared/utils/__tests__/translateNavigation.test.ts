@@ -239,4 +239,26 @@ describe('translateNavigation', () => {
   ])('maps maneuver code %i to %s', (code, expected) => {
     expect(translateNavigation({ NaviManeuverType: code }, 'en').ManeuverTypeText).toBe(expected)
   })
+
+  test.each([28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46])(
+    'maps roundabout exit code %i to the numbered exit text',
+    (code) => {
+      expect(translateNavigation({ NaviManeuverType: code }, 'en').ManeuverTypeText).toBe(
+        `Roundabout exit ${code - 27}`
+      )
+    }
+  )
+
+  test('maps sharp turn and highway change codes', () => {
+    expect(translateNavigation({ NaviManeuverType: 47 }, 'en').ManeuverTypeText).toBe('Sharp left')
+    expect(translateNavigation({ NaviManeuverType: 48 }, 'en').ManeuverTypeText).toBe('Sharp right')
+    expect(translateNavigation({ NaviManeuverType: 53 }, 'en').ManeuverTypeText).toBe(
+      'Change highway (right)'
+    )
+  })
+
+  test('passes NaviAfterRoadName through as AfterManeuverRoadName', () => {
+    const result = translateNavigation({ NaviAfterRoadName: 'Elm St' }, 'en')
+    expect(result.AfterManeuverRoadName).toBe('Elm St')
+  })
 })

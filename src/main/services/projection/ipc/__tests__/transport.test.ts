@@ -38,4 +38,25 @@ describe('transport ipc', () => {
     const r = await handlers.get('transport:state')!(null)
     expect(r).toBe(state)
   })
+
+  test('device handlers delegate to the host', async () => {
+    const devices = [{ id: 'AA:BB' }]
+    const host = {
+      switchTransport: vi.fn(),
+      getTransportState: vi.fn(),
+      getDevices: vi.fn(() => devices),
+      selectDevice: vi.fn(async () => ({ ok: true })),
+      cycleSession: vi.fn(async () => ({ ok: true })),
+      forgetDevice: vi.fn(async () => ({ ok: true }))
+    }
+    registerTransportIpc(host)
+
+    await expect(handlers.get('devices:list')!(null)).resolves.toBe(devices)
+    await expect(handlers.get('devices:select')!(null, 'AA:BB')).resolves.toEqual({ ok: true })
+    expect(host.selectDevice).toHaveBeenCalledWith('AA:BB')
+    await expect(handlers.get('devices:cycle')!(null)).resolves.toEqual({ ok: true })
+    expect(host.cycleSession).toHaveBeenCalled()
+    await expect(handlers.get('devices:forget')!(null, 'AA:BB')).resolves.toEqual({ ok: true })
+    expect(host.forgetDevice).toHaveBeenCalledWith('AA:BB')
+  })
 })

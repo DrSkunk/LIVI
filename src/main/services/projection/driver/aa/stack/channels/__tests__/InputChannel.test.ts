@@ -124,6 +124,16 @@ describe('InputChannel.sendButton', () => {
     ch.sendButton([], true)
     expect(calls).toHaveLength(0)
   })
+
+  test('encodes down=false as 0', () => {
+    const { send, calls } = freshSend()
+    const ch = new InputChannel(send)
+    ch.sendButton(BUTTON_KEY.HOME, false)
+    const keyEvent = subField(calls[0].data, 4)!
+    const keyEntry = Array.from(decodeFields(keyEvent)).find((f) => f.field === 1)!
+    const keyFields = Array.from(decodeFields(keyEntry.bytes))
+    expect(decodeVarintValue(keyFields[1].bytes)).toBe(0)
+  })
 })
 
 describe('InputChannel.sendRotary', () => {

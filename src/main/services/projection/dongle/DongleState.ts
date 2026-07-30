@@ -35,7 +35,7 @@ function mergePreferExisting(prev: unknown, next: unknown): unknown {
   const p = asObject(prev)
   const n = asObject(next)
 
-  if (!p && !n) return next ?? prev
+  if (!p && !n) return next
   if (!p && n) return next
   if (p && !n) return prev
 

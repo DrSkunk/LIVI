@@ -85,6 +85,82 @@ describe('DongleState DevList reconcile', () => {
     state.handleBoxInfo(box({ btMacAddr: '  AA:BB:CC  ' }))
     expect(state.getConnectedMac()).toBe('AA:BB:CC')
   })
+
+  test('merged list normalizes entries without an id', () => {
+    const host = [{ name: 'NoIdHost' } as DevListEntry]
+    const { state } = make(true, host)
+    state.handleBoxInfo(box({ DevList: [{ id: 'CC:DD', name: 'Dongle' }] }))
+    expect((state.getBoxInfo() as { DevList: DevListEntry[] }).DevList).toEqual([
+      { name: 'NoIdHost' },
+      { id: 'CC:DD', name: 'Dongle', source: 'dongle' }
+    ])
+  })
+})
+
+describe('DongleState applyDongleInfo', () => {
+  test('returns true and adopts the DevList when boxInfo carries one', () => {
+    const { state } = make()
+    expect(state.applyDongleInfo({ boxInfo: { DevList: [{ id: 'AA' }] } })).toBe(true)
+    expect(state.getDongleDevList()).toEqual([{ id: 'AA', source: 'dongle' }])
+  })
+
+  test('returns false without boxInfo or without a DevList array', () => {
+    const { state } = make()
+    expect(state.applyDongleInfo({})).toBe(false)
+    expect(state.applyDongleInfo({ boxInfo: { DevList: 'nope' } })).toBe(false)
+    expect(state.getDongleDevList()).toEqual([])
+  })
+})
+
+describe('DongleState boxInfo merge', () => {
+  test('parses a JSON string settings payload into an object on merge', () => {
+    const { state } = make()
+    state.handleBoxInfo(box({ model: 'A15W' }))
+    state.handleBoxInfo({ settings: '{"uuid":"u1"}' } as never)
+    expect(state.getBoxInfo()).toEqual({ model: 'A15W', uuid: 'u1' })
+  })
+
+  test('keeps the previous object when the next payload is an unparsable string', () => {
+    const { state } = make()
+    state.handleBoxInfo(box({ model: 'A15W' }))
+    state.handleBoxInfo({ settings: 'not-json' } as never)
+    expect(state.getBoxInfo()).toEqual({ model: 'A15W' })
+  })
+
+  test('keeps the previous object when the next payload is a whitespace string', () => {
+    const { state } = make()
+    state.handleBoxInfo(box({ model: 'A15W' }))
+    state.handleBoxInfo({ settings: '   ' } as never)
+    expect(state.getBoxInfo()).toEqual({ model: 'A15W' })
+  })
+
+  test('keeps the previous object when the next payload parses to a primitive', () => {
+    const { state } = make()
+    state.handleBoxInfo(box({ model: 'A15W' }))
+    state.handleBoxInfo({ settings: '123' } as never)
+    expect(state.getBoxInfo()).toEqual({ model: 'A15W' })
+  })
+
+  test('adopts a first JSON string payload as boxInfo', () => {
+    const { state } = make()
+    state.handleBoxInfo({ settings: '{"uuid":"u1"}' } as never)
+    expect(state.getBoxInfo()).toBe('{"uuid":"u1"}')
+    state.handleBoxInfo(box({ model: 'A15W' }))
+    expect(state.getBoxInfo()).toEqual({ uuid: 'u1', model: 'A15W' })
+  })
+
+  test('returns the raw next value when neither side is object-like', () => {
+    const { state } = make()
+    state.handleBoxInfo({ settings: 42 } as never)
+    expect(state.getBoxInfo()).toBe(42)
+  })
+
+  test('meaningful values overwrite, empty values only fill gaps', () => {
+    const { state } = make()
+    state.handleBoxInfo(box({ model: 'A15W', mfd: 'M1' }))
+    state.handleBoxInfo(box({ model: '  ', mfd: 'M2', extra: null, phase: 3 }))
+    expect(state.getBoxInfo()).toEqual({ model: 'A15W', mfd: 'M2', extra: null, phase: 3 })
+  })
 })
 
 describe('DongleState clears', () => {

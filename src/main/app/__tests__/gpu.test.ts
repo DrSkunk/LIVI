@@ -59,6 +59,22 @@ describe('gpu module', () => {
     expect(mockedLinuxPresetAngleVulkan).not.toHaveBeenCalled()
   })
 
+  test('inside the compositor linux x64 uses ANGLE-on-GL instead of the vulkan preset', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux' })
+    Object.defineProperty(process, 'arch', { value: 'x64' })
+    process.env.LIVI_COMPOSITOR = '1'
+    try {
+      await loadGpuModule()
+    } finally {
+      delete process.env.LIVI_COMPOSITOR
+    }
+
+    expect(mockedAppendSwitch).toHaveBeenCalledWith('use-gl', 'angle')
+    expect(mockedAppendSwitch).toHaveBeenCalledWith('use-angle', 'gl')
+    expect(mockedAppendSwitch).toHaveBeenCalledWith('disable-features', 'WaylandWindowDecorations')
+    expect(mockedLinuxPresetAngleVulkan).not.toHaveBeenCalled()
+  })
+
   test('on darwin import applies no startup gpu side effects', async () => {
     Object.defineProperty(process, 'platform', { value: 'darwin' })
     Object.defineProperty(process, 'arch', { value: 'arm64' })

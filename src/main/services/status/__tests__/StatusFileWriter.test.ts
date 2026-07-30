@@ -217,6 +217,94 @@ describe('StatusFileWriter — debounce + atomic write', () => {
   })
 })
 
+describe('StatusFileWriter — setters and audio commands', () => {
+  test('setNavAnnouncing patches the nav state', () => {
+    const w = new StatusFileWriter(tmpFile(), { writeInitial: false })
+    w.setNavAnnouncing(true)
+    expect(w.getState().nav.announcing).toBe(true)
+    w.setNavAnnouncing(false)
+    expect(w.getState().nav.announcing).toBe(false)
+  })
+
+  test.each([
+    [
+      AudioCommand.AudioMediaStart,
+      (s: ReturnType<StatusFileWriter['getState']>) => s.audio.media.playing === true
+    ],
+    [
+      AudioCommand.AudioMediaStop,
+      (s: ReturnType<StatusFileWriter['getState']>) => s.audio.media.playing === false
+    ],
+    [
+      AudioCommand.AudioPhonecallStart,
+      (s: ReturnType<StatusFileWriter['getState']>) => s.phone.active === true
+    ],
+    [
+      AudioCommand.AudioAttentionStart,
+      (s: ReturnType<StatusFileWriter['getState']>) => s.phone.active === true
+    ],
+    [
+      AudioCommand.AudioAttentionRinging,
+      (s: ReturnType<StatusFileWriter['getState']>) => s.phone.active === true
+    ],
+    [
+      AudioCommand.AudioPhonecallStop,
+      (s: ReturnType<StatusFileWriter['getState']>) => s.phone.active === false
+    ],
+    [
+      AudioCommand.AudioAttentionStop,
+      (s: ReturnType<StatusFileWriter['getState']>) => s.phone.active === false
+    ],
+    [
+      AudioCommand.AudioVoiceAssistantStart,
+      (s: ReturnType<StatusFileWriter['getState']>) => s.voiceAssistant.active === true
+    ],
+    [
+      AudioCommand.AudioVoiceAssistantStop,
+      (s: ReturnType<StatusFileWriter['getState']>) => s.voiceAssistant.active === false
+    ],
+    [
+      AudioCommand.AudioNaviStart,
+      (s: ReturnType<StatusFileWriter['getState']>) =>
+        s.nav.announcing === true && s.audio.speech.playing === true
+    ],
+    [
+      AudioCommand.AudioTurnByTurnStart,
+      (s: ReturnType<StatusFileWriter['getState']>) =>
+        s.nav.announcing === true && s.audio.speech.playing === true
+    ],
+    [
+      AudioCommand.AudioNaviStop,
+      (s: ReturnType<StatusFileWriter['getState']>) =>
+        s.nav.announcing === false && s.audio.speech.playing === false
+    ],
+    [
+      AudioCommand.AudioTurnByTurnStop,
+      (s: ReturnType<StatusFileWriter['getState']>) =>
+        s.nav.announcing === false && s.audio.speech.playing === false
+    ],
+    [
+      AudioCommand.AudioOutputStart,
+      (s: ReturnType<StatusFileWriter['getState']>) => s.audio.system.playing === true
+    ],
+    [
+      AudioCommand.AudioOutputStop,
+      (s: ReturnType<StatusFileWriter['getState']>) => s.audio.system.playing === false
+    ]
+  ])('applyAudioCommand(%s) updates the mapped state', (cmd, check) => {
+    const w = new StatusFileWriter(tmpFile(), { writeInitial: false })
+    w.applyAudioCommand(cmd)
+    expect(check(w.getState())).toBe(true)
+  })
+
+  test('an unmapped audio command leaves the state untouched', () => {
+    const w = new StatusFileWriter(tmpFile(), { writeInitial: false })
+    const before = JSON.stringify(w.getState())
+    w.applyAudioCommand(9999 as AudioCommand)
+    expect(JSON.stringify(w.getState())).toBe(before)
+  })
+})
+
 describe('StatusFileWriter — default file path', () => {
   test('uses app.getPath("userData") when no file is passed', () => {
     const w = new StatusFileWriter(undefined, { writeInitial: false })

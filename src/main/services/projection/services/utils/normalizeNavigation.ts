@@ -25,8 +25,7 @@ function asNaviBag(input: unknown): NaviBag {
   return input as NaviBag
 }
 
-function readNumber(o: unknown, key: string): number | null {
-  if (!o || typeof o !== 'object' || Array.isArray(o)) return null
+function readNumber(o: NaviBag, key: string): number | null {
   const v = (o as Record<string, unknown>)[key]
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }

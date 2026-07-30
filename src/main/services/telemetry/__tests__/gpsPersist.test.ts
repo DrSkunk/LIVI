@@ -48,6 +48,35 @@ describe('gpsPersist — hydration', () => {
 })
 
 describe('gpsPersist — persist behavior', () => {
+  test('ignores a gps patch when the snapshot holds no fix', () => {
+    const store = new TelemetryStore()
+    attachGpsPersist({ store })
+    store.emit('change', { gps: undefined }, {})
+    expect(requestSaveMock).not.toHaveBeenCalled()
+  })
+
+  test('a pending flush is skipped when the snapshot lost its fix', () => {
+    const store = new TelemetryStore()
+    attachGpsPersist({ store })
+    const fix = { gps: { lat: 52, lng: 13 } }
+    store.emit('change', fix, fix)
+    requestSaveMock.mockReset()
+    store.emit('change', { gps: { lat: 53, lng: 14 } }, { gps: { lat: 53, lng: 14 } })
+    vi.advanceTimersByTime(31_000)
+    expect(requestSaveMock).not.toHaveBeenCalled()
+  })
+
+  test('a pending flush revalidates the latest snapshot fix', () => {
+    const store = new TelemetryStore()
+    attachGpsPersist({ store })
+    store.merge({ gps: { lat: 52, lng: 13 } })
+    requestSaveMock.mockReset()
+    store.merge({ gps: { lat: 53, lng: 14 } })
+    store.merge({ gps: { lat: 99, lng: 14 } })
+    vi.advanceTimersByTime(31_000)
+    expect(requestSaveMock).not.toHaveBeenCalled()
+  })
+
   test('writes immediately when no previous fix exists', () => {
     const store = new TelemetryStore()
     attachGpsPersist({ store })

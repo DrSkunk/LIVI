@@ -31,7 +31,7 @@ export function setupLifecycle(runtimeState: runtimeStateProps, services: Servic
       p: Promise<T>,
       ms: number
     ): Promise<T | undefined> => {
-      let t: NodeJS.Timeout | null = null
+      let t: NodeJS.Timeout | undefined
       try {
         return (await Promise.race([
           p,
@@ -43,7 +43,7 @@ export function setupLifecycle(runtimeState: runtimeStateProps, services: Servic
           })
         ])) as T | undefined
       } finally {
-        if (t) clearTimeout(t)
+        clearTimeout(t)
       }
     }
 

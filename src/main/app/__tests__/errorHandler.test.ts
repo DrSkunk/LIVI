@@ -1,5 +1,8 @@
 import type { Mock, MockInstance } from 'vitest'
 
+process.stdout.setMaxListeners(0)
+process.stderr.setMaxListeners(0)
+
 describe('installMainProcessErrorHandlers', () => {
   const realOn = process.on.bind(process)
   let handlers: Record<string, ((arg: unknown) => void) | undefined> = {}
@@ -59,5 +62,61 @@ describe('installMainProcessErrorHandlers', () => {
     await install()
     await install()
     expect((process.on as unknown as Mock).mock.calls.length).toBe(2)
+  })
+
+  test('warns on benign USB rejections without raising', async () => {
+    await install()
+    handlers.unhandledRejection?.(new Error('LIBUSB_ERROR_BUSY'))
+    expect(warnSpy).toHaveBeenCalled()
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  test('swallows EPIPE for exceptions and rejections', async () => {
+    await install()
+    const epipe = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' })
+    handlers.uncaughtException?.(epipe)
+    handlers.unhandledRejection?.(epipe)
+    expect(warnSpy).not.toHaveBeenCalled()
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  test('handles null rejection reasons', async () => {
+    await install()
+    handlers.unhandledRejection?.(null)
+    expect(errorSpy).toHaveBeenCalledWith('[errorHandler] unhandledRejection:', 'null')
+  })
+
+  test('describes errors without a stack', async () => {
+    await install()
+    const bare = new Error('no stack here')
+    bare.stack = undefined
+    handlers.uncaughtException?.(bare)
+    expect(errorSpy).toHaveBeenCalledWith('[errorHandler] uncaughtException:', 'no stack here\n')
+  })
+
+  test('falls back to a placeholder for unprintable errors', async () => {
+    await install()
+    const unprintable = {
+      toString() {
+        throw new Error('nope')
+      }
+    }
+    handlers.uncaughtException?.(unprintable)
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[errorHandler] uncaughtException:',
+      '<unprintable error>'
+    )
+  })
+
+  test('installs no-op error listeners on stdout and stderr', async () => {
+    const stdoutOn = vi.spyOn(process.stdout, 'on').mockImplementation((() => {}) as never)
+    const stderrOn = vi.spyOn(process.stderr, 'on').mockImplementation((() => {}) as never)
+    await install()
+    const outHandler = stdoutOn.mock.calls.find((c) => c[0] === 'error')?.[1] as () => void
+    const errHandler = stderrOn.mock.calls.find((c) => c[0] === 'error')?.[1] as () => void
+    expect(() => outHandler()).not.toThrow()
+    expect(() => errHandler()).not.toThrow()
+    stdoutOn.mockRestore()
+    stderrOn.mockRestore()
   })
 })

@@ -240,7 +240,8 @@ export class DeviceController {
       const ra = rank(a)
       const rb = rank(b)
       if (ra !== rb) return ra - rb
-      return (lastSeenOf.get(b) ?? 0) - (lastSeenOf.get(a) ?? 0)
+      // every view in `out` was registered in lastSeenOf right after construction
+      return (lastSeenOf.get(b) as number) - (lastSeenOf.get(a) as number)
     })
     return out
   }

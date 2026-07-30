@@ -98,7 +98,7 @@ function idFromLaunchLine(block: string): string | null {
   // GStreamer 1.28+ uses unique-id on osxaudio; pulse uses device. Catch both.
   const m = line.match(/\b(?:unique-id|device)=("([^"]*)"|'([^']*)'|([^\s'"]+))/)
   if (!m) return null
-  return m[2] ?? m[3] ?? m[4] ?? null
+  return m[2] ?? m[3] ?? m[4]
 }
 
 function matchProp(block: string, key: string): string | null {
@@ -141,12 +141,10 @@ export function startAudioDeviceMonitor(onChange: () => void): AudioDeviceMonito
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => {
       debounceTimer = null
-      if (!stopped) {
-        try {
-          onChange()
-        } catch (e) {
-          if (DEBUG) console.warn('[AudioDeviceEnumerator] onChange threw', e)
-        }
+      try {
+        onChange()
+      } catch (e) {
+        if (DEBUG) console.warn('[AudioDeviceEnumerator] onChange threw', e)
       }
     }, DEBOUNCE_MS)
   }

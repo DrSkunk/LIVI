@@ -31,7 +31,6 @@ export function downsampleToMono(pcm: Int16Array, opts: DownsampleOptions): Int1
   for (let i = 0; i < framesOut; i++) {
     const srcFrame = Math.floor(pos)
     const baseIndex = srcFrame * inChannels
-    if (baseIndex >= pcm.length) break
 
     let sum = 0
     for (let c = 0; c < inChannels; c++) {

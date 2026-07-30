@@ -18,6 +18,26 @@ describe('downsampleToMono', () => {
     expect(Array.from(out)).toEqual([20, 40])
   })
 
+  test('returns empty when the samples do not fill one frame', () => {
+    const out = downsampleToMono(new Int16Array([5]), { inSampleRate: 48000, inChannels: 2 })
+    expect(out).toEqual(new Int16Array(0))
+  })
+
+  test('returns empty when the ratio leaves no output frames', () => {
+    const out = downsampleToMono(new Int16Array([1, 2]), {
+      inSampleRate: 48000,
+      inChannels: 2,
+      outSampleRate: 16000
+    })
+    expect(out).toEqual(new Int16Array(0))
+  })
+
+  test('treats zero samples as zero when mixing', () => {
+    const pcm = new Int16Array([0, 0, 10, 30])
+    const out = downsampleToMono(pcm, { inSampleRate: 48000, inChannels: 2, outSampleRate: 48000 })
+    expect(Array.from(out)).toEqual([0, 20])
+  })
+
   test('returns empty for invalid channels or ratio', () => {
     expect(
       downsampleToMono(new Int16Array([1, 2]), {

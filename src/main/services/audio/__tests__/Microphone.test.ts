@@ -639,6 +639,73 @@ describe('Microphone', () => {
     )
   })
 
+  test('setDevice adds the device to the source args', async () => {
+    const proc = makeProc()
+    ;(spawn as Mock).mockReturnValue(proc)
+
+    const mic = new Microphone()
+    mic.setDevice('MicA')
+    mic.start(5)
+
+    const [, args] = (spawn as Mock).mock.calls[0]
+    expect(args).toContain('unique-id=MicA')
+  })
+
+  test('start honours an explicit format override', async () => {
+    const proc = makeProc()
+    ;(spawn as Mock).mockReturnValue(proc)
+
+    const mic = new Microphone()
+    mic.start(5, { frequency: 44100, channels: 2 })
+
+    const [, args] = (spawn as Mock).mock.calls[0]
+    expect(args).toContain('audio/x-raw,format=S16LE,rate=44100,channels=2')
+  })
+
+  test('logs pulse-default as device in the linux debug start message', async () => {
+    vi.resetModules()
+
+    vi.doMock('@main/constants', () => ({
+      DEBUG: true
+    }))
+
+    const { spawn: freshSpawn } = (await import('child_process')) as { spawn: Mock }
+    const freshFs = (await import('fs')) as { existsSync: Mock }
+    const { app: freshApp } = (await import('electron')) as {
+      app: { isPackaged: boolean; getAppPath: Mock }
+    }
+
+    Object.defineProperty(process, 'platform', {
+      value: 'linux',
+      configurable: true
+    })
+    Object.defineProperty(process, 'arch', {
+      value: 'x64',
+      configurable: true
+    })
+
+    freshApp.isPackaged = false
+    freshApp.getAppPath.mockReturnValue('/mock/app')
+    freshFs.existsSync.mockImplementation((p: fs.PathLike) =>
+      String(p).includes('/mock/app/assets/gstreamer/linux-x64')
+    )
+
+    const { default: DebugMicrophone } = await import('@main/services/audio/Microphone')
+
+    const proc = makeProc()
+    freshSpawn.mockReturnValue(proc)
+
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined)
+
+    const mic = new DebugMicrophone()
+    mic.start(5)
+
+    expect(debugSpy).toHaveBeenCalledWith(
+      '[Microphone] Recording started',
+      expect.objectContaining({ device: 'pulse-default' })
+    )
+  })
+
   test('cleanup from stale process is ignored after process replacement via second start', async () => {
     const first = makeProc()
     const second = makeProc()

@@ -106,6 +106,57 @@ describe('navManeuverTypeToCode (modern enum)', () => {
     expect(navManeuverTypeToCode(999)).toBeUndefined()
     expect(navManeuverTypeToCode(undefined)).toBeUndefined()
   })
+
+  test('covers every enum value 0..42', () => {
+    const expected: Record<number, number | undefined> = {
+      0: 0,
+      1: 11,
+      2: 5,
+      3: 13,
+      4: 14,
+      5: 49,
+      6: 50,
+      7: 1,
+      8: 2,
+      9: 47,
+      10: 48,
+      11: 4,
+      12: 4,
+      13: 9,
+      14: 9,
+      15: 9,
+      16: 9,
+      17: 9,
+      18: 9,
+      19: 9,
+      20: 9,
+      21: 22,
+      22: 23,
+      23: 22,
+      24: 23,
+      25: 13,
+      26: 14,
+      27: 9,
+      28: 9,
+      29: 9,
+      30: 6,
+      31: 7,
+      32: 6,
+      33: 6,
+      34: 6,
+      35: 6,
+      36: 3,
+      37: 15,
+      38: 15,
+      39: 12,
+      40: 12,
+      41: 24,
+      42: 25
+    }
+    for (let t = 0; t <= 42; t++) {
+      expect(navManeuverTypeToCode(t)).toBe(expected[t])
+    }
+  })
 })
 
 describe('navManeuverTypeToSide (modern enum)', () => {
@@ -116,5 +167,15 @@ describe('navManeuverTypeToSide (modern enum)', () => {
     expect(navManeuverTypeToSide(42)).toBe(0) // DESTINATION_RIGHT
     expect(navManeuverTypeToSide(36)).toBeUndefined() // STRAIGHT
     expect(navManeuverTypeToSide(undefined)).toBeUndefined()
+  })
+
+  test('covers every enum value 0..42', () => {
+    const left = new Set([3, 5, 7, 9, 11, 25, 41])
+    const right = new Set([4, 6, 8, 10, 12, 26, 42])
+    for (let t = 0; t <= 42; t++) {
+      if (left.has(t)) expect(navManeuverTypeToSide(t)).toBe(1)
+      else if (right.has(t)) expect(navManeuverTypeToSide(t)).toBe(0)
+      else expect(navManeuverTypeToSide(t)).toBeUndefined()
+    }
   })
 })

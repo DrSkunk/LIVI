@@ -43,7 +43,7 @@ export function registerBluetoothIpc(host: Deps): void {
 
     const boxInfo = host.getBoxInfo()
     const devList = Array.isArray((boxInfo as { DevList?: unknown[] } | undefined)?.DevList)
-      ? ((boxInfo as { DevList?: Array<{ id?: string; type?: string }> }).DevList ?? [])
+      ? (boxInfo as { DevList: Array<{ id?: string; type?: string }> }).DevList
       : []
     const devEntry = devList.find((entry) => String(entry?.id ?? '').trim() === btMac)
     const targetPhoneWorkMode =

@@ -40,7 +40,7 @@ export function parseMessages(buf: Buffer): { messages: RtspRequest[]; rest: Buf
 
     const headerText = buf.toString('ascii', offset, headerEnd)
     const lines = headerText.split('\r\n')
-    const requestLine = lines.shift() ?? ''
+    const requestLine = lines.shift() as string
     const [method, path, protocol] = requestLine.split(' ')
 
     const headers: Record<string, string> = {}
@@ -56,7 +56,7 @@ export function parseMessages(buf: Buffer): { messages: RtspRequest[]; rest: Buf
     if (bodyEnd > buf.length) break // body not fully received yet
 
     messages.push({
-      method: method ?? '',
+      method,
       path: path ?? '',
       protocol: protocol ?? 'RTSP/1.0',
       headers,
@@ -77,7 +77,7 @@ const STATUS_TEXT: Record<number, string> = {
 
 /** Build a response, echoing the request protocol and its CSeq. */
 export function buildResponse(req: RtspRequest, res: RtspResponse): Buffer {
-  const protocol = res.protocol ?? req.protocol ?? 'RTSP/1.0'
+  const protocol = res.protocol ?? req.protocol
   const status = res.status ?? 200
   const statusText = res.statusText ?? STATUS_TEXT[status] ?? 'OK'
   const body = res.body ?? Buffer.alloc(0)

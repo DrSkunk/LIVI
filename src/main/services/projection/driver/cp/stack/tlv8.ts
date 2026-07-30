@@ -43,7 +43,7 @@ export function decodeTlv8(buf: Buffer): Map<number, Buffer> {
     p += 2 + len
     // Fragmentation continues only when the previous item was a full 255 bytes.
     if (type === lastType && lastLen === 255) {
-      out.set(type, Buffer.concat([out.get(type) ?? Buffer.alloc(0), value]))
+      out.set(type, Buffer.concat([out.get(type) as Buffer, value]))
     } else {
       out.set(type, Buffer.from(value))
     }

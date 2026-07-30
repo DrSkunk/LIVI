@@ -63,7 +63,7 @@ export function attachDongleAdapter({
           gps.fixTs,
           gps.accuracyM
         )
-        if (nmea) void dongle.sendGnssData(nmea)
+        void dongle.sendGnssData(nmea)
       }
     }
   }

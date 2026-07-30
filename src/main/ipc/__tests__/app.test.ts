@@ -33,6 +33,10 @@ vi.mock('child_process', () => ({
   spawn: vi.fn()
 }))
 
+vi.mock('@main/services/video/GstVideo', () => ({
+  compositorRestart: vi.fn(() => false)
+}))
+
 const mockedGetMainWindow = getMainWindow as Mock
 const mockedIsMacPlatform = isMacPlatform as Mock
 const mockedRegisterIpcHandle = registerIpcHandle as Mock
@@ -147,6 +151,11 @@ describe('registerAppIpc', () => {
     expect(runtimeState.suppressNextFsSync).toBe(true)
     expect(once).toHaveBeenCalledWith('leave-full-screen', expect.any(Function))
     expect(setFullScreen).toHaveBeenCalledWith(false)
+
+    const hide = (mockedGetMainWindow.mock.results[0].value as { hide: Mock }).hide
+    const leaveHandler = once.mock.calls[0][1] as () => void
+    leaveHandler()
+    expect(hide).toHaveBeenCalledTimes(1)
   })
 
   test('app:quitApp calls app.quit when app is not quitting', async () => {
@@ -440,6 +449,88 @@ describe('registerAppIpc', () => {
     expect(gracefulReset).toHaveBeenCalledTimes(1)
     expect(mockedSpawn).not.toHaveBeenCalled()
     expect(app.relaunch).toHaveBeenCalledTimes(1)
+    expect(app.quit).toHaveBeenCalledTimes(1)
+  })
+
+  test('app:restartApp lets the compositor re-exec and quits itself', async () => {
+    vi.spyOn(global, 'setTimeout').mockImplementation(function (fn: TimerHandler) {
+      if (typeof fn === 'function') fn()
+      return 0 as any
+    } as typeof setTimeout)
+    const { compositorRestart } = await import('@main/services/video/GstVideo')
+    ;(compositorRestart as Mock).mockReturnValueOnce(true)
+
+    const runtimeState = { isQuitting: false, suppressNextFsSync: false } as any
+    const services = {
+      usbService: { beginShutdown: vi.fn(), gracefulReset: vi.fn().mockResolvedValue(undefined) }
+    } as any
+
+    registerAppIpc(runtimeState, services)
+    const restartHandler = getHandle('app:restartApp') as (() => Promise<void>) | undefined
+    await restartHandler?.()
+
+    expect(runtimeState.isQuitting).toBe(true)
+    expect(app.quit).toHaveBeenCalledTimes(1)
+    expect(app.relaunch).not.toHaveBeenCalled()
+    expect(mockedSpawn).not.toHaveBeenCalled()
+  })
+
+  test('app:restartApp awaits wireless teardown and telemetry disconnect', async () => {
+    vi.spyOn(global, 'setTimeout').mockImplementation(function (fn: TimerHandler) {
+      if (typeof fn === 'function') fn()
+      return 0 as any
+    } as typeof setTimeout)
+    Object.defineProperty(process, 'platform', { value: 'darwin' })
+    delete process.env.APPIMAGE
+
+    const shutdownWirelessSessions = vi.fn().mockResolvedValue(undefined)
+    const disconnect = vi.fn().mockResolvedValue(undefined)
+    const beginShutdown = vi.fn(() => {
+      throw new Error('already down')
+    })
+
+    const runtimeState = {
+      isQuitting: false,
+      suppressNextFsSync: false,
+      telemetrySocket: { disconnect }
+    } as any
+    const services = {
+      usbService: { beginShutdown, gracefulReset: vi.fn().mockResolvedValue(undefined) },
+      projectionService: { shutdownWirelessSessions }
+    } as any
+
+    registerAppIpc(runtimeState, services)
+    const restartHandler = getHandle('app:restartApp') as (() => Promise<void>) | undefined
+    await restartHandler?.()
+
+    expect(shutdownWirelessSessions).toHaveBeenCalledTimes(1)
+    expect(disconnect).toHaveBeenCalledTimes(1)
+    expect(app.relaunch).toHaveBeenCalledTimes(1)
+    expect(app.quit).toHaveBeenCalledTimes(1)
+  })
+
+  test('app:restartApp continues when the telemetry disconnect rejects', async () => {
+    vi.spyOn(global, 'setTimeout').mockImplementation(function (fn: TimerHandler) {
+      if (typeof fn === 'function') fn()
+      return 0 as any
+    } as typeof setTimeout)
+    Object.defineProperty(process, 'platform', { value: 'darwin' })
+    delete process.env.APPIMAGE
+
+    const runtimeState = {
+      isQuitting: false,
+      suppressNextFsSync: false,
+      telemetrySocket: { disconnect: vi.fn().mockRejectedValue(new Error('gone')) }
+    } as any
+    const services = {
+      usbService: { beginShutdown: vi.fn(), gracefulReset: vi.fn().mockResolvedValue(undefined) },
+      projectionService: { shutdownWirelessSessions: vi.fn().mockResolvedValue(undefined) }
+    } as any
+
+    registerAppIpc(runtimeState, services)
+    const restartHandler = getHandle('app:restartApp') as (() => Promise<void>) | undefined
+    await restartHandler?.()
+
     expect(app.quit).toHaveBeenCalledTimes(1)
   })
 

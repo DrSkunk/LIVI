@@ -131,4 +131,54 @@ describe('mixedAudioDevices (via the listSinks handler)', () => {
 
     expect(devices).toHaveLength(1)
   })
+
+  test('filters paired devices without a usable class-of-device', async () => {
+    listAudioDevices.mockResolvedValue([])
+    listPaired.mockResolvedValue([
+      { mac: 'AA:BB:CC:DD:EE:01', name: 'NoClass' },
+      { mac: 'AA:BB:CC:DD:EE:02', name: 'ZeroClass', class: 0 },
+      { mac: 'AA:BB:CC:DD:EE:03', name: 'NegClass', class: -1 }
+    ])
+
+    registerAudioIpc()
+    const devices = (await handlerFor('audio:listSinks')()) as unknown[]
+
+    expect(devices).toHaveLength(0)
+  })
+
+  test('falls back to the MAC when a paired device has no name', async () => {
+    listAudioDevices.mockResolvedValue([])
+    listPaired.mockResolvedValue([{ mac: 'AA:BB:CC:DD:EE:FF', name: '', class: AUDIO_COD }])
+
+    registerAudioIpc()
+    const devices = (await handlerFor('audio:listSinks')()) as Array<Record<string, unknown>>
+
+    expect(devices[0].name).toBe('AA:BB:CC:DD:EE:FF')
+  })
+
+  test('does not add an offline entry when a live device carries the same name', async () => {
+    listAudioDevices.mockResolvedValue([
+      { id: 'alsa_output.usb-dock', name: ' Headset ', isDefault: false }
+    ])
+    listPaired.mockResolvedValue([{ mac: 'AA:BB:CC:DD:EE:FF', name: 'headset', class: AUDIO_COD }])
+
+    registerAudioIpc()
+    const devices = (await handlerFor('audio:listSinks')()) as unknown[]
+
+    expect(devices).toHaveLength(1)
+  })
+
+  test('offline sources get a bluez_input id with a colon MAC', async () => {
+    listAudioDevices.mockResolvedValue([])
+    listPaired.mockResolvedValue([{ mac: 'aa:bb:cc:dd:ee:ff', name: 'Car Mic', class: AUDIO_COD }])
+
+    registerAudioIpc()
+    const devices = (await handlerFor('audio:listSources')()) as Array<Record<string, unknown>>
+
+    expect(devices[0]).toMatchObject({
+      id: 'bluez_input.AA:BB:CC:DD:EE:FF',
+      name: 'Car Mic',
+      offline: true
+    })
+  })
 })

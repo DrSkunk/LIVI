@@ -678,4 +678,77 @@ describe('ipc utils', () => {
 
     expect(mockedApplyWindowedContentSize).not.toHaveBeenCalled()
   })
+
+  test.each([
+    ['entering fullscreen kiosk', true, false, false, true],
+    ['entering kiosk while already fullscreen', true, false, true, false],
+    ['leaving fullscreen kiosk', false, true, true, true],
+    ['leaving kiosk while already windowed', false, true, false, false],
+    ['fullscreen without kiosk change', true, true, true, false],
+    ['windowed without kiosk change', false, false, false, false]
+  ])(
+    'saveSettings on mac falls back to 800x480 when sizes are unset (%s)',
+    async (_label, nextKiosk, prevKiosk, isFs, expectToggle) => {
+      Object.defineProperty(process, 'platform', { value: 'darwin' })
+
+      const mainWindow = {
+        webContents: { setZoomFactor: vi.fn() },
+        isFullScreen: vi.fn(() => isFs),
+        setFullScreen: vi.fn()
+      }
+      mockedGetMainWindow.mockReturnValue(mainWindow)
+      mockedSizesEqual.mockReturnValue(false)
+
+      const runtimeState = {
+        config: {
+          kiosk: { main: prevKiosk, dash: false, aux: false }
+        }
+      } as any
+
+      saveSettings(runtimeState, { kiosk: { main: nextKiosk, dash: false, aux: false } } as any)
+
+      expect(mockedApplyWindowedContentSize).toHaveBeenCalledWith(mainWindow, 800, 480)
+      if (nextKiosk && nextKiosk !== prevKiosk) {
+        expect(mockedApplyAspectRatioFullscreen).toHaveBeenCalledWith(mainWindow, 800, 480)
+      }
+      if (expectToggle) {
+        expect(mainWindow.setFullScreen).toHaveBeenCalledWith(nextKiosk)
+      } else {
+        expect(mainWindow.setFullScreen).not.toHaveBeenCalled()
+      }
+    }
+  )
+
+  test('saveSettings on linux under the compositor only toggles fullscreen', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux' })
+    process.env.LIVI_COMPOSITOR = '1'
+
+    const mainWindow = {
+      webContents: { setZoomFactor: vi.fn() },
+      setFullScreen: vi.fn(),
+      setKiosk: vi.fn()
+    }
+    mockedGetMainWindow.mockReturnValue(mainWindow)
+
+    const runtimeState = {
+      config: {
+        mainScreenWidth: 800,
+        mainScreenHeight: 480,
+        kiosk: { main: false, dash: false, aux: false },
+        bindings: {}
+      }
+    } as any
+
+    try {
+      saveSettings(runtimeState, { kiosk: { main: true, dash: false, aux: false } } as any)
+      expect(mainWindow.setFullScreen).toHaveBeenCalledWith(true)
+      expect(mainWindow.setKiosk).not.toHaveBeenCalled()
+
+      mainWindow.setFullScreen.mockClear()
+      saveSettings(runtimeState, { mainScreenWidth: 1024 } as any)
+      expect(mainWindow.setFullScreen).not.toHaveBeenCalled()
+    } finally {
+      delete process.env.LIVI_COMPOSITOR
+    }
+  })
 })

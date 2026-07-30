@@ -126,4 +126,126 @@ describe('SystemSound', () => {
     advance(700) // past the 600ms grace
     expect(instances[0]!.stopped).toBe(true)
   })
+
+  test('re-activation during the teardown grace keeps the same output alive', () => {
+    const sound = new SystemSound(() => ({ systemSoundsVolume: 0.8 }))
+    sound.setBlinkerActive(true)
+    sound.setBlinkerActive(false)
+    sound.setBlinkerActive(true)
+    advance(700)
+    expect(instances).toHaveLength(1)
+    expect(instances[0]!.stopped).toBe(false)
+    sound.dispose()
+  })
+
+  test('deactivation without prior activation is a no-op', () => {
+    const sound = new SystemSound(() => ({ systemSoundsVolume: 0.8 }))
+    sound.setBlinkerActive(false)
+    expect(instances).toHaveLength(0)
+  })
+
+  test('deactivation while marked active without an output schedules no teardown', () => {
+    const sound = new SystemSound(() => ({ systemSoundsVolume: 0.8 })) as any
+    sound.active = true
+    sound.setBlinkerActive(false)
+    expect(sound.teardownTimer).toBeNull()
+  })
+
+  test('repeated deactivation replaces a pending teardown timer', () => {
+    const sound = new SystemSound(() => ({ systemSoundsVolume: 0.8 }))
+    sound.setBlinkerActive(true)
+    sound.setBlinkerActive(false)
+    ;(sound as any).active = true
+    sound.setBlinkerActive(false)
+    advance(700)
+    expect(instances[0]!.stopped).toBe(true)
+  })
+
+  test('onDeviceChanged without an output is a no-op', () => {
+    const sound = new SystemSound(() => ({}))
+    sound.onDeviceChanged()
+    expect(instances).toHaveLength(0)
+  })
+
+  test('onDeviceChanged reopens the output while active', () => {
+    const sound = new SystemSound(() => ({ systemSoundsVolume: 0.8 }))
+    sound.setBlinkerActive(true)
+    sound.onDeviceChanged()
+    expect(instances).toHaveLength(2)
+    expect(instances[0]!.stopped).toBe(true)
+    expect(instances[1]!.started).toBe(true)
+    sound.dispose()
+  })
+
+  test('onDeviceChanged during the teardown grace closes without reopening', () => {
+    const sound = new SystemSound(() => ({ systemSoundsVolume: 0.8 }))
+    sound.setBlinkerActive(true)
+    sound.setBlinkerActive(false)
+    sound.onDeviceChanged()
+    expect(instances).toHaveLength(1)
+    expect(instances[0]!.stopped).toBe(true)
+  })
+
+  test('generate is a no-op without an output', () => {
+    const sound = new SystemSound(() => ({})) as any
+    expect(() => sound.generate()).not.toThrow()
+  })
+
+  test('generate produces nothing when no time has passed', () => {
+    const sound = new SystemSound(() => ({ systemSoundsVolume: 0.8 })) as any
+    sound.setBlinkerActive(true)
+    advance(30)
+    const writes = instances[0]!.writes.length
+    sound.generate()
+    expect(instances[0]!.writes.length).toBe(writes)
+    sound.dispose()
+  })
+
+  test('caps catch-up after a long timer stall', () => {
+    const sound = new SystemSound(() => ({ systemSoundsVolume: 0.8 })) as any
+    sound.setBlinkerActive(true)
+    sound.streamStartMs -= 10_000
+    advance(30)
+    expect(instances[0]!.writes[0]!.length).toBe(24000)
+    sound.dispose()
+  })
+
+  test('falls back to the default volume when unset', () => {
+    const sound = new SystemSound(() => ({}))
+    sound.setBlinkerActive(true)
+    advance(700)
+    expect(hasNonZero(instances[0]!)).toBe(true)
+    sound.dispose()
+  })
+
+  test('treats a non-finite volume as silence', () => {
+    const sound = new SystemSound(() => ({ systemSoundsVolume: Number.NaN }))
+    sound.setBlinkerActive(true)
+    advance(1200)
+    expect(hasNonZero(instances[0]!)).toBe(false)
+    sound.dispose()
+  })
+
+  test('clamps overdriven samples into the int16 range', () => {
+    const sound = new SystemSound(() => ({ systemSoundsVolume: 1 })) as any
+    sound.setBlinkerActive(true)
+    sound.click = { wave: Float32Array.from([4, -4]), pos: 0 }
+    advance(30)
+    const w = instances[0]!.writes[0]!
+    expect(w[0]).toBe(32767)
+    expect(w[1]).toBe(32767)
+    expect(w[2]).toBe(-32768)
+    expect(w[3]).toBe(-32768)
+    sound.dispose()
+  })
+
+  test('treats reads past the click wave as silence', () => {
+    const sound = new SystemSound(() => ({ systemSoundsVolume: 1 })) as any
+    sound.setBlinkerActive(true)
+    sound.click = { wave: new Float32Array(0), pos: 0 }
+    advance(30)
+    expect(hasNonZero(instances[0]!)).toBe(false)
+    expect(sound.click).toBeNull()
+    sound.dispose()
+  })
 })

@@ -16,7 +16,8 @@ function freshHost() {
     stop: vi.fn(async () => undefined),
     restartSession: vi.fn(async () => undefined),
     pickPreferredTransport: vi.fn(() => 'dongle' as 'dongle' | 'aa' | null),
-    applyCodecCapabilities: vi.fn()
+    applyCodecCapabilities: vi.fn(),
+    setVideoVisible: vi.fn()
   }
 }
 
@@ -54,6 +55,15 @@ describe('lifecycle ipc', () => {
     registerLifecycleIpc(host)
     await handlers.get('projection-restart')!(null)
     expect(host.restartSession).toHaveBeenCalled()
+  })
+
+  test('projection-set-visible coerces the flag and forwards it', async () => {
+    const host = freshHost()
+    registerLifecycleIpc(host)
+    await handlers.get('projection-set-visible')!(null, true)
+    expect(host.setVideoVisible).toHaveBeenCalledWith(true)
+    await handlers.get('projection-set-visible')!(null, undefined)
+    expect(host.setVideoVisible).toHaveBeenLastCalledWith(false)
   })
 
   test('projection-codec-capabilities forwards payload', async () => {

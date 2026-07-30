@@ -148,7 +148,7 @@ export class TimingSync {
       this._pendingT1 = null
       const offset = (0.5 * (Number(t2 - t1) + Number(t3 - t4))) / TWO32
       const rtt = (Number(t4 - t1) - Number(t3 - t2)) / TWO32
-      if (!Number.isFinite(offset) || !Number.isFinite(rtt) || rtt < 0) return
+      if (rtt < 0) return
 
       // Collect a group of responses and carry only its lowest-RTT sample forward.
       if (rtt < this._pickRtt) {

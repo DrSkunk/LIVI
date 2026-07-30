@@ -20,7 +20,7 @@ function manifestPath(): string | null {
     join(app.getAppPath(), 'scripts', 'install', 'packages.txt'),
     join(process.cwd(), 'scripts', 'install', 'packages.txt')
   ]
-  return candidates.find((p) => p && existsSync(p)) ?? null
+  return candidates.find((p) => existsSync(p)) ?? null
 }
 
 export function parseManifest(text: string): PackageEntry[] {

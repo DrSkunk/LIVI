@@ -497,4 +497,153 @@ describe('USBService', () => {
     await expect(s.resetDongle(dongle)).resolves.toBe(false)
     expect(dongle.close).toHaveBeenCalledTimes(1)
   })
+
+  test('resetDongle returns true when reset succeeds', async () => {
+    const s = new USBService(projection) as any
+    const dongle = mkDevice()
+
+    await expect(s.resetDongle(dongle)).resolves.toBe(true)
+    expect(dongle.close).toHaveBeenCalledTimes(1)
+  })
+
+  test('resetDongle treats string disconnect rejection as success', async () => {
+    const s = new USBService(projection) as any
+    const dongle = mkDevice()
+    dongle.reset.mockRejectedValue('LIBUSB_ERROR_NO_DEVICE')
+
+    await expect(s.resetDongle(dongle)).resolves.toBe(true)
+  })
+
+  test('resetDongle stringifies non-error rejection values and fails', async () => {
+    const s = new USBService(projection) as any
+    const dongle = mkDevice()
+    dongle.reset.mockRejectedValue(42)
+
+    await expect(s.resetDongle(dongle)).resolves.toBe(false)
+  })
+
+  test('resetDongle still succeeds when closing the device fails', async () => {
+    const s = new USBService(projection) as any
+    const dongle = mkDevice()
+    dongle.close.mockRejectedValue(new Error('close failed'))
+
+    await expect(s.resetDongle(dongle)).resolves.toBe(true)
+  })
+
+  test('beginShutdown flags the service as shutting down', async () => {
+    const s = new USBService(projection) as any
+
+    s.beginShutdown()
+
+    expect(s.shutdownInProgress).toBe(true)
+  })
+
+  test('constructor logs when startup init fails', async () => {
+    const dbg = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    getDevices.mockRejectedValue(new Error('bus error'))
+
+    new USBService(projection)
+    await flush()
+
+    expect(dbg).toHaveBeenCalledWith('[USBService] startup init threw', expect.any(Error))
+    dbg.mockRestore()
+  })
+
+  test('stop without registered listeners removes nothing', async () => {
+    const s = new USBService(projection) as any
+    s._onConnect = null
+    s._onDisconnect = null
+
+    await s.stop()
+
+    expect(usb.removeEventListener).not.toHaveBeenCalled()
+  })
+
+  test('connect event logs placeholders for devices without descriptors', async () => {
+    new USBService(projection)
+
+    const connectCb = getConnectCb()
+    connectCb(evt({ vendorId: undefined, productId: undefined, deviceClass: undefined }))
+
+    expect(projection.markDongleConnected).not.toHaveBeenCalled()
+    expect(projection.markPhoneConnected).not.toHaveBeenCalled()
+    expect(windows[0].webContents.send).toHaveBeenCalledWith(
+      'usb-event',
+      expect.objectContaining({ type: 'attach' })
+    )
+  })
+
+  test('usb-last-event falls through when tracked dongle is gone', async () => {
+    const s = new USBService(projection) as any
+    s.lastDongleState = true
+    getDevices.mockResolvedValue([mkDevice(0x1111, 0x2222)])
+
+    const h = getHandler<() => Promise<any>>('usb-last-event')
+
+    await expect(h()).resolves.toEqual({ type: 'unplugged', device: null })
+  })
+
+  test('usb-last-event reports connected phone when no dongle is tracked', async () => {
+    const s = new USBService(projection) as any
+    s.lastPhoneState = true
+    s.connectedPhoneDevice = mkDevice(0x18d1, 0x4ee1)
+
+    const h = getHandler<() => Promise<any>>('usb-last-event')
+
+    await expect(h()).resolves.toEqual({
+      type: 'plugged',
+      device: { vendorId: 0x18d1, productId: 0x4ee1, deviceName: '' }
+    })
+  })
+
+  test('projection:usbDevice reports Unknown firmware for zero bcd version', async () => {
+    new USBService(projection)
+    getDevices.mockResolvedValue([mkDevice(0x1314, 0x1520, { major: 0, minor: 0, subminor: 0 })])
+
+    const h = getHandler<() => Promise<any>>('projection:usbDevice')
+
+    await expect(h()).resolves.toEqual({
+      device: true,
+      vendorId: 0x1314,
+      productId: 0x1520,
+      usbFwVersion: 'Unknown'
+    })
+  })
+
+  test('forceReset aborts when shutdown begins during projection stop', async () => {
+    let svc: any
+    const stop = vi.fn(async () => {
+      svc.shutdownInProgress = true
+    })
+    svc = new USBService({ ...projection, stop } as any)
+
+    const promise = svc.forceReset()
+    await vi.advanceTimersByTimeAsync(200)
+
+    await expect(promise).resolves.toBe(false)
+    expect(mockedFindDongle).not.toHaveBeenCalled()
+    expect(windows[0].webContents.send).toHaveBeenCalledWith('usb-reset-done', false)
+  })
+
+  test('forceReset returns false when findDongle throws', async () => {
+    const s = new USBService(projection) as any
+    mockedFindDongle.mockRejectedValue(new Error('enumeration failed'))
+
+    const promise = s.forceReset()
+    await vi.advanceTimersByTimeAsync(200)
+
+    await expect(promise).resolves.toBe(false)
+    expect(windows[0].webContents.send).toHaveBeenCalledWith('usb-reset-done', false)
+  })
+
+  test('notifyDeviceChangeNoDevice broadcasts plugged payload without ids', async () => {
+    const s = new USBService(projection) as any
+
+    s.notifyDeviceChangeNoDevice(true)
+
+    expect(windows[0].webContents.send).toHaveBeenCalledWith('usb-event', {
+      type: 'plugged',
+      device: { vendorId: null, productId: null, deviceName: '' }
+    })
+  })
 })

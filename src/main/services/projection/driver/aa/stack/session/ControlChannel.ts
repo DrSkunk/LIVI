@@ -217,8 +217,11 @@ export class ControlChannel extends EventEmitter {
           focusState = 3
           break // unknown                 → STATE_LOSS
       }
-      const stateName =
-        ({ 1: 'GAIN', 2: 'GAIN_TRANSIENT', 3: 'LOSS' } as Record<number, string>)[focusState] ?? '?'
+      // focusState is always 1, 2 or 3 (assigned in the switch above), so the
+      // lookup never misses — no fallback needed.
+      const stateName = ({ 1: 'GAIN', 2: 'GAIN_TRANSIENT', 3: 'LOSS' } as Record<number, string>)[
+        focusState
+      ]
       const typeName =
         (
           { 1: 'GAIN', 2: 'GAIN_TRANSIENT', 3: 'GAIN_TRANSIENT_MAY_DUCK', 4: 'RELEASE' } as Record<

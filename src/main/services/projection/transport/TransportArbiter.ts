@@ -258,8 +258,8 @@ export class TransportArbiter {
     if (detected.length < 2) return { ok: false, target: this.currentCandidate() }
 
     // If no session is running, anchor on the preferred candidate
-    const anchor = this.currentCandidate() ?? this.pickPreferred()
-    const idx = anchor ? detected.findIndex((c) => candidateEquals(c, anchor)) : -1
+    const anchor = this.currentCandidate() ?? (this.pickPreferred() as Candidate)
+    const idx = detected.findIndex((c) => candidateEquals(c, anchor))
     const next = detected[(idx + 1) % detected.length]
     this.override = next
     this.resetNativeProbeDefer()

@@ -226,6 +226,97 @@ describe('NavigationChannel — CURRENT_POSITION (modern)', () => {
   })
 })
 
+describe('NavigationChannel — unmatched nested fields', () => {
+  test('STATUS ignores fields other than field 1', () => {
+    const ch = new NavigationChannel()
+    const cb = vi.fn()
+    ch.on('nav-status', cb)
+    ch.handleMessage(NAV_MSG.STATUS, Buffer.concat([fieldVarint(2, 0), fieldVarint(1, 1)]))
+    expect(cb).toHaveBeenCalledWith({ state: 'active' })
+  })
+
+  test('STATE walks past unrecognized fields at every nesting level', () => {
+    const ch = new NavigationChannel()
+    const cb = vi.fn()
+    ch.on('nav-state', cb)
+
+    const maneuver = fieldLenDelim(1, Buffer.concat([fieldVarint(1, 8), fieldVarint(9, 0)]))
+    const road = fieldLenDelim(
+      2,
+      Buffer.concat([fieldLenDelim(1, Buffer.from('Rd')), fieldVarint(9, 0)])
+    )
+    const lanes = fieldVarint(3, 0)
+    const cue = fieldLenDelim(
+      4,
+      Buffer.concat([fieldLenDelim(1, Buffer.from('Cue')), fieldLenDelim(1, Buffer.from('x'))])
+    )
+    const step = Buffer.concat([maneuver, road, lanes, cue])
+    const dest = Buffer.concat([fieldLenDelim(1, Buffer.from('Addr')), fieldVarint(9, 0)])
+    ch.handleMessage(
+      NAV_MSG.STATE,
+      Buffer.concat([fieldLenDelim(1, step), fieldLenDelim(2, dest), fieldVarint(3, 0)])
+    )
+
+    expect(cb).toHaveBeenCalledWith({
+      maneuverType: 8,
+      roadName: 'Rd',
+      cue: 'Cue',
+      destinationAddress: 'Addr'
+    })
+  })
+
+  test('CURRENT_POSITION walks past unrecognized fields at every nesting level', () => {
+    const ch = new NavigationChannel()
+    const cb = vi.fn()
+    ch.on('nav-position', cb)
+
+    const distanceSub = Buffer.concat([
+      fieldVarint(1, 345),
+      fieldLenDelim(2, Buffer.from('350')),
+      fieldVarint(3, 1),
+      fieldVarint(9, 0)
+    ])
+    const stepDistance = Buffer.concat([
+      fieldLenDelim(1, distanceSub),
+      fieldVarint(2, 102),
+      fieldVarint(3, 0)
+    ])
+    const destDistanceSub = Buffer.concat([
+      fieldVarint(1, 18185),
+      fieldLenDelim(2, Buffer.from('18')),
+      fieldVarint(3, 2)
+    ])
+    const destDistance = Buffer.concat([
+      fieldLenDelim(1, destDistanceSub),
+      fieldLenDelim(2, Buffer.from('21:58')),
+      fieldVarint(3, 1599),
+      fieldVarint(9, 0)
+    ])
+    const road = fieldLenDelim(
+      3,
+      Buffer.concat([fieldLenDelim(1, Buffer.from('Rd')), fieldVarint(9, 0)])
+    )
+    ch.handleMessage(
+      NAV_MSG.CURRENT_POSITION,
+      Buffer.concat([
+        fieldLenDelim(1, stepDistance),
+        fieldLenDelim(2, destDistance),
+        road,
+        fieldVarint(4, 0)
+      ])
+    )
+
+    expect(cb.mock.calls[0][0]).toMatchObject({
+      stepDistanceMeters: 345,
+      timeToStepSeconds: 102,
+      destinationMeters: 18185,
+      etaText: '21:58',
+      timeToArrivalSeconds: 1599,
+      currentRoadName: 'Rd'
+    })
+  })
+})
+
 describe('NavigationChannel — passthrough', () => {
   test('unknown msgId is logged but does not throw', () => {
     const ch = new NavigationChannel()

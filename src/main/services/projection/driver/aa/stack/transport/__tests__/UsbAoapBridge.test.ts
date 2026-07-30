@@ -29,8 +29,9 @@ class MockDevice {
   private _inResolvers: ((r: USBInTransferResult) => void)[] = []
   transferIn = vi.fn(
     (_ep: number, _len: number, _timeoutMs?: number): Promise<USBInTransferResult> =>
-      new Promise<USBInTransferResult>((resolve) => {
+      new Promise<USBInTransferResult>((resolve, reject) => {
         this._inResolvers.push(resolve)
+        this._inRejecters.push(reject)
       })
   )
 
@@ -39,14 +40,25 @@ class MockDevice {
       ({ status: 'ok', bytesWritten: (data as ArrayBufferView).byteLength }) as USBOutTransferResult
   )
 
+  private _inRejecters: ((e: unknown) => void)[] = []
+
   /** Resolve the oldest pending transferIn with the given bytes (or empty/no-data). */
   resolveIn(data?: Buffer, status: 'ok' | 'stall' = 'ok'): void {
     const resolve = this._inResolvers.shift()
+    this._inRejecters.shift()
     if (!resolve) return
     resolve({
       status,
       data: data ? new DataView(data.buffer, data.byteOffset, data.byteLength) : undefined
     } as USBInTransferResult)
+  }
+
+  /** Reject the oldest pending transferIn. */
+  rejectIn(err: unknown): void {
+    const reject = this._inRejecters.shift()
+    this._inResolvers.shift()
+    if (!reject) return
+    reject(err)
   }
 
   constructor(withEndpoints = true) {
@@ -86,6 +98,8 @@ class MockLoopbackSocket extends EventEmitter {
   setNoDelay = vi.fn()
   write = vi.fn(() => true)
   destroy = vi.fn()
+  destroyed = false
+  writable = true
 }
 
 const createServer = vi.fn()
@@ -478,5 +492,288 @@ describe('UsbAoapBridge — non-accessory boot (mode switch + re-enumerate)', ()
     await startP
 
     expect(onWillReenumerate).toHaveBeenCalledWith(expect.any(Number))
+  })
+
+  test('rejects when the accessory never re-enumerates before the timeout', async () => {
+    vi.useFakeTimers()
+    ;(usb.addEventListener as Mock).mockClear()
+    isAccessoryModeMock.mockReturnValue(false)
+    const dev = new MockDevice()
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    bridge.on('error', () => {})
+    const p = bridge.start()
+    const assertion = expect(p).rejects.toThrow(/re-enumerate timeout/)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await assertion
+    vi.useRealTimers()
+  })
+})
+
+describe('UsbAoapBridge — additional coverage', () => {
+  test('drain bails out if stopped during the initial yield', async () => {
+    const dev = new MockDevice()
+    createServer.mockImplementationOnce(() => new MockServer())
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    await bridge.start()
+    const p = bridge.drain(100)
+    ;(bridge as unknown as { _running: boolean })._running = false
+    await expect(p).resolves.toBeUndefined()
+  })
+
+  test('stop tolerates release/reset/close rejections', async () => {
+    const dev = new MockDevice()
+    dev.releaseInterface.mockRejectedValue(new Error('rel'))
+    dev.reset.mockRejectedValue(new Error('rst'))
+    dev.close.mockRejectedValue(new Error('cls'))
+    createServer.mockImplementationOnce(() => new MockServer())
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    await bridge.start()
+    await expect(bridge.stop()).resolves.toBeUndefined()
+  })
+
+  test('loopback server error after listen is forwarded', async () => {
+    const { dev, srv } = newBridge()
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    const onErr = vi.fn()
+    bridge.on('error', onErr)
+    await bridge.start()
+    srv.emit('error', new Error('EPIPE'))
+    expect(onErr).toHaveBeenCalled()
+  })
+
+  test('start rejects when the loopback server fails to listen', async () => {
+    const dev = new MockDevice()
+    const failSrv = new MockServer()
+    failSrv.listen = vi.fn((_p: number, _a: string, _cb: () => void) => {
+      failSrv.emit('error', new Error('EACCES'))
+    })
+    createServer.mockImplementationOnce(() => failSrv)
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    bridge.on('error', () => {})
+    await expect(bridge.start()).rejects.toThrow('EACCES')
+  })
+
+  test('pump aborts when endpoints are not initialised', async () => {
+    const { dev, connect } = newBridge()
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    await bridge.start()
+    ;(bridge as unknown as { _inEpNum: number | null })._inEpNum = null
+    const sock = new MockLoopbackSocket()
+    connect()(sock as never)
+    expect(sock.destroy).toHaveBeenCalledWith(expect.any(Error))
+  })
+
+  test('a stale socket does not pump OUT or handle close', async () => {
+    const { dev, connect } = newBridge()
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    await bridge.start()
+    const a = new MockLoopbackSocket()
+    connect()(a as never)
+    const b = new MockLoopbackSocket()
+    connect()(b as never)
+    dev.transferOut.mockClear()
+    a.emit('data', Buffer.from([1]))
+    await flush()
+    expect(dev.transferOut).not.toHaveBeenCalled()
+    a.emit('close')
+    expect((bridge as unknown as { _client: unknown })._client).toBe(b)
+  })
+
+  test('data after socket close is ignored', async () => {
+    const { dev, connect } = newBridge()
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    await bridge.start()
+    const sock = new MockLoopbackSocket()
+    connect()(sock as never)
+    sock.emit('close')
+    dev.transferOut.mockClear()
+    sock.emit('data', Buffer.from([1]))
+    await flush()
+    expect(dev.transferOut).not.toHaveBeenCalled()
+  })
+
+  test('IN read that resolves ok but empty is skipped', async () => {
+    const { dev, connect } = newBridge()
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    await bridge.start()
+    const sock = new MockLoopbackSocket()
+    connect()(sock as never)
+    dev.resolveIn(undefined, 'ok')
+    await flush()
+    expect(sock.write).not.toHaveBeenCalled()
+  })
+
+  test('IN read is dropped when the socket is already destroyed', async () => {
+    const { dev, connect } = newBridge()
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    await bridge.start()
+    const sock = new MockLoopbackSocket()
+    connect()(sock as never)
+    sock.destroyed = true
+    dev.resolveIn(Buffer.from([1, 2]))
+    await flush()
+    expect(sock.write).not.toHaveBeenCalled()
+  })
+
+  test('IN read arriving after the pump stopped is dropped', async () => {
+    const { dev, connect } = newBridge()
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    await bridge.start()
+    const sock = new MockLoopbackSocket()
+    connect()(sock as never)
+    ;(bridge as unknown as { _pumping: boolean })._pumping = false
+    dev.resolveIn(Buffer.from([1, 2]))
+    await flush()
+    expect(sock.write).not.toHaveBeenCalled()
+  })
+
+  test('IN error after the pump stopped is swallowed silently', async () => {
+    const { dev, connect } = newBridge()
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    const onErr = vi.fn()
+    bridge.on('error', onErr)
+    await bridge.start()
+    const sock = new MockLoopbackSocket()
+    connect()(sock as never)
+    ;(bridge as unknown as { _pumping: boolean })._pumping = false
+    dev.rejectIn(new Error('device gone'))
+    await flush()
+    expect(onErr).not.toHaveBeenCalled()
+  })
+
+  test('a non-fatal, non-Error IN failure is stringified and retried', async () => {
+    const { dev, connect } = newBridge()
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    const onErr = vi.fn()
+    bridge.on('error', onErr)
+    await bridge.start()
+    const sock = new MockLoopbackSocket()
+    connect()(sock as never)
+    dev.transferIn.mockClear()
+    dev.rejectIn('transient glitch')
+    await flush()
+    expect(onErr).not.toHaveBeenCalled()
+    expect(dev.transferIn).toHaveBeenCalled()
+  })
+
+  test('exposes the underlying device via the getter', () => {
+    const dev = new MockDevice()
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    expect(bridge.device).toBe(dev as unknown as Device)
+  })
+
+  test('selectConfiguration is invoked and its failure is tolerated', async () => {
+    const dev = new MockDevice()
+    dev.configuration = makeConfig(2)
+    dev.selectConfiguration.mockRejectedValue(new Error('sel fail'))
+    createServer.mockImplementationOnce(() => new MockServer())
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    await bridge.start()
+    expect(dev.selectConfiguration).toHaveBeenCalledWith(1)
+  })
+
+  test('missing configuration surfaces as an endpoints-not-found error', async () => {
+    const dev = new MockDevice()
+    dev.configuration = undefined
+    dev.selectConfiguration = vi.fn(async () => undefined)
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    bridge.on('error', () => {})
+    await expect(bridge.start()).rejects.toThrow(/bulk IN\/OUT/)
+  })
+
+  test('non-bulk and directionless endpoints are skipped when scanning', async () => {
+    const dev = new MockDevice()
+    dev.configuration = {
+      configurationValue: 1,
+      configurationName: undefined,
+      interfaces: [
+        {
+          interfaceNumber: 0,
+          claimed: false,
+          alternate: {
+            alternateSetting: 0,
+            endpoints: [
+              { endpointNumber: 5, direction: 'in', type: 'interrupt' },
+              { endpointNumber: 6, direction: 'inout', type: 'bulk' },
+              { endpointNumber: 1, direction: 'in', type: 'bulk' },
+              { endpointNumber: 2, direction: 'out', type: 'bulk' }
+            ]
+          },
+          alternates: []
+        }
+      ]
+    } as unknown as USBConfiguration
+    createServer.mockImplementationOnce(() => new MockServer())
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    await bridge.start()
+    expect(dev.claimInterface).toHaveBeenCalledWith(0)
+  })
+
+  test('open retry failure with a non-Error reason reports "unknown"', async () => {
+    const dev = new MockDevice()
+    dev.open.mockRejectedValue(undefined)
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    bridge.on('error', () => {})
+    await expect(bridge.start()).rejects.toThrow(/unknown/)
+  })
+
+  test('claim retry failure with a non-Error reason reports "unknown"', async () => {
+    const dev = new MockDevice()
+    dev.claimInterface.mockRejectedValue(undefined)
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    bridge.on('error', () => {})
+    await expect(bridge.start()).rejects.toThrow(/unknown/)
+  })
+
+  test('stop with no accessory device still emits closed', async () => {
+    const dev = new MockDevice()
+    createServer.mockImplementationOnce(() => new MockServer())
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    await bridge.start()
+    ;(bridge as unknown as { _accessoryDevice: unknown })._accessoryDevice = null
+    const closed = vi.fn()
+    bridge.on('closed', closed)
+    await bridge.stop()
+    expect(closed).toHaveBeenCalled()
+    expect(dev.releaseInterface).not.toHaveBeenCalled()
+  })
+
+  test('stop skips releaseInterface when no interface is held', async () => {
+    const dev = new MockDevice()
+    createServer.mockImplementationOnce(() => new MockServer())
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    await bridge.start()
+    ;(bridge as unknown as { _ifaceNum: number | null })._ifaceNum = null
+    await bridge.stop()
+    expect(dev.releaseInterface).not.toHaveBeenCalled()
+    expect(dev.reset).toHaveBeenCalled()
+  })
+})
+
+describe('UsbAoapBridge — re-enumerate hotplug filter', () => {
+  test('ignores a connect event from a non-accessory device', async () => {
+    ;(usb.addEventListener as Mock).mockClear()
+    isAccessoryModeMock.mockReturnValue(false)
+    const dev = new MockDevice()
+    createServer.mockImplementationOnce(() => new MockServer())
+    const bridge = new UsbAoapBridge(dev as unknown as Device)
+    const startP = bridge.start()
+
+    for (let i = 0; i < 50 && (usb.addEventListener as Mock).mock.calls.length === 0; i++) {
+      await flush()
+    }
+    const onConnect = (usb.addEventListener as Mock).mock.calls.at(-1)![1] as (e: {
+      device: unknown
+    }) => void
+    const stranger = new MockDevice()
+    stranger.vendorId = 0x1234
+    stranger.productId = 0x9999
+    onConnect({ device: stranger })
+
+    const acc = new MockDevice()
+    acc.productId = 0x2d00
+    onConnect({ device: acc })
+    await startP
+    expect(dev.close).toHaveBeenCalled()
   })
 })

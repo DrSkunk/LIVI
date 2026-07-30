@@ -469,6 +469,90 @@ describe('preload api bridge', () => {
     })
   })
 
+  test('audio chunk queue is bounded to 32 entries', async () => {
+    const { projection } = await loadPreload()
+    for (let i = 0; i < 40; i++) emit('projection-audio-chunk', i)
+    const handler = vi.fn()
+    projection.ipc.onAudioChunk(handler)
+    expect(handler).toHaveBeenCalledTimes(32)
+    expect(handler).toHaveBeenNthCalledWith(1, 8)
+    expect(handler).toHaveBeenNthCalledWith(32, 39)
+  })
+
+  test('ipc onEvent flushes queued projection events', async () => {
+    const { projection } = await loadPreload()
+    const cb = vi.fn()
+
+    emit('projection-event', { type: 'early' })
+    projection.ipc.onEvent(cb)
+
+    expect(cb).toHaveBeenCalledTimes(1)
+    expect(cb).toHaveBeenCalledWith(expect.anything(), { type: 'early' })
+  })
+
+  test('ipc onClusterResolution unsubscribe stops the fan-out', async () => {
+    const { projection } = await loadPreload()
+    const handler = vi.fn()
+
+    const off = projection.ipc.onClusterResolution(handler)
+    off()
+    emit('cluster-video-resolution', { width: 1, height: 1 })
+
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  test('onMediaKey off is safe to call twice', async () => {
+    const { app } = await loadPreload()
+    const handler = vi.fn()
+
+    const off = app.onMediaKey(handler)
+    off()
+    off()
+    emit('app:media-key', 'playPause')
+
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  test('audio device and projection device wrappers forward to invoke', async () => {
+    const { projection } = await loadPreload()
+    ipcRendererMock.invoke.mockResolvedValue(undefined)
+
+    await projection.audio.listSinks()
+    await projection.audio.listSources()
+    await projection.ipc.setVisible(true)
+    await projection.ipc.getDevices()
+    await projection.ipc.selectDevice('dev-1')
+    await projection.ipc.cycleSession()
+    await projection.ipc.forgetDevice('dev-1')
+    await projection.ipc.clusterRepaintNudge()
+
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('audio:listSinks')
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('audio:listSources')
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('projection-set-visible', true)
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('devices:list')
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('devices:select', 'dev-1')
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('devices:cycle')
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('devices:forget', 'dev-1')
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('cluster:repaint-nudge')
+  })
+
+  test('app list wrappers forward to invoke', async () => {
+    const { app } = await loadPreload()
+    ipcRendererMock.invoke.mockResolvedValue([])
+
+    await app.listDisplayModes()
+    await app.listWifiChannels()
+    await app.listWifiCountryCodes()
+    await app.listWifiInterfaces()
+    await app.listBtAdapters()
+
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('app:listDisplayModes')
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('app:listWifiChannels')
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('app:listWifiCountryCodes')
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('app:listWifiInterfaces')
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('app:listBtAdapters')
+  })
+
   describe('app ipc wrappers — additional', () => {
     test('all simple invoke wrappers forward correctly', async () => {
       const { app } = await loadPreload()

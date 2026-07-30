@@ -116,15 +116,11 @@ export function computeAndroidAutoDpi(width: number, height: number): number {
   const top = AA_DPI_TIERS[AA_DPI_TIERS.length - 1]
   if (pixels >= top.pixels) return top.dpi
 
-  for (let i = 0; i < AA_DPI_TIERS.length - 1; i++) {
-    const lo = AA_DPI_TIERS[i]
-    const hi = AA_DPI_TIERS[i + 1]
-    if (pixels >= lo.pixels && pixels <= hi.pixels) {
-      const t = (pixels - lo.pixels) / (hi.pixels - lo.pixels)
-      const dpi = lo.dpi + t * (hi.dpi - lo.dpi)
-      return Math.round(dpi / 10) * 10
-    }
-  }
-
-  return top.dpi
+  let i = 0
+  while (pixels > AA_DPI_TIERS[i + 1].pixels) i++
+  const lo = AA_DPI_TIERS[i]
+  const hi = AA_DPI_TIERS[i + 1]
+  const t = (pixels - lo.pixels) / (hi.pixels - lo.pixels)
+  const dpi = lo.dpi + t * (hi.dpi - lo.dpi)
+  return Math.round(dpi / 10) * 10
 }

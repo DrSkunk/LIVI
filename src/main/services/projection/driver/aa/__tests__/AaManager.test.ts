@@ -209,6 +209,143 @@ describe('AaManager — wired bring-up', () => {
   })
 })
 
+describe('AaManager — additional coverage', () => {
+  test('wireless server error is logged without throwing', () => {
+    const { mgr } = newManager()
+    mgr.startWireless()
+    expect(() => lastServer.instance!.emit('error', new Error('EADDRINUSE'))).not.toThrow()
+  })
+
+  test('stopWireless is a no-op when never started', () => {
+    const { mgr } = newManager()
+    expect(() => mgr.stopWireless()).not.toThrow()
+  })
+
+  test('stopWireless leaves wired sessions running', async () => {
+    const { mgr } = newManager()
+    mgr.startWireless()
+    await mgr.bringUpWired(fakeDevice('w1'))
+    lastBridge.instance!.emit('ready', { host: '127.0.0.1', port: 5278 })
+    lastConnectSocket.instance!.emit('connect')
+    const wired = spawned[0]!
+    mgr.stopWireless()
+    expect(wired.close).not.toHaveBeenCalled()
+  })
+
+  test('bridge error and closed handlers do not throw', async () => {
+    const { mgr } = newManager()
+    await mgr.bringUpWired(fakeDevice('e1'))
+    const b = lastBridge.instance!
+    expect(() => {
+      b.emit('error', new Error('x'))
+      b.emit('closed')
+    }).not.toThrow()
+  })
+
+  test('ready is ignored once the bridge has been superseded', async () => {
+    const { mgr } = newManager()
+    await mgr.bringUpWired(fakeDevice('sup'))
+    const b = lastBridge.instance!
+    ;(mgr as unknown as { _wiredBridges: Map<string, unknown> })._wiredBridges.set(
+      'serial:sup',
+      new MockUsbAoapBridge()
+    )
+    b.emit('ready', { host: '127.0.0.1', port: 5278 })
+    expect(net.createConnection as Mock).not.toHaveBeenCalled()
+  })
+
+  test('loopback connect is dropped if the bridge was superseded mid-dial', async () => {
+    const { mgr } = newManager()
+    await mgr.bringUpWired(fakeDevice('mid'))
+    const b = lastBridge.instance!
+    b.emit('ready', { host: '127.0.0.1', port: 5278 })
+    const sock = lastConnectSocket.instance!
+    ;(mgr as unknown as { _wiredBridges: Map<string, unknown> })._wiredBridges.set(
+      'serial:mid',
+      new MockUsbAoapBridge()
+    )
+    sock.emit('connect')
+    expect(sock.destroy).toHaveBeenCalled()
+  })
+
+  test('loopback socket error is logged without throwing', async () => {
+    const { mgr } = newManager()
+    await mgr.bringUpWired(fakeDevice('le'))
+    lastBridge.instance!.emit('ready', { host: '127.0.0.1', port: 5278 })
+    const sock = lastConnectSocket.instance!
+    expect(() => sock.emit('error', new Error('reset'))).not.toThrow()
+  })
+
+  test('deviceKey falls back to vid:pid when there is no serial', async () => {
+    const { mgr } = newManager()
+    const dev = {
+      vendorId: undefined,
+      productId: undefined,
+      serialNumber: undefined
+    } as unknown as USBDevice
+    await mgr.bringUpWired(dev)
+    lastBridge.instance!.emit('ready', { host: '127.0.0.1', port: 5278 })
+    lastConnectSocket.instance!.emit('connect')
+    expect(
+      (mgr as unknown as { _wiredBridges: Map<string, unknown> })._wiredBridges.has('0:0')
+    ).toBe(true)
+    expect(spawned[0]!.opts.wiredBridge).toBe(lastBridge.instance)
+  })
+
+  test('close shuts server, sessions and wired bridges, tolerating throws', async () => {
+    const { mgr } = newManager()
+    mgr.startWireless()
+    lastServer.instance!.handler(new MockSocket())
+    const wireless = spawned[0]!
+    wireless.close = vi.fn(async () => {
+      throw new Error('sess')
+    })
+    await mgr.bringUpWired(fakeDevice('cl'))
+    const b = lastBridge.instance!
+    b.stop = vi.fn(async () => {
+      throw new Error('brg')
+    })
+    await expect(mgr.close()).resolves.toBeUndefined()
+    expect(wireless.close).toHaveBeenCalled()
+    expect(b.stop).toHaveBeenCalled()
+  })
+
+  test('close with no server still resolves', async () => {
+    const { mgr } = newManager()
+    await expect(mgr.close()).resolves.toBeUndefined()
+  })
+
+  test('wireless reconnect supersedes the same-IP session only', () => {
+    const { mgr } = newManager()
+    mgr.startWireless()
+    const srv = lastServer.instance!
+    const a = new MockSocket()
+    ;(a as unknown as { remoteAddress: string }).remoteAddress = '10.0.0.5'
+    srv.handler(a)
+    const other = new MockSocket()
+    ;(other as unknown as { remoteAddress: string }).remoteAddress = '10.0.0.9'
+    srv.handler(other)
+    const s1 = spawned[0]!
+    const s2 = spawned[1]!
+    const b = new MockSocket()
+    ;(b as unknown as { remoteAddress: string }).remoteAddress = '10.0.0.5'
+    srv.handler(b)
+    expect(s1.close).toHaveBeenCalled()
+    expect(s2.close).not.toHaveBeenCalled()
+  })
+
+  test('a wireless session disconnect cleans up without touching wired bridges', () => {
+    const { mgr } = newManager()
+    mgr.startWireless()
+    const srv = lastServer.instance!
+    const sock = new MockSocket()
+    ;(sock as unknown as { remoteAddress: string }).remoteAddress = '10.0.0.7'
+    srv.handler(sock)
+    const s = spawned[0]!
+    expect(() => s.emit('disconnected')).not.toThrow()
+  })
+})
+
 describe('AaManager — codec/night-mode seed', () => {
   test('live setters forward to every live session', () => {
     const { mgr } = newManager()

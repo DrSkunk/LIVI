@@ -9,11 +9,48 @@ LIVI is an open-source **Apple CarPlay and Android Auto head unit**.
 It is a standalone cross-platform head unit with a native, zero-copy GStreamer video pipeline and hardware-accelerated decoding on Linux (including the Raspberry Pi 4 and 5) and macOS, low-latency audio, multitouch + D-Pad navigation, and support for very small embedded/OEM displays.
 
 
+## Project Status
+
+![Release](https://img.shields.io/github/v/release/f-io/LIVI?label=release)
+![Main Version](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-version.json)
+![TS Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/typecheck.yml?branch=main&label=TS%20main)
+![Build Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/build.yml?branch=main&label=build%20main)
+![Coverage Main](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-main.json)
+![Coverage Renderer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-renderer.json)
+
+
 ## Native Connectivity
 
 - **Apple CarPlay** (wired & wireless) on Linux — requires [MFi Authentication](#mfi-authentication)
 - **Android Auto** (wired) on all platforms
 - **Android Auto** (wireless) on Linux
+
+## Native Apple CarPlay
+
+LIVI implements the CarPlay accessory side natively on Linux. Wireless sessions run over LIVI's own Wi-Fi access point with Bluetooth pairing, wired sessions run directly over the USB cable (no OTG required).
+
+- main + instrument cluster video (H.264/H.265, hardware decoded, zero-copy)
+- audio playback, phone calls, microphone uplink
+- now-playing metadata incl. album art, turn-by-turn navigation data
+- touch, knob/D-Pad and hard-key input
+- day/night mode and GPS forwarding to the phone
+- multi-session with live switching between connected phones
+
+Wireless CarPlay requires a Bluetooth adapter and a Wi-Fi interface dedicated to the access point. Wired CarPlay works on any USB port.
+
+
+## MFi Authentication
+
+CarPlay requires the accessory to authenticate against the phone using an Apple **MFi authentication coprocessor**. This is a hardware chip, it cannot be emulated in software, and LIVI does not ship or bypass it. You need a physical coprocessor (e.g. salvaged from a certified CarPlay accessory or sourced as a module) wired to the I²C bus of your board.
+
+LIVI talks to the chip directly. Configuration (`config.json`):
+
+| Key                   | Default | Description                          |
+| --------------------- | ------- | ------------------------------------ |
+| `carPlayMfiI2cBus`    | `2`     | I²C bus number the coprocessor is on |
+| `carPlayMfiPowerGpio` | `21`    | GPIO that powers the coprocessor     |
+
+Without a coprocessor, native CarPlay is unavailable. Dongle-based CarPlay and all Android Auto paths work regardless.
 
 
 ## Wireless
@@ -147,51 +184,6 @@ Video: 1920x1080 - View Area: 0/0/0/0 (T/B/L/R) - Safe Area: 120/20/500/500 (T/B
   &emsp;
   <img src="docs/images/settings.png" alt="Settings" width="42%" align="top" />
 </p>
-
-
-## Native Apple CarPlay
-
-LIVI implements the CarPlay accessory side natively on Linux. Wireless sessions run over LIVI's own Wi-Fi access point with Bluetooth pairing, wired sessions run directly over the USB cable (no OTG required).
-
-- main + instrument cluster video (H.264/H.265, hardware decoded, zero-copy)
-- audio playback, phone calls, microphone uplink
-- now-playing metadata incl. album art, turn-by-turn navigation data
-- touch, knob/D-Pad and hard-key input
-- day/night mode and GPS forwarding to the phone
-- multi-session with live switching between connected phones
-
-Wireless CarPlay requires a Bluetooth adapter and a Wi-Fi interface dedicated to the access point. Wired CarPlay works on any USB port.
-
-
-## MFi Authentication
-
-CarPlay requires the accessory to authenticate against the phone using an Apple **MFi authentication coprocessor**. This is a hardware chip, it cannot be emulated in software, and LIVI does not ship or bypass it. You need a physical coprocessor (e.g. salvaged from a certified CarPlay accessory or sourced as a module) wired to the I²C bus of your board.
-
-LIVI talks to the chip directly. Configuration (`config.json`):
-
-| Key                   | Default | Description                          |
-| --------------------- | ------- | ------------------------------------ |
-| `carPlayMfiI2cBus`    | `2`     | I²C bus number the coprocessor is on |
-| `carPlayMfiPowerGpio` | `21`    | GPIO that powers the coprocessor     |
-
-Without a coprocessor, native CarPlay is unavailable. Dongle-based CarPlay and all Android Auto paths work regardless.
-
-> **Legacy USB adapters:** **CPC200-CCPA** (wireless/wired) and **CPC200-CCPW** (wired)
-
-### Example Rasperry Pi config
-```bash
-# CP3.0, CP2.0C, CP2.0B
-dtoverlay=i2c-gpio,bus=2,i2c_gpio_sda=19,i2c_gpio_scl=26,i2c_gpio_delay_us=5
-```
-
-## Project Status
-
-![Release](https://img.shields.io/github/v/release/f-io/LIVI?label=release)
-![Main Version](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-version.json)
-![TS Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/typecheck.yml?branch=main&label=TS%20main)
-![Build Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/build.yml?branch=main&label=build%20main)
-![Coverage Main](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-main.json)
-![Coverage Renderer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-renderer.json)
 
 
 ## Installation

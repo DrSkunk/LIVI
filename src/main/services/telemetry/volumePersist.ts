@@ -33,7 +33,7 @@ export function attachVolumePersist({
 
   let lastWritten = typeof initialVolume === 'number' ? clamp(initialVolume) : undefined
 
-  const onChange = (_snap: TelemetryPayload, patch: TelemetryPayload): void => {
+  const onChange = (patch: TelemetryPayload): void => {
     if (!('volume' in patch)) return
     const raw = patch.volume
     if (typeof raw !== 'number' || !Number.isFinite(raw)) return

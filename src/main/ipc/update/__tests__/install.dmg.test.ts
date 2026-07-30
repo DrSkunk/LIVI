@@ -67,6 +67,31 @@ describe('installFromDmg', () => {
     )
   })
 
+  test('rejects when mounting the dmg fails', async () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' })
+    ;(execFile as Mock).mockImplementation((_cmd, args, cb) =>
+      args[0] === 'attach' ? cb(new Error('attach failed')) : cb(null)
+    )
+
+    await expect(installFromDmg('/tmp/LIVI.dmg')).rejects.toThrow('attach failed')
+    expect(sendUpdateEvent).not.toHaveBeenCalledWith({ phase: 'copying' })
+  })
+
+  test('rejects when the privileged copy fails', async () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' })
+    ;(execFile as Mock).mockImplementation((cmd, _args, cb) =>
+      cmd === 'osascript' ? cb(new Error('copy failed')) : cb(null)
+    )
+    ;(fsp.readdir as Mock).mockResolvedValue([
+      {
+        name: 'LIVI.app',
+        isDirectory: () => true
+      }
+    ])
+
+    await expect(installFromDmg('/tmp/LIVI.dmg')).rejects.toThrow('copy failed')
+  })
+
   test('detaches and throws when no .app found in dmg', async () => {
     Object.defineProperty(process, 'platform', { value: 'darwin' })
     ;(execFile as Mock).mockImplementation((cmd, args, cb) => cb(null))

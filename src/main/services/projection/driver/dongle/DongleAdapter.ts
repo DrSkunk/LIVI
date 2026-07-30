@@ -74,7 +74,10 @@ export class DongleAdapter {
     }
 
     if (msg instanceof BoxInfo) {
-      const settings = msg.settings as { DevList?: Array<Record<string, unknown>> }
+      const settings = (msg.settings ?? {}) as {
+        DevList?: Array<Record<string, unknown>>
+        btMacAddr?: unknown
+      }
       if (Array.isArray(settings.DevList)) {
         this.dongleDevList = settings.DevList.map((entry) => ({
           ...(entry as DevListEntry),
@@ -82,7 +85,7 @@ export class DongleAdapter {
         }))
         settings.DevList = this.dongleDevList as unknown as Array<Record<string, unknown>>
       }
-      const rawBtMac = (msg.settings as { btMacAddr?: unknown }).btMacAddr
+      const rawBtMac = settings.btMacAddr
       if (typeof rawBtMac === 'string' && rawBtMac.trim()) {
         this.dongleConnectedMac = rawBtMac.trim()
       }

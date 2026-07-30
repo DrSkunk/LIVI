@@ -9,7 +9,7 @@ export type GstVideoCodec = 'h264' | 'h265' | 'vp9' | 'av1'
 
 // Parse "#rrggbb" into 0..255 channels, falls back to black on a malformed value
 function hexToRgb255(hex: string): [number, number, number] {
-  const m = /^#?([0-9a-f]{6})$/i.exec((hex ?? '').trim())
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
   if (!m) return [0, 0, 0]
   const n = Number.parseInt(m[1], 16)
   return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]
@@ -89,27 +89,21 @@ class CompositorControl {
 
   private pumpClaims(): void {
     if (this.claimInFlight || this.claimQueue.length === 0) return
-    const next = this.claimQueue.shift()
-    if (!next) return
+    const next = this.claimQueue.shift() as { role: string; onClaimed: () => void }
     this.claimInFlight = next.role
     this.claim(next.role)
-    if (this.claimTimer) clearTimeout(this.claimTimer)
-    this.claimTimer = setTimeout(() => {
-      if (this.claimInFlight === next.role) this.abortInFlightClaim()
-    }, 3000)
+    this.claimTimer = setTimeout(() => this.abortInFlightClaim(), 3000)
     next.onClaimed()
   }
 
   private abortInFlightClaim(): void {
-    if (this.claimInFlight) this.unclaim(this.claimInFlight)
+    this.unclaim(this.claimInFlight as string)
     this.endClaim()
   }
 
   private endClaim(): void {
-    if (this.claimTimer) {
-      clearTimeout(this.claimTimer)
-      this.claimTimer = null
-    }
+    clearTimeout(this.claimTimer as ReturnType<typeof setTimeout>)
+    this.claimTimer = null
     this.claimInFlight = null
     this.pumpClaims()
   }
@@ -206,7 +200,7 @@ class CompositorControl {
   }
 
   private connect(): void {
-    if (this.connecting || !this.enabled) return
+    if (this.connecting) return
     this.connecting = true
     const s = net.connect(this.path)
     s.on('connect', () => {
@@ -398,7 +392,6 @@ export class GstVideo {
   private readonly id: number
   private started = false
   private claiming = false
-  private setupGen = 0
   private pendingBuffers: Buffer[] = []
   private player: unknown = null
   private codec: GstVideoCodec | null = null
@@ -454,9 +447,7 @@ export class GstVideo {
       if (this.claiming) return
       this.dispose()
       this.claiming = true
-      const gen = ++this.setupGen
       compositorControl.serializedClaim(this.role, () => {
-        if (this.setupGen !== gen) return
         this.claiming = false
         gstHost.createPlayer(this.id, codec, this.codecData ?? undefined)
         this.codec = codec
@@ -489,7 +480,7 @@ export class GstVideo {
       this.ensure(codec)
       if (this.started) {
         gstHost.pushBuffer(this.id, nal)
-      } else if (this.claiming) {
+      } else {
         if (this.pendingBuffers.length >= 240) this.pendingBuffers.shift()
         this.pendingBuffers.push(nal)
       }
@@ -533,7 +524,6 @@ export class GstVideo {
   }
 
   private applyRegion(a: GstAddon): void {
-    if (!this.player) return
     const r = this.region
     a.setContentRegion(
       this.player,
@@ -548,7 +538,6 @@ export class GstVideo {
 
   dispose(): void {
     if (useHostProcess) {
-      this.setupGen++
       this.claiming = false
       this.pendingBuffers = []
       compositorControl.releaseClaim(this.role)

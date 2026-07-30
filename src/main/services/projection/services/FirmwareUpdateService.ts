@@ -57,14 +57,12 @@ function isRecord(v: unknown): v is UnknownRecord {
   return typeof v === 'object' && v !== null
 }
 
-function readString(o: unknown, key: string): string | null {
-  if (!isRecord(o)) return null
+function readString(o: UnknownRecord, key: string): string | null {
   const v = o[key]
   return typeof v === 'string' && v.trim() ? v.trim() : null
 }
 
-function readNumber(o: unknown, key: string): number | null {
-  if (!isRecord(o)) return null
+function readNumber(o: UnknownRecord, key: string): number | null {
   const v = o[key]
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
@@ -139,11 +137,12 @@ export class FirmwareUpdateService {
         return { ok: false, error: `checkBox err=${String(err ?? 'unknown')}` }
       }
 
-      const latestVer = readString(raw, 'ver')
-      const notes = readString(raw, 'notes')
-      const size = readNumber(raw, 'size')
-      const id = readString(raw, 'id')
-      const token = readString(raw, 'token')
+      const rec = raw as UnknownRecord
+      const latestVer = readString(rec, 'ver')
+      const notes = readString(rec, 'notes')
+      const size = readNumber(rec, 'size')
+      const id = readString(rec, 'id')
+      const token = readString(rec, 'token')
 
       const hasUpdate = latestVer != null && latestVer !== ver
 

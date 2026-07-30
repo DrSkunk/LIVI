@@ -90,10 +90,8 @@ export function renderRelayClick(kind: 'on' | 'off'): Float32Array {
   // Peak-normalise so volume is predictable.
   let peak = 0
   for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(out[i]))
-  if (peak > 0) {
-    const norm = 0.85 / peak
-    for (let i = 0; i < len; i++) out[i] *= norm
-  }
+  const norm = 0.85 / peak
+  for (let i = 0; i < len; i++) out[i] *= norm
   return out
 }
 

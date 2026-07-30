@@ -54,8 +54,8 @@ export class CodecCapabilityService {
   }
 
   private recompute(): void {
-    const caps = this.lastCodecCaps
-    if (!caps) return
+    // recompute only runs after lastCodecCaps was assigned by an apply* call
+    const caps = this.lastCodecCaps as Caps
     // applyGstCodecCaps already drops optional codecs without a HW decoder to
     // undefined, so a present entry means the codec is advertised
     const isSupported = (c: { hw?: unknown; sw?: unknown } | undefined): boolean => Boolean(c)

@@ -214,9 +214,8 @@ export class SessionManager {
 
   private closeSession(s: ProjectionSession): void {
     const wasActive = s.state === 'active'
-    const i = this.sessions.indexOf(s)
-    if (i < 0) return
-    this.removeAt(i)
+    // s always comes from a lookup over this.sessions, so it is present here
+    this.removeAt(this.sessions.indexOf(s))
     let reason = `close #${s.index}/${s.protocol}`
     if (wasActive) {
       const next = this.held()[0] ?? null

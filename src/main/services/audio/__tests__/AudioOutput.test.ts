@@ -691,6 +691,133 @@ describe('AudioOutput', () => {
     )
   })
 
+  test('setDevice appends the device to the sink args on the next start', async () => {
+    const proc = makeProc()
+    ;(spawn as Mock).mockReturnValue(proc)
+
+    const out = new AudioOutput({ sampleRate: 48000, channels: 2, mode: 'music' })
+    out.setDevice('MySpeaker')
+    out.start()
+
+    const [, args] = (spawn as Mock).mock.calls[0]
+    expect(args).toContain('unique-id=MySpeaker')
+  })
+
+  test('drain events from a replaced process are ignored', async () => {
+    const proc1 = makeProc()
+    const proc2 = makeProc()
+    ;(spawn as Mock).mockReturnValueOnce(proc1).mockReturnValueOnce(proc2)
+
+    const out = new AudioOutput({ sampleRate: 48000, channels: 2, mode: 'music' }) as any
+    out.start()
+    out.start()
+    out.writing = true
+
+    proc1.stdin.emit('drain')
+
+    expect(out.writing).toBe(true)
+  })
+
+  test('stderr output stays silent outside debug builds', async () => {
+    const proc = makeProc()
+    ;(spawn as Mock).mockReturnValue(proc)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const out = new AudioOutput({ sampleRate: 48000, channels: 2, mode: 'music' })
+    out.start()
+
+    proc.stderr.emit('data', Buffer.from('   \n'))
+    proc.stderr.emit('data', Buffer.from('gst noise'))
+
+    expect(warnSpy).not.toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
+  test('errors from a replaced process do not clean up the new one', async () => {
+    const proc1 = makeProc()
+    const proc2 = makeProc()
+    ;(spawn as Mock).mockReturnValueOnce(proc1).mockReturnValueOnce(proc2)
+
+    const out = new AudioOutput({ sampleRate: 48000, channels: 2, mode: 'music' }) as any
+    out.start()
+    out.start()
+
+    proc1.emit('error', new Error('stale'))
+
+    expect(out.process).toBe(proc2)
+  })
+
+  test('dispose swallows kill errors', async () => {
+    const proc = makeProc()
+    proc.kill.mockImplementation(function () {
+      throw new Error('kill fail')
+    })
+    ;(spawn as Mock).mockReturnValue(proc)
+
+    const out = new AudioOutput({ sampleRate: 48000, channels: 2, mode: 'music' })
+    out.start()
+
+    expect(() => out.dispose()).not.toThrow()
+  })
+
+  test('warns when kill throws during dispose in DEBUG mode', async () => {
+    vi.resetModules()
+
+    vi.doMock('@main/constants', () => ({
+      DEBUG: true
+    }))
+
+    const { spawn: freshSpawn } = (await import('child_process')) as { spawn: Mock }
+    const freshFs = (await import('fs')) as { existsSync: Mock }
+    const { app: freshApp } = (await import('electron')) as {
+      app: { isPackaged: boolean; getAppPath: Mock }
+    }
+
+    Object.defineProperty(process, 'platform', {
+      value: 'darwin',
+      configurable: true
+    })
+    Object.defineProperty(process, 'arch', {
+      value: 'arm64',
+      configurable: true
+    })
+
+    freshApp.isPackaged = false
+    freshApp.getAppPath.mockReturnValue('/mock/app')
+    freshFs.existsSync.mockImplementation((p: fs.PathLike) =>
+      String(p).includes('/mock/app/assets/gstreamer/macos-arm64')
+    )
+
+    const { AudioOutput: DebugAudioOutput } = await import('@main/services/audio/AudioOutput')
+
+    const proc = makeProc()
+    proc.kill.mockImplementation(function () {
+      throw new Error('kill fail')
+    })
+    freshSpawn.mockReturnValue(proc)
+
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const out = new DebugAudioOutput({
+      sampleRate: 48000,
+      channels: 2,
+      mode: 'music',
+      device: 'dev-1'
+    })
+    out.start()
+    out.dispose()
+
+    expect(debugSpy).toHaveBeenCalledWith(
+      '[AudioOutput] Init',
+      expect.objectContaining({ device: 'dev-1' })
+    )
+    expect(warnSpy).toHaveBeenCalledWith('[AudioOutput] failed to kill process:', expect.any(Error))
+
+    const [, args] = freshSpawn.mock.calls[0]
+    expect(args).toContain('unique-id=dev-1')
+  })
+
   test('warns when stdin.end and kill throw while stopping in DEBUG mode', async () => {
     vi.resetModules()
 

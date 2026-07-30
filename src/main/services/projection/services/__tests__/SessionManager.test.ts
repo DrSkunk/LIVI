@@ -147,5 +147,312 @@ describe('SessionManager', () => {
       expect(s1.driver).toBe(wired)
       expect(mgr.all()).toHaveLength(2)
     })
+
+    it('routes to the wired driver when the adopted session is active', () => {
+      const route = vi.fn()
+      const mgr = new SessionManager({ route })
+      const wireless = { close: vi.fn() } as unknown as IPhoneDriver
+      const wired = { close: vi.fn() } as unknown as IPhoneDriver
+
+      const s = mgr.upsert(wireless, 'androidauto', 'wifi', { instanceId: 'inst-1' })
+      mgr.activate(s.index)
+      route.mockClear()
+
+      mgr.upsert(wired, 'androidauto', 'usb', { instanceId: 'inst-1' })
+
+      expect(route).toHaveBeenCalledWith(wired)
+    })
+  })
+
+  describe('lookups', () => {
+    it('finds sessions by every identity key and misses on unknown ids', () => {
+      const mgr = mkManager()
+      const s = mgr.upsert(mkDriver(), 'androidauto', 'wifi', {
+        wifiMac: '11:22:33:44:55:66',
+        usbUdid: 'UDID-1',
+        usbSerial: 'SER-1',
+        instanceId: 'inst-1',
+        controllerId: 'ctrl-1',
+        ip: '10.0.0.2'
+      })
+
+      expect(mgr.byDevice({ wifiMac: '11:22:33:44:55:66' })).toBe(s)
+      expect(mgr.byDevice({ usbUdid: 'UDID-1' })).toBe(s)
+      expect(mgr.byDevice({ usbSerial: 'SER-1' })).toBe(s)
+      expect(mgr.byDevice({ instanceId: 'inst-1' })).toBe(s)
+      expect(mgr.byDevice({ controllerId: 'ctrl-1' })).toBe(s)
+      expect(mgr.byDevice({ ip: '10.0.0.2' })).toBe(s)
+      expect(mgr.byDevice({ btMac: 'no:pe:no:pe:no:pe' })).toBeNull()
+      expect(mgr.byDevice({})).toBeNull()
+    })
+
+    it('byIdentity requires an id and a matching protocol', () => {
+      const mgr = mkManager()
+      const s = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'inst-1' })
+
+      expect(mgr.byIdentity('androidauto', {})).toBeNull()
+      expect(mgr.byIdentity('androidauto', { ip: '1.2.3.4' })).toBeNull()
+      expect(mgr.byIdentity('androidauto', { controllerId: 'ctrl-x' })).toBeNull()
+      expect(mgr.byIdentity('androidauto', { usbSerial: 'ser-x' })).toBeNull()
+      expect(mgr.byIdentity('carplay', { instanceId: 'inst-1' })).toBeNull()
+      expect(mgr.byIdentity('androidauto', { instanceId: 'inst-1' })).toBe(s)
+    })
+
+    it('byIndex, stateForDevice, active and held reflect the session states', () => {
+      const mgr = mkManager()
+      expect(mgr.active()).toBeNull()
+
+      const s1 = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+      const s2 = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'b' })
+      mgr.activate(s1.index)
+
+      expect(mgr.byIndex(s1.index)).toBe(s1)
+      expect(mgr.byIndex(999)).toBeNull()
+      expect(mgr.active()).toBe(s1)
+      expect(mgr.held()).toEqual([s2])
+      expect(mgr.stateForDevice({ instanceId: 'a' })).toBe('active')
+      expect(mgr.stateForDevice({ instanceId: 'b' })).toBe('held')
+      expect(mgr.stateForDevice({ instanceId: 'c' })).toBeNull()
+    })
+
+    it('dump logs without mutating', () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+      const mgr = mkManager()
+      mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+
+      mgr.dump('why-not')
+
+      expect(logSpy).toHaveBeenCalled()
+      expect(mgr.all()).toHaveLength(1)
+      logSpy.mockRestore()
+    })
+  })
+
+  describe('change notification', () => {
+    it('emitChange invokes onChange when provided', () => {
+      const onChange = vi.fn()
+      const mgr = new SessionManager({ route: () => {}, onChange })
+
+      mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+
+      expect(onChange).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('reassignDriver', () => {
+    it('returns null for an unknown driver and the session for a no-op reassign', () => {
+      const mgr = mkManager()
+      const d = mkDriver()
+      const s = mgr.upsert(d, 'carplay', 'wifi', { btMac: 'aa:bb:cc:dd:ee:01' })
+
+      expect(mgr.reassignDriver(mkDriver(), mkDriver())).toBeNull()
+      expect(mgr.reassignDriver(d, d)).toBe(s)
+      expect(s.driver).toBe(d)
+    })
+
+    it('hands a held session to the new driver without routing', () => {
+      const route = vi.fn()
+      const mgr = new SessionManager({ route })
+      const from = mkDriver()
+      const to = mkDriver()
+      const s = mgr.upsert(from, 'carplay', 'wifi', { btMac: 'aa:bb:cc:dd:ee:01' })
+      route.mockClear()
+
+      expect(mgr.reassignDriver(from, to)).toBe(s)
+      expect(s.driver).toBe(to)
+      expect(route).not.toHaveBeenCalled()
+    })
+
+    it('routes to the new driver when the session is active', () => {
+      const route = vi.fn()
+      const mgr = new SessionManager({ route })
+      const from = mkDriver()
+      const to = mkDriver()
+      const s = mgr.upsert(from, 'carplay', 'wifi', { btMac: 'aa:bb:cc:dd:ee:01' })
+      mgr.activate(s.index)
+      route.mockClear()
+
+      mgr.reassignDriver(from, to)
+
+      expect(route).toHaveBeenCalledWith(to)
+    })
+  })
+
+  describe('activation', () => {
+    it('activate returns null for an unknown index and short-circuits when already active', () => {
+      const route = vi.fn()
+      const onActiveChanged = vi.fn()
+      const mgr = new SessionManager({ route, onActiveChanged })
+      const s = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+
+      expect(mgr.activate(999)).toBeNull()
+
+      expect(mgr.activate(s.index)).toBe(s)
+      expect(onActiveChanged).toHaveBeenCalledWith(s, null)
+
+      route.mockClear()
+      onActiveChanged.mockClear()
+      expect(mgr.activate(s.index)).toBe(s)
+      expect(route).not.toHaveBeenCalled()
+      expect(onActiveChanged).not.toHaveBeenCalled()
+    })
+
+    it('activate holds the previous session and notifies with it', () => {
+      const onActiveChanged = vi.fn()
+      const mgr = new SessionManager({ route: () => {}, onActiveChanged })
+      const s1 = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+      const s2 = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'b' })
+      mgr.activate(s1.index)
+
+      mgr.activate(s2.index)
+
+      expect(s1.state).toBe('held')
+      expect(s2.state).toBe('active')
+      expect(onActiveChanged).toHaveBeenLastCalledWith(s2, s1)
+    })
+
+    it('activateNext does nothing with fewer than two sessions', () => {
+      const route = vi.fn()
+      const mgr = new SessionManager({ route })
+      mgr.activateNext()
+      mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+      route.mockClear()
+
+      mgr.activateNext()
+
+      expect(route).not.toHaveBeenCalled()
+    })
+
+    it('activateNext cycles through sessions and wraps around', () => {
+      const mgr = mkManager()
+      const s1 = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+      const s2 = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'b' })
+      mgr.activate(s1.index)
+
+      mgr.activateNext()
+      expect(mgr.active()).toBe(s2)
+
+      mgr.activateNext()
+      expect(mgr.active()).toBe(s1)
+    })
+
+    it('activateNext starts at the first session when none is active', () => {
+      const mgr = mkManager()
+      const s1 = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+      mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'b' })
+
+      mgr.activateNext()
+
+      expect(mgr.active()).toBe(s1)
+    })
+  })
+
+  describe('closing', () => {
+    it('close promotes the first held session when the active one goes away', () => {
+      const route = vi.fn()
+      const onActiveChanged = vi.fn()
+      const mgr = new SessionManager({ route, onActiveChanged })
+      const s1 = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+      const s2 = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'b' })
+      mgr.activate(s1.index)
+      route.mockClear()
+      onActiveChanged.mockClear()
+
+      mgr.close(s1.index)
+
+      expect(mgr.all()).toEqual([s2])
+      expect(s2.state).toBe('active')
+      expect(route).toHaveBeenCalledWith(s2.driver)
+      expect(onActiveChanged).toHaveBeenCalledWith(s2, s1)
+    })
+
+    it('close goes idle when the last active session goes away', () => {
+      const onActiveChanged = vi.fn()
+      const mgr = new SessionManager({ route: () => {}, onActiveChanged })
+      const s = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+      mgr.activate(s.index)
+      onActiveChanged.mockClear()
+
+      mgr.close(s.index)
+
+      expect(mgr.all()).toHaveLength(0)
+      expect(onActiveChanged).toHaveBeenCalledWith(null, s)
+    })
+
+    it('close removes a held session without touching the active one', () => {
+      const onActiveChanged = vi.fn()
+      const mgr = new SessionManager({ route: () => {}, onActiveChanged })
+      const s1 = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+      const s2 = mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'b' })
+      mgr.activate(s1.index)
+      onActiveChanged.mockClear()
+
+      mgr.close(s2.index)
+
+      expect(mgr.all()).toEqual([s1])
+      expect(s1.state).toBe('active')
+      expect(onActiveChanged).not.toHaveBeenCalled()
+    })
+
+    it('close ignores an unknown index', () => {
+      const mgr = mkManager()
+      mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+
+      mgr.close(999)
+
+      expect(mgr.all()).toHaveLength(1)
+    })
+
+    it('closeByDriver removes the matching session and logs a miss otherwise', () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+      const mgr = mkManager()
+      const d = mkDriver()
+      mgr.upsert(d, 'androidauto', 'wifi', { instanceId: 'a' })
+
+      mgr.closeByDriver(mkDriver())
+      expect(mgr.all()).toHaveLength(1)
+      expect(logSpy).toHaveBeenCalledWith('[SESSIONS] closeByDriver → NO matching session')
+
+      mgr.closeByDriver(d)
+      expect(mgr.all()).toHaveLength(0)
+      logSpy.mockRestore()
+    })
+
+    it('closeByDevice removes the matching session and ignores unknown ids', () => {
+      const mgr = mkManager()
+      mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+
+      mgr.closeByDevice({ instanceId: 'zzz' })
+      expect(mgr.all()).toHaveLength(1)
+
+      mgr.closeByDevice({ instanceId: 'a' })
+      expect(mgr.all()).toHaveLength(0)
+    })
+
+    it('closeByDeviceOnTransport closes the driver only on a transport match', () => {
+      const mgr = mkManager()
+      const close = vi.fn()
+      const d = { close } as unknown as IPhoneDriver
+      mgr.upsert(d, 'androidauto', 'usb', { instanceId: 'a' })
+
+      mgr.closeByDeviceOnTransport({ instanceId: 'zzz' }, 'usb')
+      expect(close).not.toHaveBeenCalled()
+
+      mgr.closeByDeviceOnTransport({ instanceId: 'a' }, 'wifi')
+      expect(close).not.toHaveBeenCalled()
+
+      mgr.closeByDeviceOnTransport({ instanceId: 'a' }, 'usb')
+      expect(close).toHaveBeenCalledTimes(1)
+    })
+
+    it('clear drops every session', () => {
+      const mgr = mkManager()
+      mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
+      mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'b' })
+
+      mgr.clear()
+
+      expect(mgr.all()).toHaveLength(0)
+    })
   })
 })

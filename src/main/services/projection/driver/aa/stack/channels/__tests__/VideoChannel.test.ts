@@ -69,6 +69,18 @@ describe('VideoChannel', () => {
     expect(emittedTs).toBe(7n)
   })
 
+  test('START_INDICATION without a session_id keeps the default session', () => {
+    const { send } = freshSend()
+    const ch = new VideoChannel(send)
+    expect(() =>
+      ch.handleMessage(
+        AV_MSG.START_INDICATION,
+        fieldVarint(2, 3),
+        dummyFrame(CH.VIDEO, AV_MSG.START_INDICATION, Buffer.alloc(0))
+      )
+    ).not.toThrow()
+  })
+
   test('START_INDICATION captures session_id for subsequent acks', () => {
     const { send, calls } = freshSend()
     const ch = new VideoChannel(send)
@@ -117,6 +129,22 @@ describe('VideoChannel', () => {
     ch.handleMessage(
       AV_MSG.VIDEO_FOCUS_REQUEST,
       fieldVarint(2, 2),
+      dummyFrame(CH.VIDEO, AV_MSG.VIDEO_FOCUS_REQUEST, Buffer.alloc(0))
+    )
+
+    expect(host).toHaveBeenCalled()
+  })
+
+  test('VIDEO_FOCUS_REQUEST mode=NATIVE_TRANSIENT skips unknown fields and requests host UI', () => {
+    const { send } = freshSend()
+    const ch = new VideoChannel(send)
+    const host = vi.fn()
+    ch.on('host-ui-requested', host)
+
+    const payload = Buffer.concat([fieldVarint(1, 5), fieldVarint(2, 3)])
+    ch.handleMessage(
+      AV_MSG.VIDEO_FOCUS_REQUEST,
+      payload,
       dummyFrame(CH.VIDEO, AV_MSG.VIDEO_FOCUS_REQUEST, Buffer.alloc(0))
     )
 

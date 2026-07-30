@@ -19,7 +19,9 @@ class MockSession extends EventEmitter {
   sendVehicleEnergyModel = vi.fn()
   sendMicPcm = vi.fn()
   requestVideoFocus = vi.fn()
+  requestMainKeyframe = vi.fn()
   requestClusterKeyframe = vi.fn()
+  forceClusterKeyframe = vi.fn()
   setClusterStreamActive = vi.fn()
   requestShutdown = vi.fn(async () => undefined)
   start = vi.fn(async () => undefined)
@@ -29,6 +31,11 @@ class MockSession extends EventEmitter {
 class MockTcpServer extends EventEmitter {
   listen = vi.fn()
   close = vi.fn()
+  refresh: () => void = () => {}
+  constructor(_cfg?: unknown, refresh?: () => void) {
+    super()
+    if (refresh) this.refresh = refresh
+  }
 }
 
 vi.mock('../session/Session', () => ({
@@ -38,8 +45,8 @@ vi.mock('../session/Session', () => ({
 }))
 
 vi.mock('../transport/TcpServer', () => ({
-  TcpServer: vi.fn().mockImplementation(function () {
-    return new MockTcpServer()
+  TcpServer: vi.fn().mockImplementation(function (cfg: unknown, refresh: () => void) {
+    return new MockTcpServer(cfg, refresh)
   })
 }))
 
@@ -64,8 +71,8 @@ beforeEach(async () => {
   ;((await vi.importMock('../transport/TcpServer')) as { TcpServer: Mock }).TcpServer.mockReset()
   ;(
     (await vi.importMock('../transport/TcpServer')) as { TcpServer: Mock }
-  ).TcpServer.mockImplementation(function () {
-    return new MockTcpServer()
+  ).TcpServer.mockImplementation(function (cfg: unknown, refresh: () => void) {
+    return new MockTcpServer(cfg, refresh)
   })
 })
 afterEach(async () => vi.restoreAllMocks())
@@ -152,7 +159,10 @@ describe('AAStack — event forwarding', () => {
       'mic-start',
       'mic-stop',
       'voice-session',
+      'audio-focus',
       'host-ui-requested',
+      'device-info',
+      'device-status',
       'video-focus-projected',
       'cluster-video-focus-projected',
       'media-metadata',
@@ -162,6 +172,8 @@ describe('AAStack — event forwarding', () => {
       'nav-status',
       'nav-turn',
       'nav-distance',
+      'nav-state',
+      'nav-position',
       'connected',
       'disconnected'
     ]
@@ -254,6 +266,51 @@ describe('AAStack — outbound API delegates to active session', () => {
     expect(session.requestVideoFocus).toHaveBeenCalled()
     expect(session.requestClusterKeyframe).toHaveBeenCalled()
     expect(session.requestShutdown).toHaveBeenCalled()
+  })
+})
+
+describe('AAStack — config + keyframe API', () => {
+  test('applyDisplayConfig merges into the stored config', () => {
+    const cfg = baseCfg()
+    const stack = new AAStack(cfg)
+    stack.applyDisplayConfig(baseCfg({ videoWidth: 1920 }) as AAStackConfig)
+    expect((stack as unknown as { _cfg: AAStackConfig })._cfg.videoWidth).toBe(1920)
+  })
+
+  test('setConfigRefresh wires the TcpServer refresh hook', () => {
+    const stack = new AAStack(baseCfg())
+    const server = (stack as unknown as { _server: MockTcpServer })._server
+    server.refresh()
+    const fn = vi.fn()
+    stack.setConfigRefresh(fn)
+    server.refresh()
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  test('activeSession getter reflects the adopted session', () => {
+    const stack = new AAStack(baseCfg())
+    expect(stack.activeSession).toBeNull()
+    const { stack: s2, session } = setup()
+    expect(s2.activeSession).toBe(session as never)
+  })
+
+  test('keyframe + cluster-stream methods delegate to the active session', () => {
+    const { stack, session } = setup()
+    stack.requestMainKeyframe()
+    stack.forceClusterKeyframe()
+    stack.setClusterStreamActive(false)
+    expect(session.requestMainKeyframe).toHaveBeenCalled()
+    expect(session.forceClusterKeyframe).toHaveBeenCalled()
+    expect(session.setClusterStreamActive).toHaveBeenCalledWith(false)
+  })
+
+  test('keyframe methods are safe with no active session', () => {
+    const stack = new AAStack(baseCfg())
+    expect(() => {
+      stack.requestMainKeyframe()
+      stack.forceClusterKeyframe()
+      stack.setClusterStreamActive(true)
+    }).not.toThrow()
   })
 })
 

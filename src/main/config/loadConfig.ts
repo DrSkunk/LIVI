@@ -34,7 +34,7 @@ export function loadConfig(): Config {
 
   const merged = validate(fileConfig, defaults)
 
-  const pass = merged.wifiPassword ?? ''
+  const pass = merged.wifiPassword
   if (pass.length < WIFI_PASSWORD_MIN || pass.length > WIFI_PASSWORD_MAX) {
     console.warn(
       `[config] wifiPassword is ${pass.length} characters, hostapd needs ` +

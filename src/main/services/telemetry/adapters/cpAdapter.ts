@@ -73,7 +73,7 @@ export function attachCpAdapter({ store, getCpDriver }: CpAdapterDeps): CpAdapte
           gps.fixTs,
           gps.accuracyM
         )
-        if (nmea) cp.sendLocation(nmea)
+        cp.sendLocation(nmea)
       }
     }
   }
