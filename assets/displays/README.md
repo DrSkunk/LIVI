@@ -27,7 +27,10 @@ sudo reboot
 
 ## Profiles
 
-| File | Display | Native timing | On the wire |
-|------|---------|---------------|-------------|
-| `VOLVO_RTI_LQ065T5GG63_400_234.edid` | Volvo RTI, Sharp LQ065T5GG63 | 400x234 @ 8.14 MHz | 4x to 32.56 MHz |
+| File | Display | Native timing | On the wire | Provided by |
+|------|---------|---------------|-------------|-------------|
+| `MERCEDES_COMAND2_LQ5AW136_320_230p_60Hz.edid` | Mercedes COMAND 2, Sharp LQ5AW136 | 320x230p 60Hz @ 6.30 MHz | 4x to 25.2 MHz | [@niz93](https://github.com/niz93) |
+| `MERCEDES_COMAND2_LQ5AW136_640_460i_30Hz.edid` | Mercedes COMAND 2, Sharp LQ5AW136 | 640x460i 30Hz @ 12.71 MHz | 2x to 25.42 MHz | [@niz93](https://github.com/niz93) |
+| `VOLVO_RTI_LQ065T5GG63_400_234.edid` | Volvo RTI, Sharp LQ065T5GG63 | 400x234 @ 8.14 MHz | 4x to 32.56 MHz | [@f-io](https://github.com/f-io) |
+
 
