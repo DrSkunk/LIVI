@@ -165,13 +165,7 @@ function buildTheme(mode: THEME.LIGHT | THEME.DARK, bg?: string) {
             '--ui-breathe-dur': '1350ms'
           },
           '.fft-surface': {
-            backgroundColor: 'transparent',
-            ...(isLight
-              ? {}
-              : {
-                  backgroundImage:
-                    'radial-gradient(ellipse at center, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0) 60%)'
-                })
+            backgroundColor: 'transparent'
           },
 
           '.fft-surface-inner': {
