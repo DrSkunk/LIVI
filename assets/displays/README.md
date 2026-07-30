@@ -10,7 +10,7 @@ It patches the vc4 KMS driver to apply HDMI pixel repetition to every mode under
 
 `<CAR>_<SYSTEM>_<PANEL>_<WIDTH>_<HEIGHT>.edid`
 
-`<SYSTEM>` is the in-car system the display belongs to, as the manufacturer names it. Example: `VOLVO_RTI_SHARP_400_234.edid` is Volvo's RTI system (Road and Traffic Information), a Sharp 400x234 panel.
+`<SYSTEM>` is the in-car system the display belongs to, as the manufacturer names it. Example: `VOLVO_RTI_LQ065T5GG63_400_234.edid` is Volvo's RTI system (Road and Traffic Information), a Sharp 400x234 panel.
 
 ## Use
 
@@ -21,7 +21,7 @@ the whole step.
 By hand, copy the profile to the Pi and run:
 
 ```bash
-bash scripts/install/pi/setup-hdmi-pr-display.sh --edid assets/displays/VOLVO_RTI_SHARP_400_234.edid
+bash scripts/install/pi/setup-hdmi-pr-display.sh --edid assets/displays/VOLVO_RTI_LQ065T5GG63_400_234.edid
 sudo reboot
 ```
 
@@ -29,4 +29,5 @@ sudo reboot
 
 | File | Display | Native timing | On the wire |
 |------|---------|---------------|-------------|
-| `VOLVO_RTI_SHARP_400_234.edid` | Volvo RTI, Sharp 400x234 | 400x234 @ 8.14 MHz | 4x to 32.56 MHz |
+| `VOLVO_RTI_LQ065T5GG63_400_234.edid` | Volvo RTI, Sharp LQ065T5GG63 | 400x234 @ 8.14 MHz | 4x to 32.56 MHz |
+
