@@ -1,5 +1,11 @@
 import type { ElectronAPI } from '@electron-toolkit/preload'
-import type { Config, DeviceView, DongleFirmwareAction, TransportSnapshot } from '@shared/types'
+import type {
+  Config,
+  DeviceView,
+  DongleFirmwareAction,
+  MiniDspStatus,
+  TransportSnapshot
+} from '@shared/types'
 import type { MultiTouchPoint } from '@shared/types/TouchTypes'
 
 // Should move to src/types/usb.ts
@@ -109,6 +115,13 @@ declare global {
 
   interface Window {
     electron: ElectronAPI
+
+    minidsp: {
+      getStatus(): Promise<MiniDspStatus>
+      setVolume(volumeDb: number): Promise<void>
+      setBassGain(gainDb: number): Promise<void>
+      selectPreset(preset: number): Promise<void>
+    }
 
     projection: {
       quit(): Promise<void>

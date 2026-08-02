@@ -1,4 +1,4 @@
-import type { Config, TransportSnapshot } from '@shared/types'
+import type { Config, MiniDspStatus, TransportSnapshot } from '@shared/types'
 import type { MultiTouchPoint } from '@shared/types/TouchTypes'
 import { contextBridge, IpcRendererEvent, ipcRenderer } from 'electron'
 
@@ -224,6 +224,15 @@ const api = {
 }
 
 contextBridge.exposeInMainWorld('projection', api)
+
+contextBridge.exposeInMainWorld('minidsp', {
+  getStatus: (): Promise<MiniDspStatus> => ipcRenderer.invoke('minidsp:status'),
+  setVolume: (volumeDb: number): Promise<void> =>
+    ipcRenderer.invoke('minidsp:set-volume', volumeDb),
+  setBassGain: (gainDb: number): Promise<void> => ipcRenderer.invoke('minidsp:set-bass', gainDb),
+  selectPreset: (preset: number): Promise<void> =>
+    ipcRenderer.invoke('minidsp:select-preset', preset)
+})
 
 type UpdateEvent = { phase: string; message?: string }
 type UpdateProgress = { phase?: string; percent?: number; received?: number; total?: number }

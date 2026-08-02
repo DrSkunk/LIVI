@@ -79,6 +79,37 @@ export type LastKnownGps = {
 
 export type AppearanceMode = 'auto' | 'night' | 'day'
 
+export type MiniDspPreset = {
+  index: number
+  label: string
+}
+
+export type MiniDspConfig = {
+  enabled: boolean
+  /** Development-only simulated device. Ignored in packaged builds. */
+  mockDevice: boolean
+  serverUrl: string
+  deviceIndex: number
+  volumeMinDb: number
+  volumeMaxDb: number
+  volumeStepDb: number
+  bassOutputChannels: number[]
+  bassGainDb: number
+  bassMinDb: number
+  bassMaxDb: number
+  bassStepDb: number
+  presets: MiniDspPreset[]
+}
+
+export type MiniDspStatus = {
+  connected: boolean
+  preset: number
+  source: string
+  volumeDb: number
+  muted: boolean
+  productName?: string
+}
+
 /** carName is the Wi-Fi AP, Bluetooth and head-unit name, so it stays short. */
 export const CAR_NAME_MAX = 20
 
@@ -183,8 +214,9 @@ export type Config = {
   autoSwitchOnReverse: boolean
 
   // LIVI UI
-  startPage: 'home' | 'media' | 'maps' | 'telemetry' | 'camera' | 'settings'
+  startPage: 'home' | 'media' | 'maps' | 'telemetry' | 'camera' | 'minidsp' | 'settings'
   language: string
+  minidsp: MiniDspConfig
   kiosk: WindowAssignment
   uiZoomPercent: number
   appearanceMode: AppearanceMode

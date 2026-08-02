@@ -1,6 +1,7 @@
 vi.mock('../../components/pages', () => ({
   Home: () => null,
   Media: () => null,
+  MiniDsp: () => null,
   Camera: () => null,
   Devices: () => null,
   Maps: () => null,
@@ -22,7 +23,15 @@ describe('appRoutes', () => {
   test('contains expected top-level app routes', async () => {
     const root = appRoutes[0]
     const paths = (root.children ?? []).map((r: any) => r.path)
-    expect(paths).toEqual(['/home', '/telemetry', '/cluster', '/media', '/camera', '/settings/*'])
+    expect(paths).toEqual([
+      '/home',
+      '/telemetry',
+      '/cluster',
+      '/media',
+      '/camera',
+      '/minidsp',
+      '/settings/*'
+    ])
   })
 
   test('falls back to empty settings children when settingsRoutes is missing', async () => {
@@ -31,6 +40,7 @@ describe('appRoutes', () => {
     vi.doMock('../../components/pages', () => ({
       Home: () => null,
       Media: () => null,
+      MiniDsp: () => null,
       Camera: () => null,
       Devices: () => null,
       Maps: () => null,

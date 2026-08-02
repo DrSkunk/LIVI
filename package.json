@@ -15,6 +15,7 @@
   "scripts": {
     "prepare": "husky",
     "dev": "vite",
+    "dev:minidsp": "LIVI_MOCK_MINIDSP=1 vite",
     "start": "vite preview",
     "format": "biome format --write .",
     "lint": "biome check --write .",

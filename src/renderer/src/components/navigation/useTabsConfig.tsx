@@ -1,6 +1,7 @@
 // Icons
 import CameraOutlinedIcon from '@mui/icons-material/CameraOutlined'
 import CropPortraitOutlinedIcon from '@mui/icons-material/CropPortraitOutlined'
+import GraphicEqOutlinedIcon from '@mui/icons-material/GraphicEqOutlined'
 import PlayCircleOutlinedIcon from '@mui/icons-material/PlayCircleOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import SpeedOutlinedIcon from '@mui/icons-material/SpeedOutlined'
@@ -19,6 +20,7 @@ export const useTabsConfig: (receivingVideo: boolean) => TabConfig[] = (receivin
   const cameraFound = useStatusStore((s) => s.cameraFound)
   const cameraConfigured = useLiviStore((s) => Boolean(s.settings?.cameraId))
   const cameraReady = cameraFound || cameraConfigured
+  const miniDspEnabled = useLiviStore((s) => s.settings?.minidsp?.enabled === true)
   const isXSIcons = typeof window !== 'undefined' && window.innerHeight <= UI.XS_ICON_MAX_HEIGHT
   const iconFontSize = isXSIcons ? 24 : 32
   const cameraOnRole = useLiviStore((s) =>
@@ -119,6 +121,15 @@ export const useTabsConfig: (receivingVideo: boolean) => TabConfig[] = (receivin
             label: 'Camera',
             path: ROUTES.CAMERA,
             icon: <CameraOutlinedIcon sx={{ fontSize: iconFontSize }} />
+          }
+        ]
+      : []),
+    ...(miniDspEnabled
+      ? [
+          {
+            label: 'MiniDSP',
+            path: ROUTES.MINIDSP,
+            icon: <GraphicEqOutlinedIcon sx={{ fontSize: iconFontSize }} />
           }
         ]
       : []),

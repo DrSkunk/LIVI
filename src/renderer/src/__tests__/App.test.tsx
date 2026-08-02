@@ -23,6 +23,7 @@ vi.mock('../components/pages', () => ({
   Cluster: () => <div data-testid="cluster" />,
   Home: () => <div data-testid="home" />,
   Media: () => <div data-testid="media" />,
+  MiniDsp: () => <div data-testid="minidsp" />,
   Camera: () => <div data-testid="camera" />,
   Devices: () => <div data-testid="devices" />,
   Maps: () => <div data-testid="maps" />,

@@ -19,6 +19,7 @@ const START_PAGE_ROUTE: Record<string, string> = {
   home: ROUTES.HOME,
   media: ROUTES.MEDIA,
   camera: ROUTES.CAMERA,
+  minidsp: ROUTES.MINIDSP,
   settings: ROUTES.SETTINGS,
   telemetry: ROUTES.TELEMETRY
 }
@@ -28,6 +29,7 @@ const VIEW_ROUTE: Record<string, string> = {
   dash: ROUTES.TELEMETRY,
   media: ROUTES.MEDIA,
   camera: ROUTES.CAMERA,
+  minidsp: ROUTES.MINIDSP,
   settings: ROUTES.SETTINGS,
   devices: `${ROUTES.SETTINGS}/devices`
 }

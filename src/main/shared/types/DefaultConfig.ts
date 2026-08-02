@@ -65,6 +65,26 @@ export const DEFAULT_CONFIG: Config = {
   displayColorB: 1.0,
   startPage: 'home',
   language: 'en',
+  minidsp: {
+    enabled: true,
+    mockDevice: false,
+    serverUrl: 'http://127.0.0.1:5380',
+    deviceIndex: 0,
+    volumeMinDb: -80,
+    volumeMaxDb: 0,
+    volumeStepDb: 0.5,
+    bassOutputChannels: [2, 3],
+    bassGainDb: 0,
+    bassMinDb: -80,
+    bassMaxDb: 12,
+    bassStepDb: 0.5,
+    presets: [
+      { index: 0, label: 'Preset 1' },
+      { index: 1, label: 'Preset 2' },
+      { index: 2, label: 'Preset 3' },
+      { index: 3, label: 'Preset 4' }
+    ]
+  },
   kiosk: { main: false, dash: false, aux: false },
   uiZoomPercent: 100,
   cameraId: '',

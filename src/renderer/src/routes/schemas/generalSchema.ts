@@ -801,6 +801,7 @@ export const generalSchema: SettingsNode<Config> = {
         { label: 'Telemetry', labelKey: 'settings.startPageTelemetry', value: 'telemetry' },
         { label: 'Media', labelKey: 'settings.startPageMedia', value: 'media' },
         { label: 'Camera', labelKey: 'settings.startPageCamera', value: 'camera' },
+        { label: 'MiniDSP', value: 'minidsp' },
         { label: 'Settings', labelKey: 'settings.startPageSettings', value: 'settings' }
       ],
       page: {

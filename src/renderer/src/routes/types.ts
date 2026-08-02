@@ -5,6 +5,7 @@ export enum RoutePath {
   Home = 'home',
   Cluster = 'cluster',
   Media = 'media',
+  MiniDsp = 'minidsp',
   Devices = 'devices',
   Settings = 'settings',
   Telemetry = 'telemetry'
