@@ -1,5 +1,5 @@
 import { useStatusStore } from '@store/store'
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Controls, ProgressBar } from './components'
 import { FFTSpectrum } from './components/createFFTSpectrum'
 import { MIN_TEXT_COL } from './constants'
@@ -73,18 +73,11 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
   )
   const { press, bump, reset: resetPress } = usePressFeedback()
 
-  // Artwork <-> FFT toggle
-  const [showFft, setShowFft] = useState(false)
-
-  const toggleArtworkFft = useCallback(() => {
-    setShowFft((v) => !v)
-  }, [])
-
-  // Enable visualizer only when FFT is visible
+  // Spectrum is part of the player, so request PCM while this page is mounted.
   useEffect(() => {
-    window.projection?.ipc?.setVisualizerEnabled?.(!!showFft)
+    window.projection?.ipc?.setVisualizerEnabled?.(true)
     return () => window.projection?.ipc?.setVisualizerEnabled?.(false)
-  }, [showFft])
+  }, [])
 
   // Per-button focus
   const [focus, setFocus] = useState<{ play: boolean; next: boolean; prev: boolean }>({
@@ -156,7 +149,6 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
       if (data?.type === 'media-reset') {
         clearOverride()
         resetPress()
-        setShowFft(false)
       }
     }
     const unsubscribe = window.projection.ipc.onEvent(handler)
@@ -203,95 +195,45 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
   const textSidePad = Math.max(6, Math.round(pagePadClamped * 0.75))
 
   const ART_ROUND = canTwoCol ? 34 : 18
-  const fftPad = Math.max(8, Math.round(artPx * 0.06))
+  const spectrumH = Math.max(
+    isTinyHeight ? 42 : 64,
+    Math.min(isTinyHeight ? 54 : 110, Math.round(h * (isTinyHeight ? 0.18 : 0.16)))
+  )
 
-  // IMPORTANT:
-  // - We keep rounded clipping ONLY for artwork.
-  // - For FFT we do NOT round/clip; we also slightly scaleY to avoid the "stretched" look.
-  const artworkBoxStyle: React.CSSProperties = {
-    width: artPx,
-    height: artPx,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    userSelect: 'none'
-  }
-
-  const onArtworkKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      e.stopPropagation()
-      toggleArtworkFft()
-    }
-  }
-
-  const ArtworkOrFft = (
+  const Artwork = (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={toggleArtworkFft}
-      onKeyDown={onArtworkKeyDown}
-      style={artworkBoxStyle}
-      aria-label={showFft ? 'Show artwork' : 'Show spectrum'}
+      style={{
+        width: artPx,
+        height: artPx,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        userSelect: 'none'
+      }}
     >
-      {showFft ? (
-        <div
-          className="fft-surface"
-          style={{
-            width: '100%',
-            height: '100%',
-            borderRadius: 0,
-            overflow: 'visible',
-            padding: fftPad,
-            boxSizing: 'border-box',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-        >
-          <div
-            className="fft-surface-inner"
-            style={{
-              width: '100%',
-              height: '100%',
-              transform: 'scaleY(0.85)',
-              transformOrigin: 'center',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-          >
-            <Suspense fallback={null}>
-              <FFTSpectrum />
-            </Suspense>
-          </div>
-        </div>
-      ) : (
-        <div
-          className="artwork-surface"
-          style={{
-            width: '100%',
-            height: '100%',
-            borderRadius: ART_ROUND,
-            overflow: 'hidden',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-        >
-          {imageDataUrl ? (
-            <img
-              src={imageDataUrl}
-              alt="Cover"
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              draggable={false}
-            />
-          ) : (
-            <div style={{ opacity: 0.6, fontSize: 12 }}>No Artwork</div>
-          )}
-        </div>
-      )}
+      <div
+        className="artwork-surface"
+        style={{
+          width: '100%',
+          height: '100%',
+          borderRadius: ART_ROUND,
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        {imageDataUrl ? (
+          <img
+            src={imageDataUrl}
+            alt="Cover"
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            draggable={false}
+          />
+        ) : (
+          <div style={{ opacity: 0.6, fontSize: 12 }}>No Artwork</div>
+        )}
+      </div>
     </div>
   )
 
@@ -377,7 +319,7 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
               </div>
             </div>
 
-            <div style={{ marginLeft: 'auto' }}>{ArtworkOrFft}</div>
+            <div style={{ marginLeft: 'auto' }}>{Artwork}</div>
           </div>
         ) : (
           <div
@@ -410,6 +352,55 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
                 {!artist ? appName : artist}
               </div>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* ALWAYS-ON SPECTRUM ANALYZER */}
+      <div
+        role="img"
+        aria-label="Spectrum analyzer"
+        style={{
+          position: 'relative',
+          flex: '0 0 auto',
+          width: '100%',
+          height: spectrumH,
+          marginBottom: isTinyHeight ? 3 : 8,
+          overflow: 'hidden',
+          borderRadius: isTinyHeight ? 10 : 18,
+          boxSizing: 'border-box',
+          background:
+            'linear-gradient(180deg, color-mix(in srgb, var(--ui-primary) 8%, transparent), transparent)',
+          border: '1px solid color-mix(in srgb, var(--ui-primary) 18%, transparent)'
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            inset: isTinyHeight ? '3px 6px' : '6px 12px',
+            opacity: uiPlaying ? 1 : 0.55,
+            transition: 'opacity 180ms ease'
+          }}
+        >
+          <Suspense fallback={null}>
+            <FFTSpectrum />
+          </Suspense>
+        </div>
+        {!isTinyHeight && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 8,
+              left: 12,
+              zIndex: 3,
+              fontSize: 9,
+              fontWeight: 800,
+              letterSpacing: '0.16em',
+              opacity: 0.55,
+              pointerEvents: 'none'
+            }}
+          >
+            LIVE SPECTRUM
           </div>
         )}
       </div>

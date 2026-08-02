@@ -164,38 +164,14 @@ describe('Media component', () => {
     expect(unsub).toHaveBeenCalled()
   })
 
-  it('artwork button toggles FFT spectrum on click', async () => {
-    render(<Media />)
-    // showFft=false initially
-    expect(screen.getByRole('button', { name: /Show spectrum/i })).toBeInTheDocument()
+  it('always renders and enables the spectrum analyzer', async () => {
+    const { unmount } = render(<Media />)
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /Show spectrum/i }))
-    })
-    // showFft=true → label flips
-    expect(screen.getByRole('button', { name: /Show artwork/i })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /Spectrum analyzer/i })).toBeInTheDocument()
+    expect(window.projection.ipc.setVisualizerEnabled).toHaveBeenCalledWith(true)
 
-    // Toggle back
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /Show artwork/i }))
-    })
-    expect(screen.getByRole('button', { name: /Show spectrum/i })).toBeInTheDocument()
-  })
-
-  it('keyboard Enter on artwork button toggles FFT', async () => {
-    render(<Media />)
-    await act(async () => {
-      fireEvent.keyDown(screen.getByRole('button', { name: /Show spectrum/i }), { key: 'Enter' })
-    })
-    expect(screen.getByRole('button', { name: /Show artwork/i })).toBeInTheDocument()
-  })
-
-  it('keyboard Space on artwork button toggles FFT', async () => {
-    render(<Media />)
-    await act(async () => {
-      fireEvent.keyDown(screen.getByRole('button', { name: /Show spectrum/i }), { key: ' ' })
-    })
-    expect(screen.getByRole('button', { name: /Show artwork/i })).toBeInTheDocument()
+    unmount()
+    expect(window.projection.ipc.setVisualizerEnabled).toHaveBeenCalledWith(false)
   })
 
   it('car-media-key PLAY event bumps play feedback', async () => {
@@ -236,20 +212,14 @@ describe('Media component', () => {
     expect(screen.getByLabelText('Play/Pause')).toBeInTheDocument()
   })
 
-  it('media-reset event resets showFft to false', async () => {
+  it('keeps the spectrum analyzer mounted after media reset', async () => {
     render(<Media />)
 
-    // First enable FFT
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /Show spectrum/i }))
-    })
-    expect(screen.getByRole('button', { name: /Show artwork/i })).toBeInTheDocument()
-
-    // Session change resets showFft to false
     await act(async () => {
       usbEventCb?.(null, { type: 'media-reset' })
     })
-    expect(screen.getByRole('button', { name: /Show spectrum/i })).toBeInTheDocument()
+
+    expect(screen.getByRole('img', { name: /Spectrum analyzer/i })).toBeInTheDocument()
   })
 
   it('renders the tiny-screen layout without crashing', async () => {
@@ -376,14 +346,6 @@ describe('Media component', () => {
     expect(screen.getByLabelText('Play/Pause')).toBeInTheDocument()
   })
 
-  it('ignores non-toggle keys on the artwork button', async () => {
-    render(<Media />)
-    await act(async () => {
-      fireEvent.keyDown(screen.getByRole('button', { name: /Show spectrum/i }), { key: 'a' })
-    })
-    expect(screen.getByRole('button', { name: /Show spectrum/i })).toBeInTheDocument()
-  })
-
   it('ignores projection events without a media-reset type and without a payload', async () => {
     render(<Media />)
 
@@ -391,6 +353,6 @@ describe('Media component', () => {
       usbEventCb?.(null, { type: 'other' })
       usbEventCb?.(null)
     })
-    expect(screen.getByRole('button', { name: /Show spectrum/i })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /Spectrum analyzer/i })).toBeInTheDocument()
   })
 })
