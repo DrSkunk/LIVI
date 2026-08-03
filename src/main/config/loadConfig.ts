@@ -37,6 +37,9 @@ export function loadConfig(): Config {
   // Older configs stored blank RetroArch paths. Populate them with RetroArch's
   // standard per-user directories so Games works without manual path setup.
   if (merged.games && DEFAULT_CONFIG.games) {
+    if (!merged.games.romDirectory.trim()) {
+      merged.games.romDirectory = DEFAULT_CONFIG.games.romDirectory
+    }
     if (!merged.games.playlistDirectory.trim()) {
       merged.games.playlistDirectory = DEFAULT_CONFIG.games.playlistDirectory
     }

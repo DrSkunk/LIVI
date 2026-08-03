@@ -8,6 +8,7 @@ export function registerGamesIpc(runtimeState: runtimeStateProps): void {
   const controllers = new BluetoothControllerService()
 
   registerIpcHandle('games:library', () => games.getLibrary())
+  registerIpcHandle('games:import-roms', () => games.importRoms())
   registerIpcHandle('games:thumbnail', (_event, gameId: string) => games.getThumbnail(gameId))
   registerIpcHandle('games:status', () => games.getStatus())
   registerIpcHandle('games:open-retroarch', () => games.openRetroArch())

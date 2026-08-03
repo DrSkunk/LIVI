@@ -50,6 +50,7 @@ describe('scanGameLibrary', () => {
     const games = await scanGameLibrary({
       enabled: true,
       retroArchPath: 'retroarch',
+      romDirectory: '/roms',
       playlistDirectory: playlists,
       thumbnailDirectory: thumbnails
     })
@@ -82,6 +83,7 @@ describe('scanGameLibrary', () => {
     const games = await scanGameLibrary({
       enabled: true,
       retroArchPath: 'retroarch',
+      romDirectory: '/roms',
       playlistDirectory: playlists,
       thumbnailDirectory: ''
     })

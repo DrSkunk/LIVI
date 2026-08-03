@@ -952,6 +952,13 @@ export const generalSchema: SettingsNode<Config> = {
         },
         {
           type: 'string',
+          label: 'ROM Directory',
+          path: 'games.romDirectory',
+          displayValue: true,
+          page: { title: 'ROM Directory' }
+        },
+        {
+          type: 'string',
           label: 'Playlist Directory',
           path: 'games.playlistDirectory',
           displayValue: true,

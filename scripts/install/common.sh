@@ -85,7 +85,15 @@ livi_prepare_retroarch() {
   LIVI_RETROARCH_DIR="${LIVI_RETROARCH_DIR:-$HOME/.config/retroarch}"
 
   echo "→ Preparing RetroArch library directories"
-  mkdir -p "$LIVI_ROMS_DIR" \
+  mkdir -p \
+    "$LIVI_ROMS_DIR/gameboy" \
+    "$LIVI_ROMS_DIR/gameboy-color" \
+    "$LIVI_ROMS_DIR/gba" \
+    "$LIVI_ROMS_DIR/nds" \
+    "$LIVI_ROMS_DIR/nes" \
+    "$LIVI_ROMS_DIR/snes" \
+    "$LIVI_ROMS_DIR/genesis" \
+    "$LIVI_ROMS_DIR/master-system" \
     "$LIVI_RETROARCH_DIR/playlists" \
     "$LIVI_RETROARCH_DIR/thumbnails"
   for group in input bluetooth; do
@@ -96,6 +104,25 @@ livi_prepare_retroarch() {
   echo "   ROMs: $LIVI_ROMS_DIR"
   echo "   Playlists: $LIVI_RETROARCH_DIR/playlists"
   echo "   Thumbnails: $LIVI_RETROARCH_DIR/thumbnails"
+}
+
+# Installs common console cores available from the host's apt repositories.
+# Raspberry Pi OS may omit non-free Snes9x/Genesis packages until that component
+# is enabled, so unavailable cores are reported without aborting the LIVI setup.
+livi_install_retroarch_cores() {
+  local requested package
+  requested="libretro-core-info libretro-database libretro-gambatte libretro-mgba libretro-desmume libretro-nestopia libretro-snes9x libretro-genesisplusgx"
+
+  echo "→ Installing RetroArch cores (GB/GBA/NDS/NES/SNES/Genesis/Master System)"
+  for package in $requested; do
+    if ! apt-cache show "$package" >/dev/null 2>&1; then
+      echo "   WARNING: $package is unavailable in configured apt repositories" >&2
+      continue
+    fi
+    if ! sudo apt-get install -y "$package"; then
+      echo "   WARNING: $package could not be installed; continuing" >&2
+    fi
+  done
 }
 
 # Installs the latest minidsp-rs Debian package. Its package includes the USB

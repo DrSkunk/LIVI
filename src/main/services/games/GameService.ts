@@ -3,9 +3,10 @@ import { promises as fs } from 'node:fs'
 import { extname } from 'node:path'
 import type { runtimeStateProps } from '@main/types'
 import { getMainWindow } from '@main/window/createWindow'
-import type { GameLibraryItem, GameStatus } from '@shared/types'
+import type { GameImportResult, GameLibraryItem, GameStatus } from '@shared/types'
 import { app, BrowserWindow } from 'electron'
 import { type GameRecord, scanGameLibrary } from './libraryScanner'
+import { importRomLibrary } from './RomImporter'
 
 const THUMBNAIL_MAX_BYTES = 8 * 1024 * 1024
 
@@ -49,6 +50,13 @@ export class GameService {
 
   getStatus(): GameStatus {
     return this.status
+  }
+
+  async importRoms(): Promise<GameImportResult> {
+    if (!this.runtimeState.config.games.enabled) throw new Error('Games screen is disabled')
+    const result = await importRomLibrary(this.runtimeState.config.games)
+    this.library.clear()
+    return result
   }
 
   async getThumbnail(gameId: string): Promise<string | null> {

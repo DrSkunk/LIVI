@@ -4,6 +4,7 @@ import type {
   Config,
   DeviceView,
   DongleFirmwareAction,
+  GameImportResult,
   GameLibraryItem,
   GameStatus,
   MiniDspStatus,
@@ -128,6 +129,7 @@ declare global {
 
     games: {
       getLibrary(): Promise<GameLibraryItem[]>
+      importRoms(): Promise<GameImportResult>
       getThumbnail(gameId: string): Promise<string | null>
       getStatus(): Promise<GameStatus>
       openRetroArch(): Promise<{ ok: true }>

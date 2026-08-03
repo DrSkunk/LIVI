@@ -1,3 +1,4 @@
+import LibraryAddRoundedIcon from '@mui/icons-material/LibraryAddRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import SportsEsportsRoundedIcon from '@mui/icons-material/SportsEsportsRounded'
 import { Box, Button, CircularProgress, IconButton, Typography } from '@mui/material'
@@ -161,6 +162,8 @@ export function Games() {
   const [error, setError] = useState('')
   const [launchingId, setLaunchingId] = useState<string | null>(null)
   const [openingRetroArch, setOpeningRetroArch] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [notice, setNotice] = useState('')
   const lastGameId = useRef<string | null>(null)
 
   const load = useCallback(async () => {
@@ -199,6 +202,26 @@ export function Games() {
       setError(cause instanceof Error ? cause.message : 'Could not start RetroArch')
     }
   }, [])
+
+  const importRoms = useCallback(async () => {
+    setImporting(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await window.games.importRoms()
+      await load()
+      const coreWarning = result.missingCores.length
+        ? ` Missing cores: ${result.missingCores.join(', ')}.`
+        : ''
+      setNotice(
+        `Imported ${result.games} games into ${result.playlists} playlists; downloaded ${result.thumbnailsDownloaded} thumbnails.${coreWarning}`
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not import ROMs')
+    } finally {
+      setImporting(false)
+    }
+  }, [load])
 
   const openRetroArch = useCallback(async () => {
     setOpeningRetroArch(true)
@@ -245,6 +268,18 @@ export function Games() {
               : `${games.length} ${games.length === 1 ? 'game' : 'games'}`}
           </Typography>
         </Box>
+        <Button
+          size="small"
+          variant="contained"
+          startIcon={
+            importing ? <CircularProgress size={16} color="inherit" /> : <LibraryAddRoundedIcon />
+          }
+          onClick={() => void importRoms()}
+          disabled={importing || loading || Boolean(launchingId)}
+          sx={{ mr: 1, whiteSpace: 'nowrap' }}
+        >
+          {importing ? 'Importing…' : 'Import ROMs'}
+        </Button>
         <ControllerPairing />
         <IconButton
           aria-label="Rescan game library"
@@ -254,6 +289,12 @@ export function Games() {
           <RefreshRoundedIcon />
         </IconButton>
       </Box>
+
+      {notice && (
+        <Typography color="success.main" sx={{ px: 'clamp(16px, 3vw, 36px)', mt: 1 }}>
+          {notice}
+        </Typography>
+      )}
 
       {error && (
         <Typography role="alert" color="error" sx={{ px: 'clamp(16px, 3vw, 36px)', mt: 1 }}>
@@ -309,19 +350,33 @@ export function Games() {
               Place legally obtained ROMs in <strong>{DEFAULT_ROM_DIRECTORY}</strong>.
             </Typography>
             <Typography color="text.secondary">
-              Open RetroArch, then use Import Content → Scan Directory and select that folder.
-              Download cover art with Online Updater → Playlist Thumbnails Updater.
+              Press Import ROMs. LIVI detects systems, creates RetroArch playlists, selects
+              installed cores, and downloads matching Libretro box art.
             </Typography>
             <Button
               variant="contained"
+              onClick={() => void importRoms()}
+              disabled={importing}
+              startIcon={
+                importing ? (
+                  <CircularProgress size={16} color="inherit" />
+                ) : (
+                  <LibraryAddRoundedIcon />
+                )
+              }
+              sx={{ mt: 1 }}
+            >
+              {importing ? 'Importing ROMs…' : 'Import ROMs'}
+            </Button>
+            <Button
+              variant="outlined"
               onClick={() => void openRetroArch()}
               disabled={openingRetroArch}
               startIcon={
                 openingRetroArch ? <CircularProgress size={16} color="inherit" /> : undefined
               }
-              sx={{ mt: 1 }}
             >
-              {openingRetroArch ? 'Opening RetroArch…' : 'Open RetroArch'}
+              {openingRetroArch ? 'Opening RetroArch…' : 'Open RetroArch manually'}
             </Button>
             <Typography color="text.secondary" sx={{ fontSize: '.78rem', mt: 0.5 }}>
               Playlists and thumbnails are read automatically from ~/.config/retroarch.

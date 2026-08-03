@@ -121,6 +121,7 @@ describe('generalSchema', () => {
     expect(games.children.map((child) => child.path)).toEqual([
       'games.enabled',
       'games.retroArchPath',
+      'games.romDirectory',
       'games.playlistDirectory',
       'games.thumbnailDirectory'
     ])

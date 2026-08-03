@@ -1,6 +1,7 @@
 import type {
   BluetoothControllerDevice,
   Config,
+  GameImportResult,
   GameLibraryItem,
   GameStatus,
   MiniDspStatus,
@@ -243,6 +244,7 @@ contextBridge.exposeInMainWorld('minidsp', {
 
 contextBridge.exposeInMainWorld('games', {
   getLibrary: (): Promise<GameLibraryItem[]> => ipcRenderer.invoke('games:library'),
+  importRoms: (): Promise<GameImportResult> => ipcRenderer.invoke('games:import-roms'),
   getThumbnail: (gameId: string): Promise<string | null> =>
     ipcRenderer.invoke('games:thumbnail', gameId),
   getStatus: (): Promise<GameStatus> => ipcRenderer.invoke('games:status'),

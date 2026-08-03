@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   appOn: vi.fn(),
   spawn: vi.fn(),
   scan: vi.fn(),
+  importRoms: vi.fn(),
   hide: vi.fn(),
   show: vi.fn(),
   focus: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('electron', () => ({
 
 vi.mock('node:child_process', () => ({ spawn: mocks.spawn }))
 vi.mock('../libraryScanner', () => ({ scanGameLibrary: mocks.scan }))
+vi.mock('../RomImporter', () => ({ importRomLibrary: mocks.importRoms }))
 vi.mock('@main/window/createWindow', () => ({
   getMainWindow: () => ({
     hide: mocks.hide,
@@ -52,6 +54,13 @@ describe('GameService', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()
+    mocks.importRoms.mockResolvedValue({
+      games: 1,
+      playlists: 1,
+      thumbnailsDownloaded: 1,
+      thumbnailsMissing: 0,
+      missingCores: []
+    })
     mocks.scan.mockResolvedValue([
       {
         id: 'game-id',
@@ -72,6 +81,7 @@ describe('GameService', () => {
         games: {
           enabled: true,
           retroArchPath: 'retroarch',
+          romDirectory: '/roms',
           playlistDirectory: '/playlists',
           thumbnailDirectory: '/thumbnails'
         }
@@ -100,6 +110,26 @@ describe('GameService', () => {
     vi.runAllTimers()
   })
 
+  test('imports ROMs with current game configuration', async () => {
+    const service = new GameService({
+      config: {
+        games: {
+          enabled: true,
+          retroArchPath: 'retroarch',
+          romDirectory: '/roms',
+          playlistDirectory: '/playlists',
+          thumbnailDirectory: '/thumbnails'
+        }
+      },
+      isQuitting: false
+    } as never)
+
+    await expect(service.importRoms()).resolves.toMatchObject({ games: 1, playlists: 1 })
+    expect(mocks.importRoms).toHaveBeenCalledWith(
+      expect.objectContaining({ romDirectory: '/roms' })
+    )
+  })
+
   test('opens the fullscreen RetroArch menu for library setup', async () => {
     const child = childProcess()
     mocks.spawn.mockReturnValue(child)
@@ -108,6 +138,7 @@ describe('GameService', () => {
         games: {
           enabled: true,
           retroArchPath: 'retroarch',
+          romDirectory: '/roms',
           playlistDirectory: '/playlists',
           thumbnailDirectory: '/thumbnails'
         }

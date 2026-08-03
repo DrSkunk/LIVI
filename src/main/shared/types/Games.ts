@@ -5,8 +5,17 @@ export const DEFAULT_THUMBNAIL_DIRECTORY = '~/.config/retroarch/thumbnails'
 export type GamesConfig = {
   enabled: boolean
   retroArchPath: string
+  romDirectory: string
   playlistDirectory: string
   thumbnailDirectory: string
+}
+
+export type GameImportResult = {
+  games: number
+  playlists: number
+  thumbnailsDownloaded: number
+  thumbnailsMissing: number
+  missingCores: string[]
 }
 
 export type BluetoothControllerDevice = {
