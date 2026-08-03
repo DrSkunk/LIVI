@@ -3,7 +3,9 @@ import type { Mock } from 'vitest'
 import { Media } from '../Media'
 
 vi.mock('../components/createFFTSpectrum', () => ({
-  FFTSpectrum: () => null
+  FFTSpectrum: ({ variant = 'panel' }: { variant?: string }) => (
+    <div data-testid={`fft-${variant}`} />
+  )
 }))
 
 vi.mock('./../hooks/useBelowNavTop', () => ({
@@ -284,6 +286,34 @@ describe('Media component', () => {
     })
     render(<Media />)
     expect(screen.getByText('CarPlay')).toBeInTheDocument()
+  })
+
+  it('renders blurred album art and a live spectrum behind the media UI', async () => {
+    setMedia({
+      snap: {
+        payload: {
+          base64Image: 'iVBORw0KGgo=',
+          media: {
+            MediaSongName: 'Track',
+            MediaArtistName: 'Artist',
+            MediaAlbumName: 'Album',
+            MediaAPPName: 'CarPlay',
+            MediaSongDuration: 1000,
+            MediaPlayStatus: 0
+          }
+        }
+      },
+      livePlayMs: 100
+    })
+
+    render(<Media />)
+
+    expect(screen.getByTestId('media-visualizer-background')).toBeInTheDocument()
+    expect(screen.getByTestId('media-art-backdrop')).toHaveStyle({
+      backgroundImage: 'url("data:image/png;base64,iVBORw0KGgo=")'
+    })
+    expect(screen.getByTestId('fft-background')).toBeInTheDocument()
+    expect(window.projection.ipc.setVisualizerEnabled).toHaveBeenCalledWith(true)
   })
 
   it('renders artwork image when base64 image is present', async () => {

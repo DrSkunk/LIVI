@@ -25,8 +25,13 @@ export const normalizePcmBuffer = (pcm: Float32Array | ArrayLike<number>) => {
   return pcm instanceof Float32Array ? pcm.slice() : new Float32Array(pcm)
 }
 
-export const FFTSpectrum = () => {
+export type FFTSpectrumProps = {
+  variant?: 'panel' | 'background'
+}
+
+export const FFTSpectrum = ({ variant = 'panel' }: FFTSpectrumProps) => {
   const theme = useTheme()
+  const isBackground = variant === 'background'
   const barColor =
     getComputedStyle(document.body).getPropertyValue('--ui-highlight').trim() ||
     theme.palette.primary.main
@@ -108,7 +113,7 @@ export const FFTSpectrum = () => {
     const { width: cw, height: ch } = dimensions
     const specW = cw * SPECTRUM_WIDTH_RATIO
     const { font: labelFont, show: showLabels, marginBottom } = labelMetrics(specW)
-    const usableH = ch - marginBottom
+    const usableH = ch - (isBackground ? 0 : marginBottom)
     const xOff = (cw - specW) / 2
     bg.width = cw
     bg.height = ch
@@ -125,7 +130,7 @@ export const FFTSpectrum = () => {
       x: xOff + ((Math.log10(freq) - logMin) / logDen) * specW
     }))
 
-    if (showLabels) {
+    if (showLabels && !isBackground) {
       ctx.font = `${labelFont}px sans-serif`
       ctx.textBaseline = 'top'
       ctx.fillStyle = labelColor
@@ -149,7 +154,7 @@ export const FFTSpectrum = () => {
         }
       }
     }
-  }, [dimensions, sampleRate, labelColor])
+  }, [dimensions, sampleRate, labelColor, isBackground])
 
   useEffect(() => {
     let rafId = 0
@@ -173,13 +178,13 @@ export const FFTSpectrum = () => {
 
       ctx.clearRect(0, 0, cw, ch)
       const specW = cw * SPECTRUM_WIDTH_RATIO
-      const usableH = ch - labelMetrics(specW).marginBottom
+      const usableH = ch - (isBackground ? 0 : labelMetrics(specW).marginBottom)
       const xOff = (cw - specW) / 2
       const barW = specW / POINTS
       const bins = binsRef.current
 
       for (let i = 0; i < POINTS; i++) {
-        const h = bins[i] * usableH
+        const h = bins[i] * usableH * (isBackground ? 0.88 : 1)
         const x = xOff + i * barW
         ctx.fillStyle = barColor
         ctx.fillRect(x, usableH - h, barW * 0.8, h)
@@ -191,21 +196,23 @@ export const FFTSpectrum = () => {
     return () => {
       globalThis.cancelAnimationFrame?.(rafId)
     }
-  }, [dimensions, barColor])
+  }, [dimensions, barColor, isBackground])
 
   return (
     <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
-      <Box
-        ref={bgCanvasRef}
-        component="canvas"
-        sx={{
-          position: 'absolute',
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-          zIndex: 1
-        }}
-      />
+      {!isBackground && (
+        <Box
+          ref={bgCanvasRef}
+          component="canvas"
+          sx={{
+            position: 'absolute',
+            width: '100%',
+            height: '100%',
+            pointerEvents: 'none',
+            zIndex: 1
+          }}
+        />
+      )}
       <Box
         ref={canvasRef}
         component="canvas"

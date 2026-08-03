@@ -80,11 +80,12 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
     setShowFft((v) => !v)
   }, [])
 
-  // Enable visualizer only when FFT is visible
+  // Media always has a subtle spectrum background. Tapping the artwork promotes
+  // that spectrum into the foreground without starting a second audio capture.
   useEffect(() => {
-    window.projection?.ipc?.setVisualizerEnabled?.(!!showFft)
+    window.projection?.ipc?.setVisualizerEnabled?.(true)
     return () => window.projection?.ipc?.setVisualizerEnabled?.(false)
-  }, [showFft])
+  }, [])
 
   // Per-button focus
   const [focus, setFocus] = useState<{ play: boolean; next: boolean; prev: boolean }>({
@@ -314,8 +315,68 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
         overflow: 'hidden'
       }}
     >
+      {/* Album-derived ambient background + live spectrum. Decorative only. */}
+      <div
+        data-testid="media-visualizer-background"
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          overflow: 'hidden',
+          pointerEvents: 'none',
+          background:
+            'radial-gradient(circle at 80% 20%, color-mix(in srgb, var(--ui-highlight) 24%, transparent), transparent 52%), linear-gradient(145deg, #11151c, #07080b)',
+          zIndex: 0
+        }}
+      >
+        {imageDataUrl && (
+          <div
+            data-testid="media-art-backdrop"
+            style={{
+              position: 'absolute',
+              inset: '-12%',
+              backgroundImage: `url("${imageDataUrl}")`,
+              backgroundPosition: 'center',
+              backgroundSize: 'cover',
+              filter: 'blur(46px) saturate(1.55) brightness(0.72)',
+              opacity: 0.42,
+              transform: 'scale(1.12)'
+            }}
+          />
+        )}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              'linear-gradient(90deg, rgba(5,7,10,.84) 0%, rgba(5,7,10,.56) 48%, rgba(5,7,10,.32) 100%), linear-gradient(0deg, rgba(3,4,6,.84) 0%, transparent 58%)'
+          }}
+        />
+        {!showFft && (
+          <div
+            style={{
+              position: 'absolute',
+              left: '-2%',
+              right: '-2%',
+              bottom: '2%',
+              height: '56%',
+              opacity: 0.34,
+              filter:
+                'drop-shadow(0 0 16px color-mix(in srgb, var(--ui-highlight) 55%, transparent))',
+              maskImage: 'linear-gradient(to bottom, transparent 0%, #000 38%, #000 100%)',
+              WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, #000 38%, #000 100%)',
+              mixBlendMode: 'screen'
+            }}
+          >
+            <Suspense fallback={null}>
+              <FFTSpectrum variant="background" />
+            </Suspense>
+          </div>
+        )}
+      </div>
+
       {/* CONTENT */}
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div style={{ flex: 1, minHeight: 0, position: 'relative', zIndex: 1 }}>
         {canTwoCol ? (
           <div
             style={{
@@ -422,7 +483,9 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
           rowGap: isTinyHeight ? 3 : 4,
           paddingBottom: isTinyHeight ? 0 : '0.5rem',
           width: '100%',
-          boxSizing: 'border-box'
+          boxSizing: 'border-box',
+          position: 'relative',
+          zIndex: 1
         }}
       >
         {/* Always center controls */}

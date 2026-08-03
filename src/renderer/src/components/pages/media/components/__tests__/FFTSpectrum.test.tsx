@@ -167,6 +167,11 @@ describe('FFTSpectrum', () => {
     vi.useRealTimers()
   })
 
+  test('background variant omits frequency-label canvas', () => {
+    const { container } = render(<FFTSpectrum variant="background" />)
+    expect(container.querySelectorAll('canvas')).toHaveLength(1)
+  })
+
   test('creates worker and posts init message', async () => {
     render(<FFTSpectrum />)
 
