@@ -27,6 +27,7 @@ vi.mock('@main/window/createWindow', () => ({
     focus: mocks.focus,
     moveTop: mocks.moveTop,
     webContents: { invalidate: mocks.invalidate },
+    getContentBounds: () => ({ x: 0, y: 0, width: 800, height: 480 }),
     restore: mocks.restore,
     isMinimized: () => false,
     isDestroyed: () => false
@@ -86,7 +87,7 @@ describe('GameService', () => {
 
     expect(mocks.spawn).toHaveBeenCalledWith(
       'retroarch',
-      ['--fullscreen', '-L', '/cores/core.so', '/roms/game.rom'],
+      ['--fullscreen', '--size=800x480', '-L', '/cores/core.so', '/roms/game.rom'],
       expect.objectContaining({ shell: false })
     )
     expect(mocks.hide).not.toHaveBeenCalled()
@@ -121,7 +122,7 @@ describe('GameService', () => {
 
     expect(mocks.spawn).toHaveBeenCalledWith(
       'retroarch',
-      ['--fullscreen', '--menu'],
+      ['--fullscreen', '--size=800x480', '--menu'],
       expect.objectContaining({ shell: false })
     )
   })

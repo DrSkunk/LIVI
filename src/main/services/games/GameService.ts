@@ -81,10 +81,18 @@ export class GameService {
     const executable = this.runtimeState.config.games.retroArchPath.trim()
     if (!executable) throw new Error('RetroArch executable is not configured')
 
+    const launchArgs = [...args]
+    const bounds = getMainWindow()?.getContentBounds()
+    if (bounds && bounds.width > 0 && bounds.height > 0) {
+      // Some Wayland compositors ignore RetroArch's initial fullscreen request.
+      // Matching the host output still gives a borderless screen-filling surface.
+      launchArgs.splice(1, 0, `--size=${Math.round(bounds.width)}x${Math.round(bounds.height)}`)
+    }
+
     this.setStatus({ state: 'launching', gameId })
 
     return new Promise((resolve, reject) => {
-      const child = spawn(executable, args, {
+      const child = spawn(executable, launchArgs, {
         shell: false,
         stdio: ['ignore', 'pipe', 'pipe']
       })
