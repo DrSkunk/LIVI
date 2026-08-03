@@ -205,6 +205,14 @@ chmod +x install.sh
 ./install.sh
 ```
 
+The default command downloads the latest arm64 AppImage from [DrSkunk/LIVI releases](https://github.com/DrSkunk/LIVI/releases). That repository must contain a published release with an `arm64.AppImage` asset. To install a local build or a direct AppImage URL instead:
+
+```bash
+./install.sh /path/to/LIVI-arm64.AppImage
+# or
+./install.sh https://example.com/LIVI-arm64.AppImage
+```
+
 Run it as the desktop user, not as root; the script invokes `sudo` when needed. It is safe to re-run. Reboot when it finishes so boot, I2C and autostart changes all take effect. LIVI starts automatically in the desktop session, RetroArch is available at `/usr/bin/retroarch`, and the MiniDSP daemon can be checked with:
 
 ```bash

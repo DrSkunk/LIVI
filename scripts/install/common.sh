@@ -106,7 +106,7 @@ livi_install_minidsp_rs() {
   url="$(printf '%s\n' "$release_json" \
     | grep -o 'https://[^"[:space:]]*' \
     | grep -E "/minidsp_[^/]+_${arch}\\.deb$" \
-    | head -1)"
+    | head -1 || true)"
   if [ -z "$url" ]; then
     echo "Error: latest minidsp-rs release has no $arch Debian package" >&2
     return 1
@@ -165,7 +165,7 @@ livi_pick_channel() {
 # livi_fetch_appimage <dest> [source]
 # source is an optional local path or http(s) URL, otherwise the picked channel.
 livi_fetch_appimage() {
-  local dest="$1" src="${2:-}" arch url
+  local dest="$1" src="${2:-}" arch url release_json
   mkdir -p "$(dirname "$dest")"
 
   if [ -n "$src" ]; then
@@ -182,12 +182,19 @@ livi_fetch_appimage() {
   else
     arch="$(livi_asset_arch)" || return 1
     echo "→ Fetching the latest $LIVI_CHANNEL build for $arch"
-    url="$(curl -s "$LIVI_RELEASE_API" \
+    if ! release_json="$(curl -fsSL "$LIVI_RELEASE_API")"; then
+      echo "Error: cannot fetch the '$LIVI_CHANNEL' release from $LIVI_REPO." >&2
+      echo "The repository may not have published that release yet." >&2
+      echo "Publish an AppImage release or pass a local AppImage path/URL to install.sh." >&2
+      return 1
+    fi
+    url="$(printf '%s\n' "$release_json" \
       | grep browser_download_url \
       | grep "${arch}.AppImage" \
-      | cut -d '"' -f 4)"
+      | cut -d '"' -f 4 || true)"
     if [ -z "$url" ]; then
-      echo "Error: no ${arch} AppImage in the latest $LIVI_CHANNEL build" >&2
+      echo "Error: no ${arch} AppImage in the latest $LIVI_CHANNEL build at $LIVI_REPO." >&2
+      echo "Publish that asset or pass a local AppImage path/URL to install.sh." >&2
       return 1
     fi
     echo "   Download URL: $url"
