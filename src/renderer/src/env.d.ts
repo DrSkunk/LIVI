@@ -3,6 +3,8 @@ import type {
   Config,
   DeviceView,
   DongleFirmwareAction,
+  GameLibraryItem,
+  GameStatus,
   MiniDspStatus,
   TransportSnapshot
 } from '@shared/types'
@@ -121,6 +123,15 @@ declare global {
       setVolume(volumeDb: number): Promise<void>
       setBassGain(gainDb: number): Promise<void>
       selectPreset(preset: number): Promise<void>
+    }
+
+    games: {
+      getLibrary(): Promise<GameLibraryItem[]>
+      getThumbnail(gameId: string): Promise<string | null>
+      getStatus(): Promise<GameStatus>
+      launch(gameId: string): Promise<{ ok: true }>
+      stop(): void
+      onStatus(callback: (status: GameStatus) => void): () => void
     }
 
     projection: {

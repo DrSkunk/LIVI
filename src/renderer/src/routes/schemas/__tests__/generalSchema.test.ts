@@ -9,7 +9,7 @@ describe('generalSchema', () => {
     expect(schema.label).toBe('General')
     expect(schema.labelKey).toBe('settings.general')
     expect(schema.path).toBe('')
-    expect(schema.children).toHaveLength(11)
+    expect(schema.children).toHaveLength(12)
   })
 
   test('connections route contains names, wifi and auto connect', () => {
@@ -91,7 +91,7 @@ describe('generalSchema', () => {
     expect(mfi.children.map((x) => x.path)).toEqual(['carPlayMfiI2cBus', 'carPlayMfiPowerGpio'])
   })
 
-  test('usb dongle route lives at the bottom with a single custom entry', () => {
+  test('usb dongle route contains a single custom entry', () => {
     const usbDongle = schema.children[10]
     expect(usbDongle).toEqual(
       expect.objectContaining({
@@ -107,6 +107,23 @@ describe('generalSchema', () => {
         path: 'carName'
       })
     )
+  })
+
+  test('games route contains RetroArch library settings', () => {
+    const games = schema.children[11]
+    expect(games).toEqual(
+      expect.objectContaining({
+        type: 'route',
+        route: 'games',
+        label: 'Games'
+      })
+    )
+    expect(games.children.map((child) => child.path)).toEqual([
+      'games.enabled',
+      'games.retroArchPath',
+      'games.playlistDirectory',
+      'games.thumbnailDirectory'
+    ])
   })
 
   test('key bindings route contains representative binding entries', () => {
@@ -145,6 +162,7 @@ describe('generalSchema', () => {
       { label: 'Telemetry', labelKey: 'settings.startPageTelemetry', value: 'telemetry' },
       { label: 'Media', labelKey: 'settings.startPageMedia', value: 'media' },
       { label: 'Camera', labelKey: 'settings.startPageCamera', value: 'camera' },
+      { label: 'Games', value: 'games' },
       { label: 'MiniDSP', value: 'minidsp' },
       { label: 'Settings', labelKey: 'settings.startPageSettings', value: 'settings' }
     ])

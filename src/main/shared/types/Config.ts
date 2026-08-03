@@ -214,8 +214,9 @@ export type Config = {
   autoSwitchOnReverse: boolean
 
   // LIVI UI
-  startPage: 'home' | 'media' | 'maps' | 'telemetry' | 'camera' | 'minidsp' | 'settings'
+  startPage: 'home' | 'media' | 'maps' | 'telemetry' | 'camera' | 'games' | 'minidsp' | 'settings'
   language: string
+  games: import('./Games').GamesConfig
   minidsp: MiniDspConfig
   kiosk: WindowAssignment
   uiZoomPercent: number

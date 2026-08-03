@@ -65,6 +65,12 @@ export const DEFAULT_CONFIG: Config = {
   displayColorB: 1.0,
   startPage: 'home',
   language: 'en',
+  games: {
+    enabled: false,
+    retroArchPath: 'retroarch',
+    playlistDirectory: '',
+    thumbnailDirectory: ''
+  },
   minidsp: {
     enabled: true,
     mockDevice: false,

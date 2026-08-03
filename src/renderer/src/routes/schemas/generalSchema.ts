@@ -801,6 +801,7 @@ export const generalSchema: SettingsNode<Config> = {
         { label: 'Telemetry', labelKey: 'settings.startPageTelemetry', value: 'telemetry' },
         { label: 'Media', labelKey: 'settings.startPageMedia', value: 'media' },
         { label: 'Camera', labelKey: 'settings.startPageCamera', value: 'camera' },
+        { label: 'Games', value: 'games' },
         { label: 'MiniDSP', value: 'minidsp' },
         { label: 'Settings', labelKey: 'settings.startPageSettings', value: 'settings' }
       ],
@@ -928,6 +929,40 @@ export const generalSchema: SettingsNode<Config> = {
           labelKey: 'settings.usbDongle',
           path: 'carName',
           component: USBDongle
+        }
+      ]
+    },
+    {
+      type: 'route',
+      route: 'games',
+      label: 'Games',
+      path: '',
+      children: [
+        {
+          type: 'checkbox',
+          label: 'Enable Games',
+          path: 'games.enabled'
+        },
+        {
+          type: 'string',
+          label: 'RetroArch Executable',
+          path: 'games.retroArchPath',
+          displayValue: true,
+          page: { title: 'RetroArch Executable' }
+        },
+        {
+          type: 'string',
+          label: 'Playlist Directory',
+          path: 'games.playlistDirectory',
+          displayValue: true,
+          page: { title: 'Playlist Directory' }
+        },
+        {
+          type: 'string',
+          label: 'Thumbnail Directory',
+          path: 'games.thumbnailDirectory',
+          displayValue: true,
+          page: { title: 'Thumbnail Directory' }
         }
       ]
     }

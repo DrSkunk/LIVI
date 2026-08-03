@@ -4,6 +4,7 @@ export enum RoutePath {
   Camera = 'camera',
   Home = 'home',
   Cluster = 'cluster',
+  Games = 'games',
   Media = 'media',
   MiniDsp = 'minidsp',
   Devices = 'devices',

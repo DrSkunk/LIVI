@@ -10,6 +10,7 @@ let mockState = {
   activeProtocol: null as 'carplay' | 'androidauto' | 'dongle' | null,
   cameraFound: true,
   telemetryOnMain: false,
+  gamesEnabled: false,
   settingsMissing: false,
   secondaryTelemetry: false,
   secondaryMedia: false,
@@ -42,6 +43,7 @@ vi.mock('@store/store', () => ({
       settings: mockState.settingsMissing
         ? undefined
         : {
+            games: { enabled: mockState.gamesEnabled },
             camera: mockState.secondaryAbsentKeys
               ? { main: true }
               : { main: true, dash: mockState.secondaryCamera, aux: mockState.secondaryCamera },
@@ -72,6 +74,7 @@ describe('useTabsConfig', () => {
       activeProtocol: null,
       cameraFound: true,
       telemetryOnMain: false,
+      gamesEnabled: false,
       settingsMissing: false,
       secondaryTelemetry: false,
       secondaryMedia: false,
@@ -82,6 +85,18 @@ describe('useTabsConfig', () => {
   test('returns base tabs by default', () => {
     const { result } = renderHook(() => useTabsConfig(false))
     expect(result.current.map((t) => t.path)).toEqual(['/', '/media', '/camera', '/settings'])
+  })
+
+  test('adds the games tab when games are enabled', () => {
+    mockState.gamesEnabled = true
+    const { result } = renderHook(() => useTabsConfig(false))
+    expect(result.current.map((t) => t.path)).toEqual([
+      '/',
+      '/media',
+      '/camera',
+      '/games',
+      '/settings'
+    ])
   })
 
   test('adds the telemetry tab when a dashboard is routed to main', () => {

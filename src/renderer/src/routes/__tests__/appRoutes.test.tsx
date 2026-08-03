@@ -1,6 +1,7 @@
 vi.mock('../../components/pages', () => ({
   Home: () => null,
   Media: () => null,
+  Games: () => null,
   MiniDsp: () => null,
   Camera: () => null,
   Devices: () => null,
@@ -28,6 +29,7 @@ describe('appRoutes', () => {
       '/telemetry',
       '/cluster',
       '/media',
+      '/games',
       '/camera',
       '/minidsp',
       '/settings/*'
@@ -40,6 +42,7 @@ describe('appRoutes', () => {
     vi.doMock('../../components/pages', () => ({
       Home: () => null,
       Media: () => null,
+      Games: () => null,
       MiniDsp: () => null,
       Camera: () => null,
       Devices: () => null,

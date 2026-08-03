@@ -1,4 +1,10 @@
-import type { Config, MiniDspStatus, TransportSnapshot } from '@shared/types'
+import type {
+  Config,
+  GameLibraryItem,
+  GameStatus,
+  MiniDspStatus,
+  TransportSnapshot
+} from '@shared/types'
 import type { MultiTouchPoint } from '@shared/types/TouchTypes'
 import { contextBridge, IpcRendererEvent, ipcRenderer } from 'electron'
 
@@ -232,6 +238,20 @@ contextBridge.exposeInMainWorld('minidsp', {
   setBassGain: (gainDb: number): Promise<void> => ipcRenderer.invoke('minidsp:set-bass', gainDb),
   selectPreset: (preset: number): Promise<void> =>
     ipcRenderer.invoke('minidsp:select-preset', preset)
+})
+
+contextBridge.exposeInMainWorld('games', {
+  getLibrary: (): Promise<GameLibraryItem[]> => ipcRenderer.invoke('games:library'),
+  getThumbnail: (gameId: string): Promise<string | null> =>
+    ipcRenderer.invoke('games:thumbnail', gameId),
+  getStatus: (): Promise<GameStatus> => ipcRenderer.invoke('games:status'),
+  launch: (gameId: string): Promise<{ ok: true }> => ipcRenderer.invoke('games:launch', gameId),
+  stop: (): void => ipcRenderer.send('games:stop'),
+  onStatus: (callback: (status: GameStatus) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, status: GameStatus) => callback(status)
+    ipcRenderer.on('games:status', handler)
+    return () => ipcRenderer.removeListener('games:status', handler)
+  }
 })
 
 type UpdateEvent = { phase: string; message?: string }

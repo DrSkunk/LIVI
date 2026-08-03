@@ -22,6 +22,7 @@ vi.mock('../components/pages', () => ({
   Projection: (props: any) => <div data-testid="projection">{String(props.receivingVideo)}</div>,
   Cluster: () => <div data-testid="cluster" />,
   Home: () => <div data-testid="home" />,
+  Games: () => <div data-testid="games" />,
   Media: () => <div data-testid="media" />,
   MiniDsp: () => <div data-testid="minidsp" />,
   Camera: () => <div data-testid="camera" />,

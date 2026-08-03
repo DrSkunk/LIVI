@@ -1,6 +1,7 @@
 export enum ROUTES {
   HOME = '/',
   CLUSTER = '/cluster',
+  GAMES = '/games',
   MEDIA = '/media',
   MINIDSP = '/minidsp',
   CAMERA = '/camera',

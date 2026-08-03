@@ -1,5 +1,6 @@
 export * from './camera'
 export * from './cluster'
+export * from './games'
 export * from './home'
 export * from './media'
 export * from './minidsp'
