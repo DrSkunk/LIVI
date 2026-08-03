@@ -11,12 +11,12 @@ It is a standalone cross-platform head unit with a native, zero-copy GStreamer v
 
 ## Project Status
 
-![Release](https://img.shields.io/github/v/release/f-io/LIVI?label=release)
-![Main Version](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-version.json)
-![TS Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/typecheck.yml?branch=main&label=TS%20main)
-![Build Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/build.yml?branch=main&label=build%20main)
-![Coverage Main](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-main.json)
-![Coverage Renderer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-renderer.json)
+![Release](https://img.shields.io/github/v/release/DrSkunk/LIVI?label=release)
+![Main Version](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-version.json)
+![TS Main](https://img.shields.io/github/actions/workflow/status/DrSkunk/LIVI/typecheck.yml?branch=main&label=TS%20main)
+![Build Main](https://img.shields.io/github/actions/workflow/status/DrSkunk/LIVI/build.yml?branch=main&label=build%20main)
+![Coverage Main](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-coverage-main.json)
+![Coverage Renderer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-coverage-renderer.json)
 
 
 ## Native Connectivity
@@ -200,7 +200,7 @@ Use the standalone desktop installer on a fresh 64-bit Raspberry Pi OS with Desk
 > The Pi 4, CM 4, Pi 5 and CM 5 require Trixie (Debian 13) for OpenGL ES 3.x. Pi 3 and earlier use the VideoCore IV GPU, which only supports OpenGL ES 2.0 and is therefore unsupported.
 
 ```bash
-curl -fL -o install.sh https://raw.githubusercontent.com/f-io/LIVI/main/scripts/install/desktop/install.sh
+curl -fL -o install.sh https://raw.githubusercontent.com/DrSkunk/LIVI/main/scripts/install/desktop/install.sh
 chmod +x install.sh
 ./install.sh
 ```
@@ -219,7 +219,7 @@ _This installer targets Raspberry Pi OS with Desktop. It should also work on Deb
 For a host with no desktop session. Written for Raspberry Pi OS Lite, and it should work the same on Debian or any other apt-based headless Linux, on arm64 and x86_64 alike.
 
 ```bash
-curl -fL -o install.sh https://raw.githubusercontent.com/f-io/LIVI/main/scripts/install/headless/install.sh
+curl -fL -o install.sh https://raw.githubusercontent.com/DrSkunk/LIVI/main/scripts/install/headless/install.sh
 chmod +x install.sh
 ./install.sh
 ```
@@ -259,12 +259,12 @@ After this, the app will launch normally and future updates will work without ad
 
 ## Build Environment
 
-![Node](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-node.json)
-![pnpm](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-pnpm.json)
-![electron](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-electron.json)
-![chrome](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-electron-date.json)
-![release](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-electron-chromium.json)
-![gstreamer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-gstreamer.json)
+![Node](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-node.json)
+![pnpm](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-pnpm.json)
+![electron](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-electron.json)
+![chrome](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-electron-date.json)
+![release](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-electron-chromium.json)
+![gstreamer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-gstreamer.json)
 
 ### System Requirements (build)
 
@@ -334,7 +334,7 @@ before building. `node-gyp` discovers it via `pkg-config` under
 
 ```bash
 # Git clone
-git clone --branch main --single-branch https://github.com/f-io/LIVI.git \
+git clone --branch main --single-branch https://github.com/DrSkunk/LIVI.git \
   && cd LIVI
 
 # Install dependencies from lockfile
