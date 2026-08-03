@@ -195,6 +195,8 @@ The Raspberry Pi installers create a game library at `~/Games/roms` and configur
 
 Place legally obtained ROMs in `~/Games/roms`, grouped into system folders if desired. Open **Games** in LIVI and select **Open RetroArch**, then use **Import Content → Scan Directory** and select `~/Games/roms`. Fetch cover art with **Online Updater → Playlist Thumbnails Updater**. Return to LIVI after closing RetroArch and press the rescan button; playlists and thumbnails appear automatically. Paths can be changed under **Settings → General → Games**.
 
+Pair a Bluetooth gamepad without leaving LIVI: put the controller in pairing mode, open **Games → Pair controller**, press **Scan**, then **Pair** beside the controller. LIVI pairs, trusts, and connects it through BlueZ; RetroArch detects it as a normal Linux gamepad. Reboot once after a fresh installation so `input` and `bluetooth` group membership applies.
+
 
 ## Installation
 

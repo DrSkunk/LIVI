@@ -3,6 +3,7 @@ import SportsEsportsRoundedIcon from '@mui/icons-material/SportsEsportsRounded'
 import { Box, Button, CircularProgress, IconButton, Typography } from '@mui/material'
 import { DEFAULT_ROM_DIRECTORY, type GameLibraryItem, type GameStatus } from '@shared/types'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { ControllerPairing } from './ControllerPairing'
 
 function GameCard({
   game,
@@ -244,6 +245,7 @@ export function Games() {
               : `${games.length} ${games.length === 1 ? 'game' : 'games'}`}
           </Typography>
         </Box>
+        <ControllerPairing />
         <IconButton
           aria-label="Rescan game library"
           onClick={() => void load()}

@@ -9,6 +9,13 @@ export type GamesConfig = {
   thumbnailDirectory: string
 }
 
+export type BluetoothControllerDevice = {
+  mac: string
+  name: string
+  paired: boolean
+  connected: boolean
+}
+
 export type GameLibraryItem = {
   id: string
   title: string

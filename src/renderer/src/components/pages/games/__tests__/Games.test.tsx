@@ -19,6 +19,9 @@ beforeEach(() => {
     getStatus: vi.fn(async () => ({ state: 'idle' })),
     openRetroArch,
     launch,
+    listControllers: vi.fn(async () => []),
+    scanControllers: vi.fn(async () => []),
+    pairController: vi.fn(async () => ({ ok: true as const })),
     stop: vi.fn(),
     onStatus: vi.fn((handler) => {
       statusHandler = handler
@@ -37,6 +40,12 @@ describe('Games', () => {
 
     fireEvent.click(mario)
     await waitFor(() => expect(launch).toHaveBeenCalledWith('mario'))
+  })
+
+  test('opens Bluetooth controller pairing inside the Games HUD', async () => {
+    render(<Games />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Pair controller' }))
+    expect(screen.getByRole('dialog', { name: 'Bluetooth controllers' })).toBeInTheDocument()
   })
 
   test('shows setup instructions and opens RetroArch when library is empty', async () => {

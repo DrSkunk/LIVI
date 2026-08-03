@@ -88,6 +88,11 @@ livi_prepare_retroarch() {
   mkdir -p "$LIVI_ROMS_DIR" \
     "$LIVI_RETROARCH_DIR/playlists" \
     "$LIVI_RETROARCH_DIR/thumbnails"
+  for group in input bluetooth; do
+    if getent group "$group" >/dev/null 2>&1; then
+      sudo usermod -aG "$group" "$USER"
+    fi
+  done
   echo "   ROMs: $LIVI_ROMS_DIR"
   echo "   Playlists: $LIVI_RETROARCH_DIR/playlists"
   echo "   Thumbnails: $LIVI_RETROARCH_DIR/thumbnails"

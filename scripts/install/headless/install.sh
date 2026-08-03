@@ -53,7 +53,7 @@ livi_install_pymobiledevice3
 livi_install_minidsp_rs
 
 echo "→ Adding $USER to required groups"
-WANTED_GROUPS=(video render input plugdev)
+WANTED_GROUPS=(video render input plugdev bluetooth)
 EXISTING_GROUPS=()
 for g in "${WANTED_GROUPS[@]}"; do
   if getent group "$g" >/dev/null; then

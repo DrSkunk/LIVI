@@ -1,5 +1,6 @@
 import type { ElectronAPI } from '@electron-toolkit/preload'
 import type {
+  BluetoothControllerDevice,
   Config,
   DeviceView,
   DongleFirmwareAction,
@@ -131,6 +132,9 @@ declare global {
       getStatus(): Promise<GameStatus>
       openRetroArch(): Promise<{ ok: true }>
       launch(gameId: string): Promise<{ ok: true }>
+      listControllers(): Promise<BluetoothControllerDevice[]>
+      scanControllers(): Promise<BluetoothControllerDevice[]>
+      pairController(mac: string): Promise<{ ok: true }>
       stop(): void
       onStatus(callback: (status: GameStatus) => void): () => void
     }
