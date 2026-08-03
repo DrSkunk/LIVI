@@ -186,6 +186,16 @@ Video: 1920x1080 - View Area: 0/0/0/0 (T/B/L/R) - Safe Area: 120/20/500/500 (T/B
 </p>
 
 
+## RetroArch games
+
+The Raspberry Pi installers create a game library at `~/Games/roms` and configure LIVI to use RetroArch's standard playlist and thumbnail directories:
+
+- playlists: `~/.config/retroarch/playlists`
+- thumbnails: `~/.config/retroarch/thumbnails`
+
+Place legally obtained ROMs in `~/Games/roms`, grouped into system folders if desired. Open **Games** in LIVI and select **Open RetroArch**, then use **Import Content → Scan Directory** and select `~/Games/roms`. Fetch cover art with **Online Updater → Playlist Thumbnails Updater**. Return to LIVI after closing RetroArch and press the rescan button; playlists and thumbnails appear automatically. Paths can be changed under **Settings → General → Games**.
+
+
 ## Installation
 
 > [!IMPORTANT]

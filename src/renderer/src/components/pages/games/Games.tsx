@@ -1,7 +1,7 @@
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import SportsEsportsRoundedIcon from '@mui/icons-material/SportsEsportsRounded'
-import { Box, CircularProgress, IconButton, Typography } from '@mui/material'
-import type { GameLibraryItem, GameStatus } from '@shared/types'
+import { Box, Button, CircularProgress, IconButton, Typography } from '@mui/material'
+import { DEFAULT_ROM_DIRECTORY, type GameLibraryItem, type GameStatus } from '@shared/types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 function GameCard({
@@ -159,6 +159,7 @@ export function Games() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [launchingId, setLaunchingId] = useState<string | null>(null)
+  const [openingRetroArch, setOpeningRetroArch] = useState(false)
   const lastGameId = useRef<string | null>(null)
 
   const load = useCallback(async () => {
@@ -179,6 +180,7 @@ export function Games() {
       if (status.state === 'error') setError(status.message)
       if (status.state === 'idle' || status.state === 'error') {
         setLaunchingId(null)
+        setOpeningRetroArch(false)
         const id = lastGameId.current
         requestAnimationFrame(() => document.getElementById(id ? `game-${id}` : '')?.focus())
       }
@@ -193,6 +195,17 @@ export function Games() {
       await window.games.launch(game.id)
     } catch (cause) {
       setLaunchingId(null)
+      setError(cause instanceof Error ? cause.message : 'Could not start RetroArch')
+    }
+  }, [])
+
+  const openRetroArch = useCallback(async () => {
+    setOpeningRetroArch(true)
+    setError('')
+    try {
+      await window.games.openRetroArch()
+    } catch (cause) {
+      setOpeningRetroArch(false)
       setError(cause instanceof Error ? cause.message : 'Could not start RetroArch')
     }
   }, [])
@@ -277,11 +290,39 @@ export function Games() {
             />
           ))
         ) : (
-          <Box sx={{ m: 'auto', textAlign: 'center', opacity: 0.72 }}>
-            <SportsEsportsRoundedIcon sx={{ fontSize: 72, mb: 1 }} />
-            <Typography variant="h6">No games found</Typography>
+          <Box
+            sx={{
+              m: 'auto',
+              maxWidth: 620,
+              px: 2,
+              textAlign: 'center',
+              display: 'grid',
+              justifyItems: 'center',
+              gap: 0.75
+            }}
+          >
+            <SportsEsportsRoundedIcon sx={{ fontSize: 72, mb: 0.5, opacity: 0.72 }} />
+            <Typography variant="h6">Add games to LIVI</Typography>
             <Typography color="text.secondary">
-              Set RetroArch playlist and thumbnail directories in General settings.
+              Place legally obtained ROMs in <strong>{DEFAULT_ROM_DIRECTORY}</strong>.
+            </Typography>
+            <Typography color="text.secondary">
+              Open RetroArch, then use Import Content → Scan Directory and select that folder.
+              Download cover art with Online Updater → Playlist Thumbnails Updater.
+            </Typography>
+            <Button
+              variant="contained"
+              onClick={() => void openRetroArch()}
+              disabled={openingRetroArch}
+              startIcon={
+                openingRetroArch ? <CircularProgress size={16} color="inherit" /> : undefined
+              }
+              sx={{ mt: 1 }}
+            >
+              {openingRetroArch ? 'Opening RetroArch…' : 'Open RetroArch'}
+            </Button>
+            <Typography color="text.secondary" sx={{ fontSize: '.78rem', mt: 0.5 }}>
+              Playlists and thumbnails are read automatically from ~/.config/retroarch.
             </Typography>
           </Box>
         )}

@@ -3,10 +3,12 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Games } from '../Games'
 
 const launch = vi.fn(async () => ({ ok: true as const }))
+const openRetroArch = vi.fn(async () => ({ ok: true as const }))
 let statusHandler: ((status: GameStatus) => void) | undefined
 
 beforeEach(() => {
   launch.mockClear()
+  openRetroArch.mockClear()
   statusHandler = undefined
   window.games = {
     getLibrary: vi.fn(async () => [
@@ -15,6 +17,7 @@ beforeEach(() => {
     ]),
     getThumbnail: vi.fn(async () => 'data:image/png;base64,aW1hZ2U='),
     getStatus: vi.fn(async () => ({ state: 'idle' })),
+    openRetroArch,
     launch,
     stop: vi.fn(),
     onStatus: vi.fn((handler) => {
@@ -34,6 +37,16 @@ describe('Games', () => {
 
     fireEvent.click(mario)
     await waitFor(() => expect(launch).toHaveBeenCalledWith('mario'))
+  })
+
+  test('shows setup instructions and opens RetroArch when library is empty', async () => {
+    vi.mocked(window.games.getLibrary).mockResolvedValueOnce([])
+    render(<Games />)
+
+    expect(await screen.findByText('Add games to LIVI')).toBeInTheDocument()
+    expect(screen.getByText('~/Games/roms')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open RetroArch' }))
+    await waitFor(() => expect(openRetroArch).toHaveBeenCalledOnce())
   })
 
   test('shows launch errors and accepts process exit status', async () => {

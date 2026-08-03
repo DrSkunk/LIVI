@@ -78,6 +78,21 @@ livi_install_pymobiledevice3() {
   fi
 }
 
+# Creates RetroArch's standard library directories without overwriting user
+# configuration. LIVI reads playlists and thumbnails from these paths by default.
+livi_prepare_retroarch() {
+  LIVI_ROMS_DIR="${LIVI_ROMS_DIR:-$HOME/Games/roms}"
+  LIVI_RETROARCH_DIR="${LIVI_RETROARCH_DIR:-$HOME/.config/retroarch}"
+
+  echo "→ Preparing RetroArch library directories"
+  mkdir -p "$LIVI_ROMS_DIR" \
+    "$LIVI_RETROARCH_DIR/playlists" \
+    "$LIVI_RETROARCH_DIR/thumbnails"
+  echo "   ROMs: $LIVI_ROMS_DIR"
+  echo "   Playlists: $LIVI_RETROARCH_DIR/playlists"
+  echo "   Thumbnails: $LIVI_RETROARCH_DIR/thumbnails"
+}
+
 # Installs the latest minidsp-rs Debian package. Its package includes the USB
 # udev rule, loopback HTTP API on port 5380 and minidsp.service; enabling it here
 # makes the daemon available to LIVI after this script exits and after reboots.

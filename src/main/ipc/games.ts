@@ -8,6 +8,7 @@ export function registerGamesIpc(runtimeState: runtimeStateProps): void {
   registerIpcHandle('games:library', () => games.getLibrary())
   registerIpcHandle('games:thumbnail', (_event, gameId: string) => games.getThumbnail(gameId))
   registerIpcHandle('games:status', () => games.getStatus())
+  registerIpcHandle('games:open-retroarch', () => games.openRetroArch())
   registerIpcHandle('games:launch', (_event, gameId: string) => games.launch(gameId))
   registerIpcOn('games:stop', () => games.stop())
 }

@@ -129,6 +129,7 @@ declare global {
       getLibrary(): Promise<GameLibraryItem[]>
       getThumbnail(gameId: string): Promise<string | null>
       getStatus(): Promise<GameStatus>
+      openRetroArch(): Promise<{ ok: true }>
       launch(gameId: string): Promise<{ ok: true }>
       stop(): void
       onStatus(callback: (status: GameStatus) => void): () => void

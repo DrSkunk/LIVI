@@ -1,8 +1,8 @@
 import { promises as fs } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { scanGameLibrary } from '../libraryScanner'
+import { expandGameDirectory, scanGameLibrary } from '../libraryScanner'
 
 const roots: string[] = []
 
@@ -21,6 +21,11 @@ async function fixture(): Promise<{ root: string; playlists: string; thumbnails:
 }
 
 describe('scanGameLibrary', () => {
+  test('expands RetroArch paths relative to the user home directory', () => {
+    expect(expandGameDirectory('~/Games/roms')).toBe(join(homedir(), 'Games/roms'))
+    expect(expandGameDirectory('/srv/roms')).toBe('/srv/roms')
+  })
+
   test('reads RetroArch playlists and resolves box art', async () => {
     const { playlists, thumbnails } = await fixture()
     const system = 'Nintendo - Nintendo Entertainment System'

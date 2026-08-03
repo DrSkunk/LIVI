@@ -92,4 +92,31 @@ describe('GameService', () => {
     expect(mocks.focus).toHaveBeenCalled()
     vi.runAllTimers()
   })
+
+  test('opens the fullscreen RetroArch menu for library setup', async () => {
+    const child = childProcess()
+    mocks.spawn.mockReturnValue(child)
+    const service = new GameService({
+      config: {
+        games: {
+          enabled: true,
+          retroArchPath: 'retroarch',
+          playlistDirectory: '/playlists',
+          thumbnailDirectory: '/thumbnails'
+        }
+      },
+      isQuitting: false
+    } as never)
+
+    const opened = service.openRetroArch()
+    await Promise.resolve()
+    child.emit('spawn')
+    await expect(opened).resolves.toEqual({ ok: true })
+
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      'retroarch',
+      ['--fullscreen', '--menu'],
+      expect.objectContaining({ shell: false })
+    )
+  })
 })

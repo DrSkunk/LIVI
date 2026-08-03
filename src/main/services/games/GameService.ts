@@ -61,17 +61,25 @@ export class GameService {
     return `data:${mimeFor(game.thumbnailPath)};base64,${image.toString('base64')}`
   }
 
+  async openRetroArch(): Promise<{ ok: true }> {
+    return this.startRetroArch(['--fullscreen', '--menu'])
+  }
+
   async launch(gameId: string): Promise<{ ok: true }> {
     if (!this.runtimeState.config.games.enabled) throw new Error('Games screen is disabled')
-    if (this.child) throw new Error('RetroArch is already running')
-
     const game = await this.resolveGame(gameId)
-    const executable = this.runtimeState.config.games.retroArchPath.trim()
-    if (!executable) throw new Error('RetroArch executable is not configured')
-
     const args = ['--fullscreen']
     if (game.corePath) args.push('-L', game.corePath)
     args.push(game.romPath)
+    return this.startRetroArch(args, gameId)
+  }
+
+  private startRetroArch(args: string[], gameId?: string): Promise<{ ok: true }> {
+    if (!this.runtimeState.config.games.enabled) throw new Error('Games screen is disabled')
+    if (this.child) throw new Error('RetroArch is already running')
+
+    const executable = this.runtimeState.config.games.retroArchPath.trim()
+    if (!executable) throw new Error('RetroArch executable is not configured')
 
     this.setStatus({ state: 'launching', gameId })
 

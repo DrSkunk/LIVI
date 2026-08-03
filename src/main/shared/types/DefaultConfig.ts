@@ -1,6 +1,7 @@
 import type { Config } from '@shared/types'
 import { DEFAULT_BINDINGS } from '@shared/types'
 import { CarType, HandDriveType, PhoneWorkMode } from '@shared/types/Config'
+import { DEFAULT_PLAYLIST_DIRECTORY, DEFAULT_THUMBNAIL_DIRECTORY } from '@shared/types/Games'
 
 export const DEFAULT_CONFIG: Config = {
   dismissedPackages: [],
@@ -68,8 +69,8 @@ export const DEFAULT_CONFIG: Config = {
   games: {
     enabled: false,
     retroArchPath: 'retroarch',
-    playlistDirectory: '',
-    thumbnailDirectory: ''
+    playlistDirectory: DEFAULT_PLAYLIST_DIRECTORY,
+    thumbnailDirectory: DEFAULT_THUMBNAIL_DIRECTORY
   },
   minidsp: {
     enabled: true,

@@ -58,6 +58,7 @@ echo "→ Installing LIVI runtime packages and RetroArch"
 sudo apt-get update
 sudo apt-get install -y $(livi_packages core | tr '\n' ' ') retroarch
 
+livi_prepare_retroarch
 livi_install_pymobiledevice3
 livi_install_minidsp_rs
 
@@ -155,6 +156,6 @@ echo "Application entry at $APPLICATIONS_DIR/dev.f-io.livi.desktop"
 
 echo ""
 echo "✅ LIVI desktop installation complete."
-echo "   RetroArch: $(command -v retroarch)"
+echo "   RetroArch: $(command -v retroarch) (ROMs: $LIVI_ROMS_DIR)"
 echo "   MiniDSP: minidsp.service (http://127.0.0.1:5380)"
 echo "   Reboot to apply boot and I2C changes and launch LIVI automatically."

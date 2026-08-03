@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { type Dirent, promises as fs } from 'node:fs'
+import { homedir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import type { GameLibraryItem, GamesConfig } from '@shared/types'
 
@@ -22,6 +23,13 @@ type Playlist = {
 
 const THUMBNAIL_FOLDERS = ['Named_Boxarts', 'Named_Titles', 'Named_Snaps'] as const
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'] as const
+
+export function expandGameDirectory(directory: string): string {
+  const value = directory.trim()
+  if (value === '~') return homedir()
+  if (value.startsWith('~/')) return join(homedir(), value.slice(2))
+  return value
+}
 
 async function findPlaylists(directory: string): Promise<string[]> {
   if (!directory.trim()) return []
@@ -88,7 +96,9 @@ function gameId(romPath: string, corePath?: string): string {
 }
 
 export async function scanGameLibrary(config: GamesConfig): Promise<GameRecord[]> {
-  const playlists = await findPlaylists(config.playlistDirectory)
+  const playlistDirectory = expandGameDirectory(config.playlistDirectory)
+  const thumbnailDirectory = expandGameDirectory(config.thumbnailDirectory)
+  const playlists = await findPlaylists(playlistDirectory)
   const games: GameRecord[] = []
   const seen = new Set<string>()
 
@@ -123,7 +133,7 @@ export async function scanGameLibrary(config: GamesConfig): Promise<GameRecord[]
       if (seen.has(id)) continue
       seen.add(id)
 
-      const thumbnailPath = await resolveThumbnail(config.thumbnailDirectory, system, title)
+      const thumbnailPath = await resolveThumbnail(thumbnailDirectory, system, title)
       games.push({
         id,
         title,

@@ -1,3 +1,7 @@
+export const DEFAULT_ROM_DIRECTORY = '~/Games/roms'
+export const DEFAULT_PLAYLIST_DIRECTORY = '~/.config/retroarch/playlists'
+export const DEFAULT_THUMBNAIL_DIRECTORY = '~/.config/retroarch/thumbnails'
+
 export type GamesConfig = {
   enabled: boolean
   retroArchPath: string
@@ -14,6 +18,6 @@ export type GameLibraryItem = {
 
 export type GameStatus =
   | { state: 'idle'; gameId?: string; exitCode?: number | null; signal?: string | null }
-  | { state: 'launching'; gameId: string }
-  | { state: 'running'; gameId: string }
+  | { state: 'launching'; gameId?: string }
+  | { state: 'running'; gameId?: string }
   | { state: 'error'; gameId?: string; message: string }

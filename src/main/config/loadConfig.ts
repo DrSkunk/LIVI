@@ -34,6 +34,17 @@ export function loadConfig(): Config {
 
   const merged = validate(fileConfig, defaults)
 
+  // Older configs stored blank RetroArch paths. Populate them with RetroArch's
+  // standard per-user directories so Games works without manual path setup.
+  if (merged.games && DEFAULT_CONFIG.games) {
+    if (!merged.games.playlistDirectory.trim()) {
+      merged.games.playlistDirectory = DEFAULT_CONFIG.games.playlistDirectory
+    }
+    if (!merged.games.thumbnailDirectory.trim()) {
+      merged.games.thumbnailDirectory = DEFAULT_CONFIG.games.thumbnailDirectory
+    }
+  }
+
   const pass = merged.wifiPassword
   if (pass.length < WIFI_PASSWORD_MIN || pass.length > WIFI_PASSWORD_MAX) {
     console.warn(

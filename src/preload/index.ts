@@ -245,6 +245,7 @@ contextBridge.exposeInMainWorld('games', {
   getThumbnail: (gameId: string): Promise<string | null> =>
     ipcRenderer.invoke('games:thumbnail', gameId),
   getStatus: (): Promise<GameStatus> => ipcRenderer.invoke('games:status'),
+  openRetroArch: (): Promise<{ ok: true }> => ipcRenderer.invoke('games:open-retroarch'),
   launch: (gameId: string): Promise<{ ok: true }> => ipcRenderer.invoke('games:launch', gameId),
   stop: (): void => ipcRenderer.send('games:stop'),
   onStatus: (callback: (status: GameStatus) => void): (() => void) => {
