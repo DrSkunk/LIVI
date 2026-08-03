@@ -192,9 +192,9 @@ Video: 1920x1080 - View Area: 0/0/0/0 (T/B/L/R) - Safe Area: 120/20/500/500 (T/B
 > LIVI requires **OpenGL ES 3.x**.
 
 
-## Desktop
+## Raspberry Pi OS with Desktop
 
-For a host that already runs a desktop session. Written for Raspberry Pi OS, and it should work the same on Debian or any other apt-based Linux with a desktop.
+Use the standalone desktop installer on a fresh 64-bit Raspberry Pi OS with Desktop installation. It installs LIVI and all runtime dependencies, RetroArch, and the latest [minidsp-rs](https://github.com/mrene/minidsp-rs) Debian package. It enables `minidsp.service` immediately and at boot; LIVI connects to its HTTP API at `http://127.0.0.1:5380`.
 
 > [!NOTE]
 > The Pi 4, CM 4, Pi 5 and CM 5 require Trixie (Debian 13) for OpenGL ES 3.x. Pi 3 and earlier use the VideoCore IV GPU, which only supports OpenGL ES 2.0 and is therefore unsupported.
@@ -205,7 +205,13 @@ chmod +x install.sh
 ./install.sh
 ```
 
-_This install script is not actively tested on other Linux distributions._
+Run it as the desktop user, not as root; the script invokes `sudo` when needed. It is safe to re-run. Reboot when it finishes so boot, I2C and autostart changes all take effect. LIVI starts automatically in the desktop session, RetroArch is available at `/usr/bin/retroarch`, and the MiniDSP daemon can be checked with:
+
+```bash
+systemctl status minidsp.service
+```
+
+_This installer targets Raspberry Pi OS with Desktop. It should also work on Debian or another apt-based desktop, but those distributions are not actively tested._
 
 
 ## Headless

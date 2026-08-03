@@ -4,11 +4,13 @@ set -euo pipefail
 # ----------------------------------------
 # LIVI Installer & Shortcut Creator (desktop session)
 # ----------------------------------------
-# For a host that already has a desktop session, so it adds an autostart entry,
-# a desktop shortcut and an application entry. Everything it shares with the
-# headless installer lives in scripts/install/common.sh.
+# Standalone setup for a fresh Raspberry Pi OS with Desktop installation. It
+# installs LIVI's runtime dependencies, RetroArch and minidsp-rs as a systemd
+# daemon, then adds an autostart entry, desktop shortcut and application entry.
+# Everything it shares with the headless installer lives in common.sh; when this
+# file is downloaded by itself, it fetches that library automatically.
 #
-# Re-runnable.
+# Re-runnable. Refuses to run as root (sudo is used internally).
 
 LIVI_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../common.sh"
 if [ ! -f "$LIVI_LIB" ]; then
@@ -19,6 +21,13 @@ if [ ! -f "$LIVI_LIB" ]; then
 fi
 # shellcheck source=../common.sh
 . "$LIVI_LIB"
+
+livi_require_regular_user
+
+if ! command -v apt-get >/dev/null; then
+  echo "Error: this installer requires Raspberry Pi OS or another apt-based desktop." >&2
+  exit 1
+fi
 
 USER_HOME="$HOME"
 APPIMAGE_PATH="$USER_HOME/LIVI/LIVI.AppImage"
@@ -42,12 +51,15 @@ for tool in curl xdg-user-dir pkexec; do
   fi
 done
 
-# A desktop session is already present, so only the core packages are needed here.
-echo "→ Ensuring GStreamer, wireless AP and Bluetooth runtime packages"
+# Desktop session supplies PipeWire and display services. Add LIVI's core
+# runtime packages plus RetroArch; its default executable name already matches
+# LIVI's games configuration.
+echo "→ Installing LIVI runtime packages and RetroArch"
 sudo apt-get update
-sudo apt-get install -y $(livi_packages core | tr '\n' ' ')
+sudo apt-get install -y $(livi_packages core | tr '\n' ' ') retroarch
 
 livi_install_pymobiledevice3
+livi_install_minidsp_rs
 
 ICON_URL="$LIVI_RAW/assets/icons/linux/livi.png"
 ICON_DEST="$USER_HOME/.local/share/icons/livi.png"
@@ -141,4 +153,8 @@ EOF
 update-desktop-database "$APPLICATIONS_DIR" 2>/dev/null || true
 echo "Application entry at $APPLICATIONS_DIR/dev.f-io.livi.desktop"
 
-echo "✅ Installation complete!"
+echo ""
+echo "✅ LIVI desktop installation complete."
+echo "   RetroArch: $(command -v retroarch)"
+echo "   MiniDSP: minidsp.service (http://127.0.0.1:5380)"
+echo "   Reboot to apply boot and I2C changes and launch LIVI automatically."

@@ -78,6 +78,58 @@ livi_install_pymobiledevice3() {
   fi
 }
 
+# Installs the latest minidsp-rs Debian package. Its package includes the USB
+# udev rule, loopback HTTP API on port 5380 and minidsp.service; enabling it here
+# makes the daemon available to LIVI after this script exits and after reboots.
+livi_install_minidsp_rs() {
+  local arch release_json url package
+
+  if ! command -v dpkg >/dev/null 2>&1; then
+    echo "Error: dpkg is required to install minidsp-rs" >&2
+    return 1
+  fi
+
+  arch="$(dpkg --print-architecture)"
+  case "$arch" in
+    amd64|arm64|armhf) ;;
+    *)
+      echo "Error: minidsp-rs has no Debian package for architecture '$arch'" >&2
+      return 1
+      ;;
+  esac
+
+  echo "→ Installing minidsp-rs for $arch"
+  if ! release_json="$(curl -fsSL https://api.github.com/repos/mrene/minidsp-rs/releases/latest)"; then
+    echo "Error: cannot find the latest minidsp-rs release" >&2
+    return 1
+  fi
+  url="$(printf '%s\n' "$release_json" \
+    | grep -o 'https://[^"[:space:]]*' \
+    | grep -E "/minidsp_[^/]+_${arch}\\.deb$" \
+    | head -1)"
+  if [ -z "$url" ]; then
+    echo "Error: latest minidsp-rs release has no $arch Debian package" >&2
+    return 1
+  fi
+
+  package="$(mktemp --suffix=.deb)"
+  if ! curl -fL "$url" -o "$package"; then
+    rm -f "$package"
+    echo "Error: minidsp-rs download failed" >&2
+    return 1
+  fi
+  chmod 0644 "$package"
+  if ! sudo apt-get install -y "$package"; then
+    rm -f "$package"
+    echo "Error: minidsp-rs package installation failed" >&2
+    return 1
+  fi
+  rm -f "$package"
+
+  sudo systemctl enable --now minidsp.service
+  echo "   minidsp.service enabled; HTTP API listening on 127.0.0.1:5380"
+}
+
 # Sets LIVI_CHANNEL and LIVI_RELEASE_API. Skips the prompt when LIVI_CHANNEL is
 # already set or an AppImage was passed in, so unattended runs keep working.
 livi_pick_channel() {
