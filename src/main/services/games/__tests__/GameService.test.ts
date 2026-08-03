@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   hide: vi.fn(),
   show: vi.fn(),
   focus: vi.fn(),
+  moveTop: vi.fn(),
+  invalidate: vi.fn(),
   restore: vi.fn()
 }))
 
@@ -23,6 +25,8 @@ vi.mock('@main/window/createWindow', () => ({
     hide: mocks.hide,
     show: mocks.show,
     focus: mocks.focus,
+    moveTop: mocks.moveTop,
+    webContents: { invalidate: mocks.invalidate },
     restore: mocks.restore,
     isMinimized: () => false,
     isDestroyed: () => false
@@ -59,7 +63,7 @@ describe('GameService', () => {
     ])
   })
 
-  test('hides LIVI after spawn and restores it when RetroArch closes', async () => {
+  test('keeps LIVI mapped behind RetroArch and raises it when RetroArch closes', async () => {
     const child = childProcess()
     mocks.spawn.mockReturnValue(child)
     const service = new GameService({
@@ -85,11 +89,13 @@ describe('GameService', () => {
       ['--fullscreen', '-L', '/cores/core.so', '/roms/game.rom'],
       expect.objectContaining({ shell: false })
     )
-    expect(mocks.hide).toHaveBeenCalledOnce()
+    expect(mocks.hide).not.toHaveBeenCalled()
 
     child.emit('close', 0, null)
     expect(mocks.show).toHaveBeenCalled()
+    expect(mocks.moveTop).toHaveBeenCalled()
     expect(mocks.focus).toHaveBeenCalled()
+    expect(mocks.invalidate).toHaveBeenCalled()
     vi.runAllTimers()
   })
 

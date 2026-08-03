@@ -96,7 +96,9 @@ export class GameService {
 
       child.once('spawn', () => {
         spawned = true
-        getMainWindow()?.hide()
+        // Keep LIVI mapped behind RetroArch. Hiding an Electron Wayland surface
+        // makes Cage drop it; remapping after RetroArch exits can then leave only
+        // the compositor's black background.
         this.setStatus({ state: 'running', gameId })
         resolve({ ok: true })
       })
@@ -146,7 +148,9 @@ export class GameService {
       if (!window || window.isDestroyed()) return
       if (window.isMinimized()) window.restore()
       window.show()
+      window.moveTop()
       window.focus()
+      window.webContents.invalidate()
     }
 
     restore()
