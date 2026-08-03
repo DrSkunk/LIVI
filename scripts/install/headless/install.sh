@@ -8,7 +8,8 @@ set -euo pipefail
 # OS Lite and on x86 Debian alike. Everything it shares with the desktop
 # installer lives in scripts/install/common.sh.
 #
-#   - Installs Cage (Wayland kiosk compositor), seatd, PipeWire
+#   - Installs Cage (Wayland kiosk compositor), seatd, PipeWire and RetroArch
+#   - Installs minidsp-rs and enables its systemd daemon
 #   - Writes the udev rule and the sudoers drop-in from the templates inside the
 #     AppImage, so first launch needs no pkexec dialog
 #   - Configures tty1 autologin through a systemd getty drop-in and starts Cage
@@ -43,11 +44,12 @@ KIOSK_PAM="/etc/pam.d/livi-kiosk"
 
 echo "→ Architecture: $(uname -m) → $(livi_asset_arch).AppImage"
 
-echo "→ Installing required packages"
+echo "→ Installing LIVI runtime packages and RetroArch"
 sudo apt-get update
-sudo apt-get install -y $(livi_packages core lite | tr '\n' ' ')
+sudo apt-get install -y $(livi_packages core lite | tr '\n' ' ') retroarch
 
 livi_install_pymobiledevice3
+livi_install_minidsp_rs
 
 echo "→ Adding $USER to required groups"
 WANTED_GROUPS=(video render input plugdev)
@@ -184,6 +186,8 @@ sudo systemctl enable livi-kiosk.service
 
 echo ""
 echo "✅ LIVI headless installation complete."
+echo "   RetroArch: $(command -v retroarch)"
+echo "   MiniDSP: minidsp.service (http://127.0.0.1:5380)"
 echo ""
 echo "Reboot to launch LIVI in kiosk mode on tty1:"
 echo "    sudo reboot"

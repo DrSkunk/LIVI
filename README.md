@@ -224,7 +224,7 @@ _This installer targets Raspberry Pi OS with Desktop. It should also work on Deb
 
 ## Headless
 
-For a host with no desktop session. Written for Raspberry Pi OS Lite, and it should work the same on Debian or any other apt-based headless Linux, on arm64 and x86_64 alike.
+For a fresh 64-bit Raspberry Pi OS Lite host with no desktop session. The installer sets up LIVI's kiosk environment and runtime dependencies, installs RetroArch, and installs the latest [minidsp-rs](https://github.com/mrene/minidsp-rs) Debian package with `minidsp.service` enabled immediately and at boot. It should also work on Debian or another apt-based headless Linux on arm64 or x86_64.
 
 ```bash
 curl -fL -o install.sh https://raw.githubusercontent.com/DrSkunk/LIVI/main/scripts/install/headless/install.sh
@@ -232,7 +232,7 @@ chmod +x install.sh
 ./install.sh
 ```
 
-Reboot when it finishes. LIVI then runs fullscreen on tty1 and logs to `~/LIVI/LIVI.log`. Shutting LIVI down from its own menu ends the service and hands tty1 back to the login shell, so a reboot brings the kiosk back.
+Run it as the regular login user, not as root; the script invokes `sudo` when needed and is safe to re-run. Reboot when it finishes. LIVI then runs fullscreen on tty1 and logs to `~/LIVI/LIVI.log`. RetroArch is available at `/usr/bin/retroarch`, and LIVI connects to the MiniDSP daemon at `http://127.0.0.1:5380`. Check the daemon with `systemctl status minidsp.service`. Shutting LIVI down from its own menu ends the service and hands tty1 back to the login shell, so a reboot brings the kiosk back.
 
 
 > [!NOTE]
