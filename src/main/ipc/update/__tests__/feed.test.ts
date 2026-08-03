@@ -17,12 +17,12 @@ describe('releaseFeedUrl', () => {
   })
 
   test('release takes the latest tagged release', () => {
-    expect(releaseFeedUrl(false)).toBe('https://api.github.com/repos/f-io/LIVI/releases/latest')
+    expect(releaseFeedUrl(false)).toBe('https://api.github.com/repos/DrSkunk/LIVI/releases/latest')
   })
 
   test('nightly takes the rolling prerelease tag', () => {
     expect(releaseFeedUrl(true)).toBe(
-      'https://api.github.com/repos/f-io/LIVI/releases/tags/nightly'
+      'https://api.github.com/repos/DrSkunk/LIVI/releases/tags/nightly'
     )
   })
 

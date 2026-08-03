@@ -178,7 +178,7 @@ describe('Updater', () => {
     await updater.perform({} as never)
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'https://api.github.com/repos/f-io/LIVI/releases/latest',
+      'https://api.github.com/repos/DrSkunk/LIVI/releases/latest',
       { headers: { 'User-Agent': 'LIVI-updater' } }
     )
     expect(pickAssetForPlatform).toHaveBeenCalledWith([
