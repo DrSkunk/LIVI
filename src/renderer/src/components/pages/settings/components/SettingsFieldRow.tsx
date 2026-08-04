@@ -1,4 +1,4 @@
-import { Typography } from '@mui/material'
+import { Typography } from '@renderer/ui'
 import type { Config } from '@shared/types'
 import { useTranslation } from 'react-i18next'
 import { SettingsNode } from '../../../../routes'

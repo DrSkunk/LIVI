@@ -1,5 +1,5 @@
-import LocalGasStationIcon from '@mui/icons-material/LocalGasStation'
-import { Box, useTheme } from '@mui/material'
+import { Box, useTheme } from '@renderer/ui'
+import { LocalGasStationIcon } from '@renderer/ui/icons'
 import { SegmentBar } from './SegmentBar'
 
 export type FuelGaugeProps = {

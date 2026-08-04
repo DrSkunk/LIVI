@@ -1,7 +1,6 @@
-import ArrowForwardIosOutlinedIcon from '@mui/icons-material/ArrowForwardIosOutlined'
-import Paper from '@mui/material/Paper'
-import { styled } from '@mui/material/styles'
 import { useLiviStore } from '@renderer/store/store'
+import { Paper, styled, type Theme } from '@renderer/ui'
+import { ArrowForwardIosOutlinedIcon } from '@renderer/ui/icons'
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SelectNode } from '../../../../../routes/types'
@@ -10,7 +9,7 @@ import { defaultColorForPath } from '../colorPicker/colorUtils'
 import { findOptionForValue, withGhostOption } from '../ghostOption'
 import { getCachedOptions, resolveOptions } from '../selectOptionsCache'
 
-const Item = styled(Paper)(({ theme }) => {
+const Item = styled(Paper)(({ theme }: { theme: Theme }) => {
   const activeColor = theme.palette.primary.main
 
   const rowPad = 'clamp(10px, 1.9svh, 16px)'

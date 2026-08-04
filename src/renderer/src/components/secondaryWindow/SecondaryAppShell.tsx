@@ -1,4 +1,4 @@
-import { Box, Typography } from '@mui/material'
+import { Box, Typography } from '@renderer/ui'
 import type { WindowId } from '@shared/types'
 import { isClusterOnScreen } from '@shared/utils'
 import { useEffect, useRef } from 'react'

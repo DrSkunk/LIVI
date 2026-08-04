@@ -1,5 +1,5 @@
-import RestartAltOutlinedIcon from '@mui/icons-material/RestartAltOutlined'
-import { Box, IconButton, Slider } from '@mui/material'
+import { Box, IconButton, Slider } from '@renderer/ui'
+import { RestartAltOutlinedIcon } from '@renderer/ui/icons'
 import { type ReactNode, useEffect, useState } from 'react'
 
 type Props = {
@@ -45,11 +45,14 @@ export function CalibrationSlider({
           max={max}
           step={step}
           value={draft}
-          onChange={(_, v) => {
-            setDraft(v as number)
-            onChange?.(v as number)
+          onChange={(_: unknown, value: number | number[]) => {
+            const next = Array.isArray(value) ? value[0] : value
+            setDraft(next)
+            onChange?.(next)
           }}
-          onChangeCommitted={(_, v) => onCommit(v as number)}
+          onChangeCommitted={(_: unknown, value: number | number[]) =>
+            onCommit(Array.isArray(value) ? value[0] : value)
+          }
           sx={{ flex: 1, minWidth: 0, ...(swatch ? { color: swatch } : {}) }}
         />
         {icon && (

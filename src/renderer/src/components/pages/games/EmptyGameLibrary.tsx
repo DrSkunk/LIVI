@@ -1,6 +1,5 @@
-import LibraryAddRoundedIcon from '@mui/icons-material/LibraryAddRounded'
-import SportsEsportsRoundedIcon from '@mui/icons-material/SportsEsportsRounded'
-import { Box, Button, CircularProgress, Typography } from '@mui/material'
+import { Box, Button, CircularProgress, Typography } from '@renderer/ui'
+import { LibraryAddRoundedIcon, SportsEsportsRoundedIcon } from '@renderer/ui/icons'
 import { DEFAULT_ROM_DIRECTORY } from '@shared/types'
 
 type EmptyGameLibraryProps = {
@@ -20,12 +19,17 @@ export function EmptyGameLibrary({
     <Box
       sx={{
         m: 'auto',
-        maxWidth: 620,
-        px: 2,
+        width: 'min(680px, 92%)',
+        p: 'clamp(20px, 4vw, 38px)',
         textAlign: 'center',
         display: 'grid',
         justifyItems: 'center',
-        gap: 0.75
+        gap: 0.9,
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
+        background: 'linear-gradient(145deg, rgba(245,166,35,.055), rgba(8,7,5,.72))',
+        boxShadow: 'inset 0 1px rgba(255,225,177,.08), 0 16px 46px rgba(0,0,0,.34)'
       }}
     >
       <SportsEsportsRoundedIcon sx={{ fontSize: 72, mb: 0.5, opacity: 0.72 }} />

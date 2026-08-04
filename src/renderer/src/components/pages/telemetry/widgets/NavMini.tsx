@@ -1,7 +1,5 @@
-import AccessTimeIcon from '@mui/icons-material/AccessTime'
-import RouteIcon from '@mui/icons-material/Route'
-import SignpostIcon from '@mui/icons-material/Signpost'
-import { Box, Typography, useTheme } from '@mui/material'
+import { Box, Typography, useTheme } from '@renderer/ui'
+import { AccessTimeIcon, RouteIcon, SignpostIcon } from '@renderer/ui/icons'
 import type { NaviBag } from '@shared/types'
 import { NavLocale, translateNavigation } from '@shared/utils/translateNavigation'
 

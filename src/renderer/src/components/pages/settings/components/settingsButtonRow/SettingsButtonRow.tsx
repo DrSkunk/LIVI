@@ -1,4 +1,4 @@
-import { Button, CircularProgress } from '@mui/material'
+import { Button, CircularProgress } from '@renderer/ui'
 import { SettingsItemRow } from '../settingsItemRow'
 
 type Props = {

@@ -1,4 +1,4 @@
-import { Typography } from '@mui/material'
+import { Typography } from '@renderer/ui'
 import { ReactNode } from 'react'
 import { SettingsItemRow } from '../settingsItemRow'
 

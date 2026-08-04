@@ -1,10 +1,12 @@
-import AccessTimeIcon from '@mui/icons-material/AccessTime'
-import AppsIcon from '@mui/icons-material/Apps'
-import NavigationOutlinedIcon from '@mui/icons-material/NavigationOutlined'
-import PlaceIcon from '@mui/icons-material/Place'
-import RouteIcon from '@mui/icons-material/Route'
-import SignpostIcon from '@mui/icons-material/Signpost'
-import { Box, Stack, Typography } from '@mui/material'
+import { Box, Stack, Typography } from '@renderer/ui'
+import {
+  AccessTimeIcon,
+  AppsIcon,
+  NavigationOutlinedIcon,
+  PlaceIcon,
+  RouteIcon,
+  SignpostIcon
+} from '@renderer/ui/icons'
 import type { NaviBag } from '@shared/types'
 
 import { NavLocale, translateNavigation } from '@shared/utils/translateNavigation'

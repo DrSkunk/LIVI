@@ -1,8 +1,8 @@
-import VolumeOffRounded from '@mui/icons-material/VolumeOffRounded'
-import { Box, Slider, Switch, TextField, Typography } from '@mui/material'
 import { useLiviStore } from '@renderer/store/store'
+import { Box, Slider, Switch, TextField, Typography } from '@renderer/ui'
+import { VolumeOffRounded } from '@renderer/ui/icons'
 import type { Config } from '@shared/types'
-import { useEffect, useRef, useState } from 'react'
+import { type ChangeEvent, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SettingsNode } from '../../../../routes'
 import type { SelectOption } from '../../../../routes/types'
@@ -68,20 +68,23 @@ function VolumeSlider<T>({ value, onChange }: { value: T; onChange: (v: T) => vo
       value={draft}
       max={100}
       step={1}
-      valueLabelFormat={(v) => (v === 0 ? <VolumeOffRounded /> : `${v}%`)}
-      onChange={(_, v) => {
+      valueLabelFormat={(sliderValue: number) =>
+        sliderValue === 0 ? <VolumeOffRounded /> : `${sliderValue}%`
+      }
+      onChange={(_: unknown, value: number | number[]) => {
+        const next = Array.isArray(value) ? value[0] : value
         dragging.current = true
-        setDraft(v as number)
-        pending.current = v as number
+        setDraft(next)
+        pending.current = next
         if (settleTimer.current) clearTimeout(settleTimer.current)
         settleTimer.current = setTimeout(flush, SLIDER_SETTLE_MS)
         if (!maxTimer.current) {
           maxTimer.current = setTimeout(flush, SLIDER_MAX_WAIT_MS)
         }
       }}
-      onChangeCommitted={(_, v) => {
+      onChangeCommitted={(_: unknown, value: number | number[]) => {
         dragging.current = false
-        pending.current = v as number
+        pending.current = Array.isArray(value) ? value[0] : value
         flush()
       }}
       sx={{
@@ -109,7 +112,7 @@ export const SettingsFieldControl = <T,>({
       return (
         <TextField
           value={text}
-          onChange={(e) => onChange(e.target.value as T)}
+          onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(event.target.value as T)}
           fullWidth
           variant="outlined"
           error={tooShort}
@@ -156,7 +159,7 @@ export const SettingsFieldControl = <T,>({
         <Switch
           checked={Boolean(value)}
           disabled={node.disabled === true}
-          onChange={(_, v) => onChange(v as T)}
+          onChange={(_: unknown, checked: boolean) => onChange(checked as T)}
         />
       )
 

@@ -1,6 +1,6 @@
-import { Box, useTheme } from '@mui/material'
 import { usePaginationDots } from '@renderer/components/pages/telemetry/hooks/usePaginationDots'
-import { FC } from 'react'
+import { Box, useTheme } from '@renderer/ui'
+import type { FC, KeyboardEvent, PointerEvent } from 'react'
 import { DashboardsPaginationProps } from './types'
 
 export const DashboardsPagination: FC<DashboardsPaginationProps> = ({
@@ -46,16 +46,16 @@ export const DashboardsPagination: FC<DashboardsPaginationProps> = ({
               key={i}
               role="button"
               tabIndex={0}
-              onPointerDown={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
+              onPointerDown={(event: PointerEvent<HTMLDivElement>) => {
+                event.preventDefault()
+                event.stopPropagation()
                 onSetIndex(i)
                 revealDots()
               }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  e.stopPropagation()
+              onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  event.stopPropagation()
                   onSetIndex(i)
                   revealDots()
                 }

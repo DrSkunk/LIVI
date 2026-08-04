@@ -1,4 +1,4 @@
-import { Box } from '@mui/material'
+import { Box } from '@renderer/ui'
 import { Clock } from '../../widgets'
 import { CENTER_X, NAV_Y } from '../constants'
 

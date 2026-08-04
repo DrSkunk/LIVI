@@ -1,5 +1,5 @@
-import { Box, Stack, Typography } from '@mui/material'
 import { EMPTY_STRING } from '@renderer/constants'
+import { Box, Stack, Typography } from '@renderer/ui'
 import type { CSSProperties } from 'react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'

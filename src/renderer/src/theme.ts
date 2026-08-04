@@ -1,365 +1,36 @@
-import { alpha, createTheme } from '@mui/material/styles'
-import { CSSObject } from '@mui/system'
-import { SliderValueThumb } from './components/SliderValueThumb'
 import { THEME, UI } from './constants'
 import { themeColors } from './themeColors'
+import { createTheme, type Theme } from './ui'
 
-const sliderPill = {
-  medium: { size: 'clamp(34px, 6svh, 46px)', font: 'clamp(0.95rem, 2.5svh, 1.2rem)' },
-  small: { size: 'clamp(26px, 4.6svh, 34px)', font: 'clamp(0.75rem, 2svh, 0.95rem)' }
-}
+const sliderRoot = ({ ownerState }: { ownerState: { valueLabelDisplay?: string } }) =>
+  ownerState.valueLabelDisplay === 'off' ? {} : { color: 'var(--ui-primary)' }
 
-type SliderStyleArgs = { ownerState: { size?: string; valueLabelDisplay?: string } }
-
-const glowColor = (percent: number): string =>
-  `color-mix(in srgb, currentColor ${percent}%, transparent)`
-
-const asCssRecord = (v: unknown): Record<string, CSSObject> => v as Record<string, CSSObject>
-const asUnknownRecord = (v: unknown): Record<string, unknown> => v as Record<string, unknown>
-const asCss = (v: unknown): CSSObject => v as CSSObject
-
-function sliderComponent(primary: string, isLight: boolean) {
-  return {
-    defaultProps: {
-      valueLabelDisplay: 'on' as const,
-      slots: { thumb: SliderValueThumb }
-    },
-    styleOverrides: {
-      root: ({ ownerState }: SliderStyleArgs): CSSObject => {
-        if (ownerState.valueLabelDisplay === 'off') return {}
-        const pill = ownerState.size === 'small' ? sliderPill.small : sliderPill.medium
-        return {
-          height: pill.size,
-          padding: 0,
-          '& .MuiSlider-rail': {
-            height: pill.size,
-            borderRadius: '999px',
-            opacity: 1,
-            backgroundColor: `color-mix(in srgb, currentColor ${isLight ? 18 : 26}%, transparent)`,
-            boxShadow: `0 0 4px 0 ${glowColor(18)}`,
-            transition: 'box-shadow 140ms ease-out'
-          },
-          '&:hover .MuiSlider-rail, &:has(.MuiSlider-thumb.Mui-active) .MuiSlider-rail, &:has(.MuiSlider-thumb.Mui-focusVisible) .MuiSlider-rail':
-            {
-              boxShadow: `0 0 8px 0 ${glowColor(35)}`
-            },
-          '& .MuiSlider-track': {
-            height: pill.size,
-            border: 0,
-            borderRadius: '999px',
-            transition: 'none'
-          },
-          '& .MuiSlider-thumb': {
-            height: pill.size,
-            width: 0,
-            minWidth: 0,
-            padding: 0,
-            borderRadius: 0,
-            backgroundColor: 'transparent',
-            boxShadow: 'none',
-            transition: 'none',
-            '&::before': { display: 'none' },
-            '&::after': { display: 'none' },
-            '&.Mui-focusVisible, &.Mui-active, &:hover': { boxShadow: 'none' },
-            '& .LiviSlider-value': {
-              position: 'absolute',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              whiteSpace: 'nowrap',
-              display: 'flex',
-              alignItems: 'center',
-              fontSize: pill.font,
-              fontWeight: 900,
-              lineHeight: 1,
-              right: '1em',
-              '&[data-inside="true"]': { color: '#fff' },
-              '&[data-inside="false"]': {
-                color: isLight ? themeColors.textPrimaryLight : themeColors.textPrimaryDark
-              }
-            },
-            '& .MuiSvgIcon-root': { fontSize: '1.3em' }
-          },
-          '& .MuiSlider-valueLabel': { display: 'none' },
-          '& .MuiSlider-mark': { display: 'none' },
-          '& .MuiSlider-markLabel': { top: `calc(${pill.size} + 8px)` }
-        }
-      }
-    }
-  }
-}
-
-const commonLayout = {
-  'html, body, #root': {
-    margin: 0,
-    padding: 0,
-    height: '100%',
-    width: '100%',
-    overflow: 'hidden',
-    backgroundColor: 'inherit'
-  },
-  '::-webkit-scrollbar': { display: 'none' },
-  '.App': { backgroundColor: 'inherit' },
-  '.app-wrapper, #main, #videoContainer, .PhoneContent, .InfoContent, .CarplayContent': {
-    backgroundColor: 'inherit'
-  }
-}
-
-const tabRootBase = {
-  position: 'sticky',
-  top: 0,
-  zIndex: 1200,
-  width: '100%',
-  boxSizing: 'border-box',
-  color: 'inherit',
-  cursor: 'default'
-}
-const tabItemBase = {
-  minHeight: 64,
-  color: 'inherit',
-  cursor: 'default',
-  '& svg': { color: 'inherit' },
-  '&.Mui-selected svg': { color: 'inherit' }
-}
-const buttonBaseRoot = { cursor: 'default' }
-const svgIconRoot = { cursor: 'default' }
-
-function buildTheme(mode: THEME.LIGHT | THEME.DARK, bg?: string) {
-  const isLight = mode === THEME.LIGHT
-  const primary = isLight ? themeColors.primaryColorLight : themeColors.primaryColorDark
-  const highlight = isLight ? themeColors.highlightColorLight : themeColors.highlightColorDark
-  const background = bg || (isLight ? themeColors.light : themeColors.dark)
+function buildTheme(mode: THEME.LIGHT | THEME.DARK, backgroundOverride?: string): Theme {
+  const light = mode === THEME.LIGHT
+  const primary = light ? themeColors.primaryColorLight : themeColors.primaryColorDark
+  const highlight = light ? themeColors.highlightColorLight : themeColors.highlightColorDark
+  const background = backgroundOverride ?? (light ? themeColors.light : themeColors.dark)
 
   return createTheme({
-    breakpoints: {
-      values: {
-        xs: 0,
-        sm: 760,
-        md: 900,
-        lg: 1200,
-        xl: 1536
-      }
-    },
     palette: {
       mode,
-      background: {
-        default: background,
-        paper: background
-      },
-      text: {
-        primary: isLight ? themeColors.textPrimaryLight : themeColors.textPrimaryDark,
-        secondary: isLight ? themeColors.textSecondaryLight : themeColors.textSecondaryDark
-      },
       primary: { main: primary },
       secondary: { main: highlight },
-      divider: isLight ? themeColors.dividerLight : themeColors.dividerDark,
+      background: { default: background, paper: light ? '#e7dfd0' : '#100d09' },
+      text: {
+        primary: light ? themeColors.textPrimaryLight : themeColors.textPrimaryDark,
+        secondary: light ? themeColors.textSecondaryLight : themeColors.textSecondaryDark,
+        disabled: light ? '#887c68' : '#695f50'
+      },
+      divider: light ? themeColors.dividerLight : themeColors.dividerDark,
+      error: { main: '#d34d3f' },
       success: { main: themeColors.successMain }
     },
+    shape: { borderRadius: 3 },
     components: {
-      MuiCssBaseline: {
-        styleOverrides: {
-          ...commonLayout,
-          body: {
-            backgroundColor: background,
-            '--ui-highlight': highlight,
-            '--ui-primary': primary,
-            '--ui-breathe-dur': '1350ms'
-          },
-          '.fft-surface': {
-            backgroundColor: 'transparent'
-          },
-
-          '.fft-surface-inner': {
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          },
-
-          '.artwork-surface': {
-            backgroundColor: isLight
-              ? themeColors.artworkSurfaceLight
-              : themeColors.artworkSurfaceDark
-          },
-
-          ':focus': {
-            outline: 'none'
-          }
-        }
-      },
-
-      MuiTabs: {
-        styleOverrides: {
-          root: {
-            ...(tabRootBase as CSSObject),
-            backgroundColor: background
-          },
-          indicator: {
-            backgroundColor: highlight,
-            height: 4
-          }
-        }
-      },
-
-      MuiTab: {
-        styleOverrides: {
-          root: tabItemBase
-        }
-      },
-
-      MuiButtonBase: {
-        styleOverrides: {
-          root: {
-            ...buttonBaseRoot,
-            '& .MuiTouchRipple-child': {
-              backgroundColor: `${alpha(highlight, 0.75)} !important`
-            }
-          }
-        }
-      },
-
-      MuiSvgIcon: {
-        styleOverrides: {
-          root: svgIconRoot
-        }
-      },
-
-      MuiOutlinedInput: {
-        styleOverrides: {
-          root: {
-            '&:hover .MuiOutlinedInput-notchedOutline': {
-              borderColor: isLight
-                ? themeColors.highlightFocusedFieldLight
-                : themeColors.highlightFocusedFieldDark
-            },
-            '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-              borderColor: isLight
-                ? themeColors.highlightFocusedFieldLight
-                : themeColors.highlightFocusedFieldDark,
-              borderWidth: '2px'
-            }
-          },
-          notchedOutline: {
-            borderColor: isLight ? themeColors.dividerLight : themeColors.dividerDark
-          }
-        }
-      },
-
-      MuiIconButton: {
-        defaultProps: {
-          disableRipple: false,
-          disableFocusRipple: false,
-          disableTouchRipple: false
-        },
-        styleOverrides: {
-          root: {
-            backgroundColor: 'transparent',
-            boxShadow: 'none',
-            outline: 'none',
-
-            '&:hover': { backgroundColor: 'transparent' },
-            '&.Mui-focusVisible': { backgroundColor: 'transparent' },
-            '&.nav-focus-primary .MuiSvgIcon-root': {
-              transition: 'color 120ms ease-out'
-            },
-            '&.nav-focus-primary:hover .MuiSvgIcon-root, &.nav-focus-primary.Mui-focusVisible .MuiSvgIcon-root':
-              {
-                color: primary
-              }
-          }
-        }
-      },
-
-      MuiSwitch: {
-        defaultProps: {
-          disableRipple: false,
-          disableFocusRipple: false,
-          disableTouchRipple: false
-        },
-        styleOverrides: {
-          switchBase: {
-            '&.Mui-checked': {
-              color: `${primary} !important`
-            },
-
-            '&.Mui-checked + .MuiSwitch-track': {
-              backgroundColor: `${primary} !important`,
-              opacity: 1
-            },
-            '&.Mui-focusVisible': {
-              backgroundColor: 'transparent'
-            }
-          },
-          thumb: { boxShadow: 'none' },
-          track: { opacity: 1 }
-        }
-      },
-
-      MuiSlider: sliderComponent(primary, isLight),
-
-      MuiInputLabel: {
-        styleOverrides: {
-          root: {
-            '&.Mui-focused': {
-              color: highlight
-            }
-          }
-        }
-      },
-
-      MuiButton: {
-        variants: [
-          {
-            props: { variant: 'contained', color: 'primary' },
-            style: {
-              backgroundColor: primary,
-              '&:hover': {
-                backgroundColor: primary,
-                boxShadow: `0 0 0 2px ${alpha(highlight, 0.55)} inset, 0 0 14px ${alpha(highlight, 0.45)}`
-              },
-              '&:active': {
-                backgroundColor: primary,
-                boxShadow: `0 0 0 2px ${alpha(highlight, 0.65)} inset, 0 0 18px ${alpha(highlight, 0.5)}`
-              }
-            }
-          }
-        ],
-        styleOverrides: {
-          root: {
-            '&.MuiButton-containedPrimary:focus-visible': {
-              outline: 'none',
-              boxShadow: `0 0 0 2px ${alpha(highlight, 0.75)} inset, 0 0 18px ${alpha(highlight, 0.65)}`
-            },
-            '&.hover-ring.MuiButton-containedPrimary:hover': {
-              backgroundColor: primary,
-              boxShadow: `0 0 0 2px ${alpha(highlight, 0.65)} inset, 0 0 16px ${alpha(highlight, 0.55)}`
-            },
-            '&.hover-ring.MuiButton-containedPrimary:focus-visible': {
-              outline: 'none',
-              boxShadow: `0 0 0 2px ${alpha(highlight, 0.85)} inset, 0 0 20px ${alpha(highlight, 0.7)}`
-            }
-          }
-        }
-      },
-
-      MuiAppBar: {
-        styleOverrides: {
-          root: {
-            backgroundColor: background,
-            boxShadow: 'none'
-          }
-        }
-      },
-
-      MuiCard: {
-        styleOverrides: {
-          root: {
-            borderRadius: 12,
-            boxShadow: isLight ? '0 2px 8px rgba(0,0,0,0.1)' : '0 2px 8px rgba(0,0,0,0.3)'
-          }
-        }
-      }
-    }
+      MuiSlider: { styleOverrides: { root: sliderRoot } }
+    },
+    applyStyles: (wanted, styles) => (wanted === mode ? styles : {})
   })
 }
 
@@ -371,202 +42,14 @@ export function buildRuntimeTheme(
   primary?: string,
   highlight?: string,
   background?: string
-) {
-  if (!primary && !highlight && !background) return buildTheme(mode)
-
+): Theme {
   const base = buildTheme(mode, background)
-
-  if (!primary) {
-    primary = mode === THEME.LIGHT ? themeColors.primaryColorLight : themeColors.primaryColorDark
-  }
-  if (!highlight) {
-    highlight =
-      mode === THEME.LIGHT ? themeColors.highlightColorLight : themeColors.highlightColorDark
-  }
-
-  const tabsSO = asCssRecord(base.components?.MuiTabs?.styleOverrides)
-  const outlinedSO = asCssRecord(base.components?.MuiOutlinedInput?.styleOverrides)
-  const inputLabelSO = asCssRecord(base.components?.MuiInputLabel?.styleOverrides)
-  const buttonSO = asCssRecord(base.components?.MuiButton?.styleOverrides)
-  const buttonBaseSO = asCssRecord(base.components?.MuiButtonBase?.styleOverrides)
-  const iconButtonSO = asCssRecord(base.components?.MuiIconButton?.styleOverrides)
-  const switchSO = asCssRecord(base.components?.MuiSwitch?.styleOverrides)
-  const cssBaselineSO = asUnknownRecord(base.components?.MuiCssBaseline?.styleOverrides)
-
-  const cssBodySO = asCss(cssBaselineSO.body)
-
-  const tabsIndicator = asCss(tabsSO.indicator)
-  const outlinedRoot = asCss(outlinedSO.root)
-  const outlinedNotched = asCss(outlinedSO.notchedOutline)
-  const inputLabelRoot = asCss(inputLabelSO.root)
-  const btnRoot = asCss(buttonSO.root)
-  const btnBaseRoot = asCss(buttonBaseSO.root)
-
-  const iconBtnRoot = asCss(iconButtonSO.root)
-  const swSwitchBase = asCss(switchSO.switchBase)
-  const swThumb = asCss(switchSO.thumb)
-  const swTrack = asCss(switchSO.track)
-
   return createTheme({
     ...base,
     palette: {
       ...base.palette,
-      primary: { main: primary! },
-      secondary: { main: highlight! }
-    },
-
-    components: {
-      ...base.components,
-
-      MuiCssBaseline: {
-        styleOverrides: {
-          ...cssBaselineSO,
-          body: {
-            ...cssBodySO,
-            '--ui-highlight': highlight!,
-            '--ui-primary': primary!
-          },
-          ':focus': { outline: 'none' }
-        }
-      },
-
-      MuiTabs: {
-        styleOverrides: {
-          ...tabsSO,
-          indicator: {
-            ...tabsIndicator,
-            backgroundColor: highlight!,
-            height: 4
-          }
-        }
-      },
-
-      MuiOutlinedInput: {
-        styleOverrides: {
-          ...outlinedSO,
-          root: outlinedRoot,
-          notchedOutline: outlinedNotched
-        }
-      },
-
-      MuiInputLabel: {
-        styleOverrides: {
-          ...inputLabelSO,
-          root: {
-            ...inputLabelRoot,
-            '&.Mui-focused': { color: highlight! }
-          }
-        }
-      },
-
-      MuiButtonBase: {
-        styleOverrides: {
-          ...buttonBaseSO,
-          root: {
-            ...btnBaseRoot,
-            cursor: 'default',
-
-            '& .MuiTouchRipple-child': {
-              backgroundColor: `${alpha(highlight!, 0.75)} !important`
-            }
-          }
-        }
-      },
-
-      MuiButton: {
-        variants: [
-          {
-            props: { variant: 'contained', color: 'primary' },
-            style: {
-              backgroundColor: primary!,
-              '&:hover': {
-                backgroundColor: primary!,
-                boxShadow: `0 0 0 2px ${alpha(highlight!, 0.55)} inset, 0 0 14px ${alpha(highlight!, 0.45)}`
-              },
-              '&:active': {
-                backgroundColor: primary!,
-                boxShadow: `0 0 0 2px ${alpha(highlight!, 0.65)} inset, 0 0 18px ${alpha(highlight!, 0.5)}`
-              }
-            }
-          }
-        ],
-        styleOverrides: {
-          root: {
-            ...btnRoot,
-
-            '&.MuiButton-containedPrimary:focus-visible': {
-              outline: 'none',
-              boxShadow: `0 0 0 2px ${alpha(highlight!, 0.75)} inset, 0 0 18px ${alpha(highlight!, 0.65)}`
-            },
-
-            '&.hover-ring.MuiButton-containedPrimary:hover': {
-              backgroundColor: primary!,
-              boxShadow: `0 0 0 2px ${alpha(highlight!, 0.65)} inset, 0 0 16px ${alpha(highlight!, 0.55)}`
-            },
-            '&.hover-ring.MuiButton-containedPrimary:focus-visible': {
-              outline: 'none',
-              boxShadow: `0 0 0 2px ${alpha(highlight!, 0.85)} inset, 0 0 20px ${alpha(highlight!, 0.7)}`
-            }
-          }
-        }
-      },
-
-      MuiIconButton: {
-        defaultProps: {
-          disableRipple: false,
-          disableFocusRipple: false,
-          disableTouchRipple: false
-        },
-        styleOverrides: {
-          ...iconButtonSO,
-          root: {
-            ...iconBtnRoot,
-            backgroundColor: 'transparent',
-            boxShadow: 'none',
-            outline: 'none',
-
-            '&:hover': { backgroundColor: 'transparent' },
-            '&.Mui-focusVisible': { backgroundColor: 'transparent' },
-            '&.nav-focus-primary .MuiSvgIcon-root': {
-              transition: 'color 120ms ease-out'
-            },
-            '&.nav-focus-primary:hover .MuiSvgIcon-root, &.nav-focus-primary.Mui-focusVisible .MuiSvgIcon-root':
-              {
-                color: primary!
-              }
-          }
-        }
-      },
-
-      MuiSwitch: {
-        defaultProps: {
-          disableRipple: false,
-          disableFocusRipple: false,
-          disableTouchRipple: false
-        },
-        styleOverrides: {
-          ...switchSO,
-          switchBase: {
-            ...swSwitchBase,
-
-            '&.Mui-checked': {
-              color: `${primary!} !important`
-            },
-
-            '&.Mui-checked + .MuiSwitch-track': {
-              backgroundColor: `${primary!} !important`,
-              opacity: 1
-            },
-
-            '&.Mui-focusVisible': {
-              backgroundColor: 'transparent'
-            }
-          },
-          thumb: { ...swThumb, boxShadow: 'none' },
-          track: { ...swTrack, opacity: 1 }
-        }
-      },
-      MuiSlider: sliderComponent(primary!, mode === THEME.LIGHT)
+      primary: { main: primary ?? base.palette.primary.main },
+      secondary: { main: highlight ?? base.palette.secondary.main }
     }
   })
 }
@@ -593,54 +76,35 @@ export function initCursorHider() {
     setCursor('default')
     timer = setTimeout(() => setCursor('none'), inactivityMs)
   }
-  // Touch emits synthetic mouse events, only a real mouse reveals the pointer
-  document.addEventListener('pointermove', (e) => {
+  document.addEventListener('pointermove', (event) => {
     window.app?.notifyUserActivity?.()
-    if (e.pointerType !== 'mouse') return
-    const moved = lastX !== null && (e.clientX !== lastX || e.clientY !== lastY)
-    lastX = e.clientX
-    lastY = e.clientY
+    if (event.pointerType !== 'mouse') return
+    const moved = lastX !== null && (event.clientX !== lastX || event.clientY !== lastY)
+    lastX = event.clientX
+    lastY = event.clientY
     if (moved) reset()
   })
   setCursor('none')
 }
 
-// CarPlay-style LED
 let started = false
 export function initUiBreatheClock() {
   if (started) return
   started = true
-
   const root = document.documentElement
-
-  const dur = 1600
-  const min = 0.18
-  const max = 1
-  const range = max - min
-
+  const duration = 1600
+  const minimum = 0.18
+  const range = 1 - minimum
   const start = performance.now()
 
   function tick() {
-    const t = (performance.now() - start) % dur
-    const p = t / dur
-
-    let wave: number
-
-    if (p < 0.35) {
-      wave = p / 0.35
-    } else if (p < 0.5) {
-      wave = 1
-    } else if (p < 0.85) {
-      wave = 1 - (p - 0.5) / 0.35
-    } else {
-      wave = 0
-    }
-
-    const opacity = min + range * wave
-    root.style.setProperty('--ui-breathe-opacity', opacity.toFixed(3))
-
-    setTimeout(tick, 42) // ~24fps (very easy for RPi)
+    const progress = ((performance.now() - start) % duration) / duration
+    let wave = 0
+    if (progress < 0.35) wave = progress / 0.35
+    else if (progress < 0.5) wave = 1
+    else if (progress < 0.85) wave = 1 - (progress - 0.5) / 0.35
+    root.style.setProperty('--ui-breathe-opacity', (minimum + range * wave).toFixed(3))
+    setTimeout(tick, 42)
   }
-
   tick()
 }

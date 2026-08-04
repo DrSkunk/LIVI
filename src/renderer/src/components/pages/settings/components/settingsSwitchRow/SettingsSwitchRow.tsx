@@ -1,4 +1,4 @@
-import { Switch } from '@mui/material'
+import { Switch } from '@renderer/ui'
 import { ChangeEvent } from 'react'
 import { SettingsItemRow } from '../settingsItemRow'
 

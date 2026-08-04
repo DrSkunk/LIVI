@@ -1,4 +1,4 @@
-import { useTheme } from '@mui/material'
+import { useTheme } from '@renderer/ui'
 import type { CSSProperties } from 'react'
 
 export type ViewAreaInsets = { top: number; bottom: number; left: number; right: number }

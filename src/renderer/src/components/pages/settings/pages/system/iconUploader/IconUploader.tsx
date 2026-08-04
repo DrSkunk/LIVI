@@ -1,5 +1,5 @@
-import { Box, Button, CircularProgress, Stack, Typography } from '@mui/material'
 import type { SettingsCustomPageProps } from '@renderer/routes/types'
+import { Box, Button, CircularProgress, Stack, type Theme, Typography } from '@renderer/ui'
 import { ICON_120_B64, ICON_180_B64, ICON_256_B64 } from '@shared/assets/carIcons'
 import type { Config } from '@shared/types'
 import { useLiviStore, useStatusStore } from '@store/store'
@@ -149,14 +149,14 @@ export function IconUploader(props: SettingsCustomPageProps<Config, unknown>) {
         role="button"
         tabIndex={0}
         onClick={() => !isImporting && pickFile()}
-        onKeyDown={(e) => {
-          if (!isImporting && (e.key === 'Enter' || e.key === ' ')) {
-            e.preventDefault()
-            e.stopPropagation()
+        onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
+          if (!isImporting && (event.key === 'Enter' || event.key === ' ')) {
+            event.preventDefault()
+            event.stopPropagation()
             pickFile()
           }
         }}
-        sx={(theme) => ({
+        sx={(theme: Theme) => ({
           width: 160,
           height: 160,
           borderRadius: 2,

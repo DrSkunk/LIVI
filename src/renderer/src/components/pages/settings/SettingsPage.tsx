@@ -1,5 +1,5 @@
-import { Box, Typography } from '@mui/material'
 import type { SettingsNode } from '@renderer/routes/types'
+import { Box, Typography } from '@renderer/ui'
 import type { Config } from '@shared/types'
 import { useLiviStore, useProjectionActive } from '@store/store'
 import type { Key } from 'react'

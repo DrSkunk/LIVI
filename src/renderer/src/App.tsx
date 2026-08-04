@@ -1,4 +1,4 @@
-import { Box } from '@mui/material'
+import { Box } from '@renderer/ui'
 import type { KeyCommand } from '@worker/types'
 import i18n from 'i18next'
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'

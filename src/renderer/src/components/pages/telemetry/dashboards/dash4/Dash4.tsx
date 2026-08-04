@@ -1,4 +1,4 @@
-import { Box } from '@mui/material'
+import { Box } from '@renderer/ui'
 import { useStatusStore } from '@store/store'
 import { useEffect } from 'react'
 

@@ -1,5 +1,5 @@
-import DeviceThermostatIcon from '@mui/icons-material/DeviceThermostat'
-import { Box, useTheme } from '@mui/material'
+import { Box, useTheme } from '@renderer/ui'
+import { DeviceThermostatIcon } from '@renderer/ui/icons'
 import { SegmentBar } from './SegmentBar'
 
 export type TempGaugeProps = {

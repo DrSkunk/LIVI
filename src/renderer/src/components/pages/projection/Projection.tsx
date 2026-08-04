@@ -1,6 +1,7 @@
 // Icons
-import CropPortraitOutlinedIcon from '@mui/icons-material/CropPortraitOutlined'
-import { Box, useTheme } from '@mui/material'
+
+import { Box, useTheme } from '@renderer/ui'
+import { CropPortraitOutlinedIcon } from '@renderer/ui/icons'
 import type { Config } from '@shared/types'
 import { AudioCommand, CommandMapping } from '@shared/types/ProjectionEnums'
 import { aaContentArea, isClusterDisplayed } from '@shared/utils'

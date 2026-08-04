@@ -1,8 +1,8 @@
-import { MenuItem, Select, Typography } from '@mui/material'
+import { MenuItem, Select, Typography } from '@renderer/ui'
 import type { Config } from '@shared/types'
 import { useStatusStore } from '@store/store'
 import { updateCameras as detectCameras } from '@utils/cameraDetection'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { UsbEvent } from '../../../media/types'
 import type { SettingsCustomPageProps } from '../../type'
 
@@ -76,7 +76,7 @@ export const Camera: React.FC<SettingsCustomPageProps<Config, string>> = ({ stat
               minHeight: 0
             }
           }}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(event: ChangeEvent<HTMLSelectElement>) => onChange(event.target.value)}
         >
           {cameraOptions.map((o) => (
             <MenuItem key={o.deviceId || 'none'} value={o.deviceId}>

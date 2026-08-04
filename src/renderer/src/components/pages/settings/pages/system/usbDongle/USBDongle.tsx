@@ -1,3 +1,6 @@
+import { EMPTY_STRING } from '@renderer/constants'
+import { useNetworkStatus } from '@renderer/hooks/useNetworkStatus'
+import { DongleFwCheckResponse, FwDialogState, Row } from '@renderer/types'
 import {
   Alert,
   Box,
@@ -12,12 +15,9 @@ import {
   Stack,
   TextField,
   Typography
-} from '@mui/material'
-import { EMPTY_STRING } from '@renderer/constants'
-import { useNetworkStatus } from '@renderer/hooks/useNetworkStatus'
-import { DongleFwCheckResponse, FwDialogState, Row } from '@renderer/types'
+} from '@renderer/ui'
 import { useLiviStore, useStatusStore } from '@store/store'
-import type { CSSProperties } from 'react'
+import type { ChangeEvent, CSSProperties } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fmt, isDongleFwCheckResponse, normalizeBoxInfo } from './utils'
@@ -992,7 +992,7 @@ export function USBDongle() {
       {/* Progress dialog (download/upload) */}
       <Dialog
         open={fwDlg.open}
-        onClose={(event, reason) => {
+        onClose={(_event: unknown, reason: 'backdropClick' | 'escapeKeyDown') => {
           if (reason === 'escapeKeyDown') return
         }}
       >
@@ -1099,7 +1099,9 @@ export function USBDongle() {
           disabled={devBusy}
           onFocus={() => setDevIpFocused(true)}
           onBlur={() => setDevIpFocused(false)}
-          onChange={(e) => setDevIpInput(maskIpv4Input(e.target.value))}
+          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+            setDevIpInput(maskIpv4Input(event.target.value))
+          }
           error={devIpInput.length > 0 && !isValidIpv4(devIpInput)}
           slotProps={{
             input: {

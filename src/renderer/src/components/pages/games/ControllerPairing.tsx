@@ -1,5 +1,3 @@
-import BluetoothSearchingRoundedIcon from '@mui/icons-material/BluetoothSearchingRounded'
-import SportsEsportsRoundedIcon from '@mui/icons-material/SportsEsportsRounded'
 import {
   Alert,
   Box,
@@ -13,7 +11,8 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText
-} from '@mui/material'
+} from '@renderer/ui'
+import { BluetoothSearchingRoundedIcon, SportsEsportsRoundedIcon } from '@renderer/ui/icons'
 import type { BluetoothControllerDevice } from '@shared/types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 

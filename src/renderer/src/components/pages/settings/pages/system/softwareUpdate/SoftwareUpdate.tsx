@@ -1,3 +1,4 @@
+import { EMPTY_STRING } from '@renderer/constants'
 import {
   Button,
   Dialog,
@@ -6,8 +7,7 @@ import {
   DialogTitle,
   LinearProgress,
   Typography
-} from '@mui/material'
-import { EMPTY_STRING } from '@renderer/constants'
+} from '@renderer/ui'
 import type { Config } from '@shared/types'
 import { useLiviStore } from '@store/store'
 import { useCallback, useEffect, useState } from 'react'
@@ -206,7 +206,7 @@ export function SoftwareUpdate() {
 
       <Dialog
         open={upDialogOpen}
-        onClose={(event, reason) => {
+        onClose={(_event: unknown, reason: 'backdropClick' | 'escapeKeyDown') => {
           if (phase !== UpdatePhases.error && reason === 'escapeKeyDown') return
           handleCloseAndReset()
         }}

@@ -1,8 +1,9 @@
-import { CssBaseline, ThemeProvider } from '@mui/material'
 import { useCallback, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import AuxApp from './AuxApp'
+import { THEME } from './constants'
+import { AppContext, type AppContextProps } from './context'
 import DashApp from './DashApp'
 import { useLiviStore } from './store/store'
 import {
@@ -12,13 +13,9 @@ import {
   initUiBreatheClock,
   lightTheme
 } from './theme'
-import '@fontsource/roboto/300.css'
-import '@fontsource/roboto/400.css'
-import '@fontsource/roboto/500.css'
-import '@fontsource/roboto/700.css'
-import { THEME } from './constants'
-import { AppContext, type AppContextProps } from './context'
+import { CssBaseline, ThemeProvider } from './ui'
 import './i18n'
+import './styles.css'
 import { getWindowRole } from './utils/windowRole'
 
 const role = getWindowRole()

@@ -1,4 +1,4 @@
-import { Box, Typography, useTheme } from '@mui/material'
+import { Box, Typography, useTheme } from '@renderer/ui'
 
 type Align = 'left' | 'center' | 'right'
 

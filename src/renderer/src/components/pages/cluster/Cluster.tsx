@@ -1,5 +1,5 @@
-import MapOutlinedIcon from '@mui/icons-material/MapOutlined'
-import { Box, Typography, useTheme } from '@mui/material'
+import { Box, Typography, useTheme } from '@renderer/ui'
+import { MapOutlinedIcon } from '@renderer/ui/icons'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiviStore, useStatusStore } from '../../../store/store'
 import { ViewAreaMask } from '../projection/ViewAreaMask'

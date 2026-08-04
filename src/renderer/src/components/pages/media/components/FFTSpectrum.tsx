@@ -1,5 +1,4 @@
-import { Box } from '@mui/material'
-import { alpha, useTheme } from '@mui/material/styles'
+import { alpha, Box, useTheme } from '@renderer/ui'
 import { useLiviStore } from '@store/store'
 import { useEffect, useRef, useState } from 'react'
 import { createFftWorker } from './createFftWorker'

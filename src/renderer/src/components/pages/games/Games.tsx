@@ -1,6 +1,5 @@
-import LibraryAddRoundedIcon from '@mui/icons-material/LibraryAddRounded'
-import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
-import { Box, Button, CircularProgress, IconButton, Typography } from '@mui/material'
+import { Box, Button, CircularProgress, IconButton, Typography } from '@renderer/ui'
+import { LibraryAddRoundedIcon, RefreshRoundedIcon } from '@renderer/ui/icons'
 import type { GameLibraryItem, GameStatus } from '@shared/types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ControllerPairing } from './ControllerPairing'
@@ -132,18 +131,20 @@ export function Games() {
               : `${games.length} ${games.length === 1 ? 'game' : 'games'}`}
           </Typography>
         </Box>
-        <Button
-          size="small"
-          variant="contained"
-          startIcon={
-            importing ? <CircularProgress size={16} color="inherit" /> : <LibraryAddRoundedIcon />
-          }
-          onClick={() => void importRoms()}
-          disabled={importing || loading || Boolean(launchingId)}
-          sx={{ mr: 1, whiteSpace: 'nowrap' }}
-        >
-          {importing ? 'Importing…' : 'Import ROMs'}
-        </Button>
+        {games.length > 0 && (
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={
+              importing ? <CircularProgress size={16} color="inherit" /> : <LibraryAddRoundedIcon />
+            }
+            onClick={() => void importRoms()}
+            disabled={importing || loading || Boolean(launchingId)}
+            sx={{ mr: 1, whiteSpace: 'nowrap' }}
+          >
+            {importing ? 'Importing…' : 'Import ROMs'}
+          </Button>
+        )}
         <ControllerPairing />
         <IconButton
           aria-label="Rescan game library"

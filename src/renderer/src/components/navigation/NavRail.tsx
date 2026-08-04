@@ -1,6 +1,4 @@
-import { useTheme } from '@mui/material/styles'
-import Tab from '@mui/material/Tab'
-import Tabs from '@mui/material/Tabs'
+import { Tab, Tabs, useTheme } from '@renderer/ui'
 import type { ReactElement } from 'react'
 import { UI } from '../../constants'
 
@@ -43,7 +41,7 @@ export const NavRail = ({ items, activeKey, onSelect, ariaLabel = 'Navigation' }
   return (
     <Tabs
       value={value}
-      onChange={(_, i) => onSelect(items[i].key, i)}
+      onChange={(_: unknown, i: number) => onSelect(items[i].key, i)}
       aria-label={ariaLabel}
       variant="fullWidth"
       textColor="inherit"

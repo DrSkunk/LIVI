@@ -1,9 +1,7 @@
-import ChevronRightIcon from '@mui/icons-material/ChevronRight'
-import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import { Box, IconButton, Typography } from '@mui/material'
 import type { PosListNode } from '@renderer/routes/types'
-import { useMemo } from 'react'
+import { Box, IconButton, Typography } from '@renderer/ui'
+import { ChevronRightIcon, ExpandLessIcon, ExpandMoreIcon } from '@renderer/ui/icons'
+import { type MouseEvent, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { StackItem } from '../stackItem'
 
@@ -76,8 +74,8 @@ export const PosSensitiveList = ({ node, value, onChange, onItemClick }: Props) 
               <IconButton
                 sx={btnSx}
                 disabled={!canUp}
-                onClick={(e) => {
-                  e.stopPropagation()
+                onClick={(event: MouseEvent<HTMLButtonElement>) => {
+                  event.stopPropagation()
                   swap(index, index - 1)
                 }}
               >
@@ -86,8 +84,8 @@ export const PosSensitiveList = ({ node, value, onChange, onItemClick }: Props) 
               <IconButton
                 sx={btnSx}
                 disabled={!canDown}
-                onClick={(e) => {
-                  e.stopPropagation()
+                onClick={(event: MouseEvent<HTMLButtonElement>) => {
+                  event.stopPropagation()
                   swap(index, index + 1)
                 }}
               >

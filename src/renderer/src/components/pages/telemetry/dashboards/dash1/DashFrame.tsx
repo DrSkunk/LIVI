@@ -1,4 +1,4 @@
-import { Box, useTheme } from '@mui/material'
+import { Box, useTheme } from '@renderer/ui'
 import { CarType } from '@shared/types'
 import { useLiviStore, useStatusStore } from '@store/store'
 import { type ReactNode, useEffect, useRef, useState } from 'react'

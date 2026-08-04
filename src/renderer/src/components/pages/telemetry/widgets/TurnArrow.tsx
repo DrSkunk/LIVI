@@ -1,4 +1,4 @@
-import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import { PlayArrowIcon } from '@renderer/ui/icons'
 import { useBlink } from '../hooks/useBlink'
 
 // ECE R121 turn-signal green, bright for low-contrast clusters.

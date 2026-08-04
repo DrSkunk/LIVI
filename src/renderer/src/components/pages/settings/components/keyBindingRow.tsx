@@ -1,11 +1,10 @@
-import CloseOutlinedIcon from '@mui/icons-material/CloseOutlined'
-import RestartAltOutlinedIcon from '@mui/icons-material/RestartAltOutlined'
-import { Box, IconButton, Modal, Paper, Typography } from '@mui/material'
 import type { KeyBindingNode } from '@renderer/routes/types'
+import { Box, IconButton, Modal, Paper, Typography } from '@renderer/ui'
+import { CloseOutlinedIcon, RestartAltOutlinedIcon } from '@renderer/ui/icons'
 import type { Config } from '@shared/types'
 import { DEFAULT_BINDINGS } from '@shared/types'
 import { useLiviStore } from '@store/store'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type MouseEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { StackItem } from './stackItem'
 
@@ -149,9 +148,9 @@ export function KeyBindingRow({ node }: { node: KeyBindingNode }) {
             size="small"
             tabIndex={-1}
             disabled={!currentValue}
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
+            onClick={(event: MouseEvent<HTMLButtonElement>) => {
+              event.preventDefault()
+              event.stopPropagation()
               setCapturing(false)
               void applyValue('')
             }}
@@ -163,9 +162,9 @@ export function KeyBindingRow({ node }: { node: KeyBindingNode }) {
             size="small"
             tabIndex={-1}
             disabled={!hasDefault || isDefault}
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
+            onClick={(event: MouseEvent<HTMLButtonElement>) => {
+              event.preventDefault()
+              event.stopPropagation()
               setCapturing(false)
               void reset()
             }}

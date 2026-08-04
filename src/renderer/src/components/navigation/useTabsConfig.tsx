@@ -1,12 +1,15 @@
 // Icons
-import CameraOutlinedIcon from '@mui/icons-material/CameraOutlined'
-import CropPortraitOutlinedIcon from '@mui/icons-material/CropPortraitOutlined'
-import GraphicEqOutlinedIcon from '@mui/icons-material/GraphicEqOutlined'
-import PlayCircleOutlinedIcon from '@mui/icons-material/PlayCircleOutlined'
-import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
-import SpeedOutlinedIcon from '@mui/icons-material/SpeedOutlined'
-import SportsEsportsOutlinedIcon from '@mui/icons-material/SportsEsportsOutlined'
-import { useTheme } from '@mui/material/styles'
+
+import { useTheme } from '@renderer/ui'
+import {
+  CameraOutlinedIcon,
+  CropPortraitOutlinedIcon,
+  GraphicEqOutlinedIcon,
+  PlayCircleOutlinedIcon,
+  SettingsOutlinedIcon,
+  SpeedOutlinedIcon,
+  SportsEsportsOutlinedIcon
+} from '@renderer/ui/icons'
 import { ROUTES, UI } from '../../constants'
 import { useLiviStore, useProjectionActive, useStatusStore } from '../../store/store'
 import { getWindowRole } from '../../utils/windowRole'

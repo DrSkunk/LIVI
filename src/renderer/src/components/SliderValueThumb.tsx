@@ -1,4 +1,4 @@
-import { type SliderOwnerState, SliderThumb } from '@mui/material/Slider'
+import { type SliderOwnerState, SliderThumb } from '@renderer/ui'
 import {
   type ForwardRefExoticComponent,
   forwardRef,

@@ -1,4 +1,4 @@
-import { Box } from '@mui/material'
+import { Box } from '@renderer/ui'
 import type * as React from 'react'
 import { useBlink } from '../hooks/useBlink'
 

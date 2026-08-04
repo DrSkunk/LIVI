@@ -1,4 +1,4 @@
-import { Typography } from '@mui/material'
+import { Typography } from '@renderer/ui'
 import { useLiviStore } from '@store/store'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 

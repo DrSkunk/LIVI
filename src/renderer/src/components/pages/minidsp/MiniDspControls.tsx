@@ -1,11 +1,9 @@
-import AddRoundedIcon from '@mui/icons-material/AddRounded'
-import RemoveRoundedIcon from '@mui/icons-material/RemoveRounded'
-import { Box, IconButton, Slider, Typography } from '@mui/material'
-import { alpha, useTheme } from '@mui/material/styles'
+import { alpha, Box, IconButton, Slider, Typography, useTheme } from '@renderer/ui'
+import { AddRoundedIcon, RemoveRoundedIcon } from '@renderer/ui/icons'
 import type { ReactNode } from 'react'
 
-export const MASTER_ACCENT = '#35d9ff'
-export const BASS_ACCENT = '#ff9d45'
+export const MASTER_ACCENT = '#f5a623'
+export const BASS_ACCENT = '#c98226'
 
 const db = (value: number) => `${value > 0 ? '+' : ''}${value.toFixed(1)}`
 
@@ -86,7 +84,7 @@ export function TouchControl({
       sx={{
         position: 'relative',
         overflow: 'visible',
-        borderRadius: 'clamp(18px, 3vw, 30px)',
+        borderRadius: 'clamp(7px, 1vw, 11px)',
         p: 'clamp(16px, 3vw, 28px)',
         minWidth: 0,
         border: '1px solid',
@@ -170,8 +168,12 @@ export function TouchControl({
             value={value}
             disabled={disabled}
             valueLabelDisplay="off"
-            onChange={(_, next) => onChange(next as number)}
-            onChangeCommitted={(_, next) => onCommit(next as number)}
+            onChange={(_: unknown, next: number | number[]) =>
+              onChange(Array.isArray(next) ? next[0] : next)
+            }
+            onChangeCommitted={(_: unknown, next: number | number[]) =>
+              onCommit(Array.isArray(next) ? next[0] : next)
+            }
             sx={{
               color: accent,
               height: 16,

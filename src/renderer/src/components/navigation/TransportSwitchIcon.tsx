@@ -1,7 +1,4 @@
-import CableOutlinedIcon from '@mui/icons-material/CableOutlined'
-import DeviceHubIcon from '@mui/icons-material/DeviceHub'
-import SyncIcon from '@mui/icons-material/Sync'
-import WifiOutlinedIcon from '@mui/icons-material/WifiOutlined'
+import { CableOutlinedIcon, DeviceHubIcon, SyncIcon, WifiOutlinedIcon } from '@renderer/ui/icons'
 
 type Props = {
   active: 'dongle' | 'aa' | 'cp' | null

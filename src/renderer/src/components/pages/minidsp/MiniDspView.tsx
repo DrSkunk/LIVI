@@ -1,9 +1,19 @@
-import GraphicEqOutlinedIcon from '@mui/icons-material/GraphicEqOutlined'
-import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
-import SpeakerOutlinedIcon from '@mui/icons-material/SpeakerOutlined'
-import VolumeUpOutlinedIcon from '@mui/icons-material/VolumeUpOutlined'
-import { Box, Button, CircularProgress, IconButton, Stack, Typography } from '@mui/material'
-import { alpha, useTheme } from '@mui/material/styles'
+import {
+  alpha,
+  Box,
+  Button,
+  CircularProgress,
+  IconButton,
+  Stack,
+  Typography,
+  useTheme
+} from '@renderer/ui'
+import {
+  GraphicEqOutlinedIcon,
+  RefreshOutlinedIcon,
+  SpeakerOutlinedIcon,
+  VolumeUpOutlinedIcon
+} from '@renderer/ui/icons'
 import type { MiniDspConfig, MiniDspStatus } from '@shared/types'
 import { BASS_ACCENT, EqBars, MASTER_ACCENT, TouchControl } from './MiniDspControls'
 
@@ -40,7 +50,7 @@ export function MiniDspView({
   const connected = status?.connected === true
 
   const emptyState = (kind: 'waiting' | 'error') => {
-    const accent = kind === 'error' ? '#ff5470' : MASTER_ACCENT
+    const accent = kind === 'error' ? '#c84a3f' : MASTER_ACCENT
     return (
       <Box
         sx={{ flex: 1, minHeight: 0, display: 'grid', placeItems: 'center', textAlign: 'center' }}
@@ -157,8 +167,8 @@ export function MiniDspView({
                   width: 7,
                   height: 7,
                   borderRadius: '50%',
-                  backgroundColor: connected ? '#45ef9d' : error ? '#ff5470' : 'text.disabled',
-                  boxShadow: connected ? '0 0 10px #45ef9d' : 'none'
+                  backgroundColor: connected ? '#78a96f' : error ? '#c84a3f' : 'text.disabled',
+                  boxShadow: connected ? '0 0 10px #78a96f' : 'none'
                 }}
               />
               <Typography variant="caption" color="text.secondary" noWrap>
@@ -182,12 +192,12 @@ export function MiniDspView({
                 px: 1.5,
                 py: 0.65,
                 borderRadius: 99,
-                color: '#45ef9d',
-                backgroundColor: alpha('#45ef9d', 0.08),
-                border: `1px solid ${alpha('#45ef9d', 0.22)}`
+                color: '#78a96f',
+                backgroundColor: alpha('#78a96f', 0.08),
+                border: `1px solid ${alpha('#78a96f', 0.22)}`
               }}
             >
-              <EqBars active color="#45ef9d" />
+              <EqBars active color="#78a96f" />
               <Typography variant="caption" sx={{ fontWeight: 800, letterSpacing: '0.12em' }}>
                 LIVE
               </Typography>
@@ -284,15 +294,15 @@ export function MiniDspView({
                       sx={{
                         position: 'relative',
                         minHeight: 'clamp(70px, 13svh, 106px)',
-                        borderRadius: 'clamp(15px, 2.2vw, 23px)',
+                        borderRadius: 'clamp(6px, 0.8vw, 9px)',
                         overflow: 'hidden',
                         justifyContent: 'flex-start',
                         px: 'clamp(12px, 2vw, 20px)',
-                        color: selected ? '#071014' : 'text.primary',
+                        color: selected ? '#1a1004' : 'text.primary',
                         border: '1px solid',
                         borderColor: selected ? MASTER_ACCENT : 'divider',
                         background: selected
-                          ? `linear-gradient(135deg, ${MASTER_ACCENT}, #72f1d4)`
+                          ? `linear-gradient(135deg, ${MASTER_ACCENT}, #ffc766)`
                           : alpha(theme.palette.text.primary, 0.035),
                         boxShadow: selected
                           ? `0 10px 32px ${alpha(MASTER_ACCENT, 0.28)}, inset 0 1px 0 ${alpha('#fff', 0.45)}`
@@ -301,7 +311,7 @@ export function MiniDspView({
                         '&:active': { transform: 'scale(0.94)' },
                         '&:hover': {
                           background: selected
-                            ? `linear-gradient(135deg, ${MASTER_ACCENT}, #72f1d4)`
+                            ? `linear-gradient(135deg, ${MASTER_ACCENT}, #ffc766)`
                             : alpha(theme.palette.text.primary, 0.07)
                         }
                       }}
@@ -326,7 +336,7 @@ export function MiniDspView({
                         </Typography>
                       </Box>
                       <Box sx={{ ml: 'auto', pl: 1 }}>
-                        <EqBars active={selected} color={selected ? '#071014' : MASTER_ACCENT} />
+                        <EqBars active={selected} color={selected ? '#1a1004' : MASTER_ACCENT} />
                       </Box>
                     </Button>
                   )

@@ -1,5 +1,5 @@
-import SportsEsportsRoundedIcon from '@mui/icons-material/SportsEsportsRounded'
-import { Box, CircularProgress, Typography } from '@mui/material'
+import { Box, CircularProgress, Typography } from '@renderer/ui'
+import { SportsEsportsRoundedIcon } from '@renderer/ui/icons'
 import type { GameLibraryItem } from '@shared/types'
 import { useEffect, useState } from 'react'
 

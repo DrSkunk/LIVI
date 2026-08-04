@@ -1,5 +1,5 @@
-import RestartAltOutlinedIcon from '@mui/icons-material/RestartAltOutlined'
-import { Box, IconButton, Slider, Typography } from '@mui/material'
+import { Box, IconButton, Slider, Typography } from '@renderer/ui'
+import { RestartAltOutlinedIcon } from '@renderer/ui/icons'
 import type { Config } from '@shared/types'
 import { type CSSProperties, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -132,8 +132,12 @@ export const ColorPickerControl = ({ node, value, onChange }: Props) => {
             max={row.max}
             step={1}
             valueLabelDisplay="off"
-            onChange={(_e, v) => preview({ ...hsl, [row.key]: v as number })}
-            onChangeCommitted={(_e, v) => commit({ ...hsl, [row.key]: v as number })}
+            onChange={(_event: unknown, value: number | number[]) =>
+              preview({ ...hsl, [row.key]: Array.isArray(value) ? value[0] : value })
+            }
+            onChangeCommitted={(_event: unknown, value: number | number[]) =>
+              commit({ ...hsl, [row.key]: Array.isArray(value) ? value[0] : value })
+            }
             sx={sliderSx}
             style={{ '--livi-rail-gradient': row.bg } as CSSProperties}
           />

@@ -1,4 +1,4 @@
-import { Box } from '@mui/material'
+import { Box } from '@renderer/ui'
 import type { PropsWithChildren } from 'react'
 import * as React from 'react'
 

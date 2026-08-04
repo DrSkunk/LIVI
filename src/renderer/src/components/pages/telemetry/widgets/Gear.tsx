@@ -1,4 +1,4 @@
-import { Box, useTheme } from '@mui/material'
+import { Box, useTheme } from '@renderer/ui'
 
 export type GearProps = {
   gear?: string | number

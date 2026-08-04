@@ -1,4 +1,4 @@
-import { Box, type SxProps, type Theme } from '@mui/material'
+import { Box, type SxProps, type Theme } from '@renderer/ui'
 
 export type SoftPanelProps = {
   /** Peak opacity at the centre (0..1). */
@@ -33,7 +33,7 @@ export function SoftPanel({
   return (
     <Box
       sx={[
-        (theme) => {
+        (theme: Theme) => {
           const rgb = theme.palette.mode === 'light' ? '255, 255, 255' : '0, 0, 0'
           return {
             position: 'absolute',

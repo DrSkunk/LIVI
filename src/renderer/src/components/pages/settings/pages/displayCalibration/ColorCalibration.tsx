@@ -1,5 +1,5 @@
-import { Box, Stack } from '@mui/material'
 import type { SettingsCustomPageProps } from '@renderer/routes/types'
+import { Box, Stack } from '@renderer/ui'
 import type { Config } from '@shared/types'
 import { useLiviStore } from '@store/store'
 import { useEffect, useState } from 'react'

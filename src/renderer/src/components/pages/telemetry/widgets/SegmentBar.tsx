@@ -1,4 +1,4 @@
-import { Box } from '@mui/material'
+import { Box } from '@renderer/ui'
 
 export type SegmentBarProps = {
   /** Fill fraction 0..1. */

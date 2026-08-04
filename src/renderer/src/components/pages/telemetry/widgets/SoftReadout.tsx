@@ -1,4 +1,4 @@
-import { Box, useTheme } from '@mui/material'
+import { Box, useTheme } from '@renderer/ui'
 
 export type SoftReadoutProps = {
   /** Big value (speed number, gear letter, …). */

@@ -1,31 +1,31 @@
 export const themeColors = {
   // Background defaults
-  light: '#d4d4d4',
-  dark: '#000000',
+  light: '#d9d1c2',
+  dark: '#070605',
 
   // Text colors
-  textPrimaryLight: '#000000',
-  textSecondaryLight: '#333333',
-  textPrimaryDark: '#ffffff',
-  textSecondaryDark: '#bbbbbb',
+  textPrimaryLight: '#201a12',
+  textSecondaryLight: '#5f5443',
+  textPrimaryDark: '#f5e7c9',
+  textSecondaryDark: '#b7a481',
 
   // Highlight (primary) colors
-  primaryColorLight: '#006B6B',
-  primaryColorDark: '#006B6B',
+  primaryColorLight: '#9a5700',
+  primaryColorDark: '#f5a623',
 
-  highlightFocusedFieldLight: '#cccccc',
-  highlightFocusedFieldDark: '#bbbbbb',
-  highlightColorLight: '#004f4f',
-  highlightColorDark: '#004f4f',
-  successMain: '#30fb37',
+  highlightFocusedFieldLight: '#b46b0b',
+  highlightFocusedFieldDark: '#ffc15a',
+  highlightColorLight: '#7a4300',
+  highlightColorDark: '#ffc15a',
+  successMain: '#72a46a',
 
   // Alpha variants for hover states
   highlightAlphaLight: 'rgba(97, 218, 251, 0.1)',
   highlightAlphaDark: 'rgba(97, 218, 251, 0.1)',
 
   // Divider colors
-  dividerLight: '#cccccc',
-  dividerDark: '#444444',
+  dividerLight: '#9f927d',
+  dividerDark: '#4f412e',
 
   // Artwork surface backgrounds
   artworkSurfaceLight: 'rgba(0,0,0,0.06)',

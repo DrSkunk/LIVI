@@ -1,4 +1,4 @@
-import { Box, Typography, useTheme } from '@mui/material'
+import { Box, Typography, useTheme } from '@renderer/ui'
 import * as React from 'react'
 
 export const DashPlaceholder = ({ title }: { title: string }) => {

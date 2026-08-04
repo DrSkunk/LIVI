@@ -1,18 +1,19 @@
-import AndroidIcon from '@mui/icons-material/Android'
-import BoltIcon from '@mui/icons-material/Bolt'
-import CableOutlinedIcon from '@mui/icons-material/CableOutlined'
-import CloseIcon from '@mui/icons-material/Close'
-import DeviceHubIcon from '@mui/icons-material/DeviceHub'
-import DirectionsCarIcon from '@mui/icons-material/DirectionsCar'
-import PhoneIphoneIcon from '@mui/icons-material/PhoneIphone'
-import WifiOutlinedIcon from '@mui/icons-material/WifiOutlined'
-import { useTheme } from '@mui/material'
-import { alpha, styled } from '@mui/material/styles'
 import { useLiviStore } from '@renderer/store/store'
+import { alpha, styled, type Theme, useTheme } from '@renderer/ui'
+import {
+  AndroidIcon,
+  BoltIcon,
+  CableOutlinedIcon,
+  CloseIcon,
+  DeviceHubIcon,
+  DirectionsCarIcon,
+  PhoneIphoneIcon,
+  WifiOutlinedIcon
+} from '@renderer/ui/icons'
 import { useNavigate } from 'react-router'
 import { type DeviceView, forgetDevice, selectDevice, useDevices } from './useDevices'
 
-const FocusButton = styled('button')(({ theme }) => ({
+const FocusButton = styled('button')(({ theme }: { theme: Theme }) => ({
   transition: 'transform 0.12s ease, box-shadow 0.12s ease',
   '&:focus-visible': {
     outline: 'none',
