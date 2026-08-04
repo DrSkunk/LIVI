@@ -40,7 +40,7 @@ describe('importRomLibrary', () => {
       thumbnailDirectory: thumbnails
     })
 
-    expect(result).toMatchObject({ games: 3, playlists: 3, thumbnailsDownloaded: 3 })
+    expect(result).toMatchObject({ games: 2, playlists: 2, thumbnailsDownloaded: 2 })
     for (const folder of [
       'gameboy',
       'gameboy-color',

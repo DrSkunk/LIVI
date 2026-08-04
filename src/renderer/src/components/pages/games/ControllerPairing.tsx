@@ -15,7 +15,7 @@ import {
   ListItemText
 } from '@mui/material'
 import type { BluetoothControllerDevice } from '@shared/types'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 export function ControllerPairing() {
   const [open, setOpen] = useState(false)
@@ -23,25 +23,44 @@ export function ControllerPairing() {
   const [scanning, setScanning] = useState(false)
   const [pairingMac, setPairingMac] = useState('')
   const [error, setError] = useState('')
+  const requestId = useRef(0)
+  const mounted = useRef(true)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      requestId.current++
+    }
+  }, [])
 
   const refresh = useCallback(async (scan: boolean) => {
+    const id = ++requestId.current
     setScanning(scan)
     setError('')
     try {
       const next = scan
         ? await window.games.scanControllers()
         : await window.games.listControllers()
-      setDevices(next)
+      if (mounted.current && id === requestId.current) setDevices(next)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not access Bluetooth')
+      if (mounted.current && id === requestId.current) {
+        setError(cause instanceof Error ? cause.message : 'Could not access Bluetooth')
+      }
     } finally {
-      setScanning(false)
+      if (mounted.current && id === requestId.current) setScanning(false)
     }
   }, [])
 
   const show = () => {
     setOpen(true)
     void refresh(false)
+  }
+
+  const close = () => {
+    requestId.current++
+    setScanning(false)
+    setOpen(false)
   }
 
   const pair = async (device: BluetoothControllerDevice) => {
@@ -51,9 +70,11 @@ export function ControllerPairing() {
       await window.games.pairController(device.mac)
       await refresh(false)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Controller pairing failed')
+      if (mounted.current) {
+        setError(cause instanceof Error ? cause.message : 'Controller pairing failed')
+      }
     } finally {
-      setPairingMac('')
+      if (mounted.current) setPairingMac('')
     }
   }
 
@@ -125,7 +146,7 @@ export function ControllerPairing() {
           >
             {scanning ? 'Scanning…' : 'Scan'}
           </Button>
-          <Button onClick={() => setOpen(false)} disabled={Boolean(pairingMac)}>
+          <Button onClick={close} disabled={Boolean(pairingMac)}>
             Close
           </Button>
         </DialogActions>

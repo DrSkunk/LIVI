@@ -1,14 +1,7 @@
-import type {
-  BluetoothControllerDevice,
-  Config,
-  GameImportResult,
-  GameLibraryItem,
-  GameStatus,
-  MiniDspStatus,
-  TransportSnapshot
-} from '@shared/types'
+import type { Config, TransportSnapshot } from '@shared/types'
 import type { MultiTouchPoint } from '@shared/types/TouchTypes'
 import { contextBridge, IpcRendererEvent, ipcRenderer } from 'electron'
+import type { AppApi, GamesApi, MiniDspApi, UpdateEvent, UpdateProgress } from '../types/PreloadApi'
 
 type ApiCallback<TArgs extends unknown[] = unknown[]> = (
   event: IpcRendererEvent,
@@ -233,41 +226,35 @@ const api = {
 
 contextBridge.exposeInMainWorld('projection', api)
 
-contextBridge.exposeInMainWorld('minidsp', {
-  getStatus: (): Promise<MiniDspStatus> => ipcRenderer.invoke('minidsp:status'),
-  setVolume: (volumeDb: number): Promise<void> =>
-    ipcRenderer.invoke('minidsp:set-volume', volumeDb),
-  setBassGain: (gainDb: number): Promise<void> => ipcRenderer.invoke('minidsp:set-bass', gainDb),
-  selectPreset: (preset: number): Promise<void> =>
-    ipcRenderer.invoke('minidsp:select-preset', preset)
-})
+const miniDspApi: MiniDspApi = {
+  getStatus: () => ipcRenderer.invoke('minidsp:status'),
+  setVolume: (volumeDb) => ipcRenderer.invoke('minidsp:set-volume', volumeDb),
+  setBassGain: (gainDb) => ipcRenderer.invoke('minidsp:set-bass', gainDb),
+  selectPreset: (preset) => ipcRenderer.invoke('minidsp:select-preset', preset)
+}
+contextBridge.exposeInMainWorld('minidsp', miniDspApi)
 
-contextBridge.exposeInMainWorld('games', {
-  getLibrary: (): Promise<GameLibraryItem[]> => ipcRenderer.invoke('games:library'),
-  importRoms: (): Promise<GameImportResult> => ipcRenderer.invoke('games:import-roms'),
-  getThumbnail: (gameId: string): Promise<string | null> =>
-    ipcRenderer.invoke('games:thumbnail', gameId),
-  getStatus: (): Promise<GameStatus> => ipcRenderer.invoke('games:status'),
-  openRetroArch: (): Promise<{ ok: true }> => ipcRenderer.invoke('games:open-retroarch'),
-  launch: (gameId: string): Promise<{ ok: true }> => ipcRenderer.invoke('games:launch', gameId),
-  listControllers: (): Promise<BluetoothControllerDevice[]> =>
-    ipcRenderer.invoke('games:controllers-list'),
-  scanControllers: (): Promise<BluetoothControllerDevice[]> =>
-    ipcRenderer.invoke('games:controllers-scan'),
-  pairController: (mac: string): Promise<{ ok: true }> =>
-    ipcRenderer.invoke('games:controllers-pair', mac),
-  stop: (): void => ipcRenderer.send('games:stop'),
-  onStatus: (callback: (status: GameStatus) => void): (() => void) => {
-    const handler = (_event: IpcRendererEvent, status: GameStatus) => callback(status)
+const gamesApi: GamesApi = {
+  getLibrary: () => ipcRenderer.invoke('games:library'),
+  importRoms: () => ipcRenderer.invoke('games:import-roms'),
+  getThumbnail: (gameId) => ipcRenderer.invoke('games:thumbnail', gameId),
+  getStatus: () => ipcRenderer.invoke('games:status'),
+  openRetroArch: () => ipcRenderer.invoke('games:open-retroarch'),
+  launch: (gameId) => ipcRenderer.invoke('games:launch', gameId),
+  listControllers: () => ipcRenderer.invoke('games:controllers-list'),
+  scanControllers: () => ipcRenderer.invoke('games:controllers-scan'),
+  pairController: (mac) => ipcRenderer.invoke('games:controllers-pair', mac),
+  stop: () => ipcRenderer.send('games:stop'),
+  onStatus: (callback) => {
+    const handler = (_event: IpcRendererEvent, status: Parameters<typeof callback>[0]) =>
+      callback(status)
     ipcRenderer.on('games:status', handler)
     return () => ipcRenderer.removeListener('games:status', handler)
   }
-})
+}
+contextBridge.exposeInMainWorld('games', gamesApi)
 
-type UpdateEvent = { phase: string; message?: string }
-type UpdateProgress = { phase?: string; percent?: number; received?: number; total?: number }
-
-const appApi = {
+const appApi: AppApi = {
   platform: process.platform,
   compositor: process.env.LIVI_COMPOSITOR === '1',
   getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),

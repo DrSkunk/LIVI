@@ -27,6 +27,7 @@ export class GameService {
   private library = new Map<string, GameRecord>()
   private status: GameStatus = { state: 'idle' }
   private restoring = false
+  private importPromise: Promise<GameImportResult> | null = null
 
   constructor(private readonly runtimeState: runtimeStateProps) {
     app.on('before-quit', () => this.child?.kill())
@@ -52,11 +53,22 @@ export class GameService {
     return this.status
   }
 
-  async importRoms(): Promise<GameImportResult> {
-    if (!this.runtimeState.config.games.enabled) throw new Error('Games screen is disabled')
-    const result = await importRomLibrary(this.runtimeState.config.games)
-    this.library.clear()
-    return result
+  importRoms(): Promise<GameImportResult> {
+    if (!this.runtimeState.config.games.enabled) {
+      return Promise.reject(new Error('Games screen is disabled'))
+    }
+    if (this.importPromise) return this.importPromise
+
+    const promise = importRomLibrary(this.runtimeState.config.games)
+      .then((result) => {
+        this.library.clear()
+        return result
+      })
+      .finally(() => {
+        if (this.importPromise === promise) this.importPromise = null
+      })
+    this.importPromise = promise
+    return promise
   }
 
   async getThumbnail(gameId: string): Promise<string | null> {

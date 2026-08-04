@@ -1,16 +1,13 @@
 import type { ElectronAPI } from '@electron-toolkit/preload'
-import type {
-  BluetoothControllerDevice,
-  Config,
-  DeviceView,
-  DongleFirmwareAction,
-  GameImportResult,
-  GameLibraryItem,
-  GameStatus,
-  MiniDspStatus,
-  TransportSnapshot
-} from '@shared/types'
+import type { Config, DeviceView, DongleFirmwareAction, TransportSnapshot } from '@shared/types'
 import type { MultiTouchPoint } from '@shared/types/TouchTypes'
+import type {
+  AppApi,
+  UpdateEvent as AppUpdateEvent,
+  UpdateProgress as AppUpdateProgress,
+  GamesApi,
+  MiniDspApi
+} from '../../types/PreloadApi'
 
 // Should move to src/types/usb.ts
 interface USBDevice {
@@ -27,25 +24,8 @@ interface USBDeviceRequestOptions {
 }
 
 declare global {
-  type UpdateEvent =
-    | {
-        phase:
-          | 'start'
-          | 'ready'
-          | 'mounting'
-          | 'copying'
-          | 'unmounting'
-          | 'installing'
-          | 'relaunching'
-      }
-    | { phase: 'error'; message?: string }
-
-  type UpdateProgress = {
-    phase: 'download'
-    percent?: number
-    received?: number
-    total?: number
-  }
+  type UpdateEvent = AppUpdateEvent
+  type UpdateProgress = AppUpdateProgress
 
   const __BUILD_SHA__: string
   const __BUILD_RUN__: string
@@ -120,26 +100,8 @@ declare global {
   interface Window {
     electron: ElectronAPI
 
-    minidsp: {
-      getStatus(): Promise<MiniDspStatus>
-      setVolume(volumeDb: number): Promise<void>
-      setBassGain(gainDb: number): Promise<void>
-      selectPreset(preset: number): Promise<void>
-    }
-
-    games: {
-      getLibrary(): Promise<GameLibraryItem[]>
-      importRoms(): Promise<GameImportResult>
-      getThumbnail(gameId: string): Promise<string | null>
-      getStatus(): Promise<GameStatus>
-      openRetroArch(): Promise<{ ok: true }>
-      launch(gameId: string): Promise<{ ok: true }>
-      listControllers(): Promise<BluetoothControllerDevice[]>
-      scanControllers(): Promise<BluetoothControllerDevice[]>
-      pairController(mac: string): Promise<{ ok: true }>
-      stop(): void
-      onStatus(callback: (status: GameStatus) => void): () => void
-    }
+    minidsp: MiniDspApi
+    games: GamesApi
 
     projection: {
       quit(): Promise<void>
@@ -209,33 +171,7 @@ declare global {
       }
     }
 
-    app: {
-      platform: NodeJS.Platform
-      compositor: boolean
-      notifyUserActivity(): void
-      quitApp(): Promise<void>
-      restartApp(): Promise<void>
-      getVersion(): Promise<string>
-      listDisplayModes(): Promise<string[]>
-      listWifiChannels(): Promise<number[]>
-      listWifiCountryCodes(): Promise<string[]>
-      listWifiInterfaces(): Promise<string[]>
-      listBtAdapters(): Promise<string[]>
-      getLatestRelease(): Promise<{
-        version?: string
-        url?: string
-        commit?: string
-        run?: string
-      }>
-      performUpdate(imageUrl?: string): Promise<void>
-      onUpdateEvent(cb: (payload: UpdateEvent) => void): () => void
-      onUpdateProgress(cb: (payload: UpdateProgress) => void): () => void
-      beginInstall(): Promise<void>
-      abortUpdate(): Promise<void>
-      openExternal(url: string): Promise<{ ok: boolean; error?: string }>
-      broadcastMediaKey(command: string): void
-      onMediaKey(handler: (command: string) => void): () => void
-    }
+    app: AppApi
   }
 }
 

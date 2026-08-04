@@ -130,6 +130,47 @@ describe('GameService', () => {
     )
   })
 
+  test('shares an in-flight ROM import and allows another after it settles', async () => {
+    let finishImport!: (result: {
+      games: number
+      playlists: number
+      thumbnailsDownloaded: number
+      thumbnailsMissing: number
+      missingCores: string[]
+    }) => void
+    mocks.importRoms.mockImplementationOnce(
+      () => new Promise((resolve) => (finishImport = resolve))
+    )
+    const service = new GameService({
+      config: {
+        games: {
+          enabled: true,
+          retroArchPath: 'retroarch',
+          romDirectory: '/roms',
+          playlistDirectory: '/playlists',
+          thumbnailDirectory: '/thumbnails'
+        }
+      },
+      isQuitting: false
+    } as never)
+
+    const first = service.importRoms()
+    const second = service.importRoms()
+    expect(second).toBe(first)
+    expect(mocks.importRoms).toHaveBeenCalledOnce()
+
+    finishImport({
+      games: 2,
+      playlists: 1,
+      thumbnailsDownloaded: 0,
+      thumbnailsMissing: 2,
+      missingCores: []
+    })
+    await expect(first).resolves.toMatchObject({ games: 2 })
+    await service.importRoms()
+    expect(mocks.importRoms).toHaveBeenCalledTimes(2)
+  })
+
   test('opens the fullscreen RetroArch menu for library setup', async () => {
     const child = childProcess()
     mocks.spawn.mockReturnValue(child)
