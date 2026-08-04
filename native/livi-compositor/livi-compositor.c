@@ -283,6 +283,7 @@ static struct tinywl_toplevel *find_video_by_tag(struct tinywl_server *server,
 
 static void apply_video_layout(struct tinywl_toplevel *video);
 static void apply_ui_layout(struct livi_screen *s);
+static void apply_dialog_layout(struct tinywl_toplevel *toplevel);
 static void livi_toggle_fullscreen(struct livi_screen *s);
 
 static struct livi_video_cfg *cfg_for_tag(struct tinywl_server *server, const char *tag,
@@ -1429,6 +1430,24 @@ static void apply_ui_layout(struct livi_screen *s) {
 	}
 }
 
+static void apply_dialog_layout(struct tinywl_toplevel *toplevel) {
+	if (toplevel == NULL || !toplevel->is_dialog || toplevel->screen == NULL ||
+			!toplevel->xdg_toplevel->base->initialized) {
+		return;
+	}
+
+	bool fullscreen = toplevel->xdg_toplevel->requested.fullscreen;
+	wlr_xdg_toplevel_set_fullscreen(toplevel->xdg_toplevel, fullscreen);
+	if (fullscreen) {
+		struct livi_screen *s = toplevel->screen;
+		wlr_scene_node_set_position(&toplevel->scene_tree->node, s->x, 0);
+		wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, s->width, s->height);
+	} else {
+		// Return window sizing to client. Commit handler centers resulting surface.
+		wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, 0, 0);
+	}
+}
+
 static void livi_toggle_fullscreen(struct livi_screen *s) {
 	if (s == NULL || s->ui == NULL) {
 		return;
@@ -1462,6 +1481,13 @@ static void output_request_state(struct wl_listener *listener, void *data) {
 		}
 	}
 	apply_ui_layout(s);
+	struct tinywl_toplevel *toplevel;
+	wl_list_for_each(toplevel, &output->server->toplevels, link) {
+		if (toplevel->screen == s && toplevel->is_dialog &&
+				toplevel->xdg_toplevel->requested.fullscreen) {
+			apply_dialog_layout(toplevel);
+		}
+	}
 	if (s->backdrop) {
 		wlr_scene_rect_set_size(s->backdrop, s->width, s->height);
 	}
@@ -1739,6 +1765,8 @@ static void xdg_toplevel_commit(struct wl_listener *listener, void *data) {
 
 		if (toplevel->is_video) {
 			apply_video_layout(toplevel);
+		} else if (toplevel->is_dialog) {
+			apply_dialog_layout(toplevel);
 		} else {
 			apply_ui_layout(s);
 		}
@@ -1753,6 +1781,7 @@ static void xdg_toplevel_commit(struct wl_listener *listener, void *data) {
 	}
 
 	if (toplevel->is_dialog && toplevel->screen != NULL
+			&& !toplevel->xdg_toplevel->requested.fullscreen
 			&& !toplevel->xdg_toplevel->base->initial_commit) {
 		int w = toplevel->xdg_toplevel->base->geometry.width;
 		int h = toplevel->xdg_toplevel->base->geometry.height;
@@ -1835,8 +1864,12 @@ static void xdg_toplevel_request_fullscreen(
 		wl_container_of(listener, toplevel, request_fullscreen);
 	struct tinywl_server *server = toplevel->server;
 
-	// LIVI: forward to the HOST output window so app-driven kiosk/fullscreen fullscreens
+	// LIVI UI fullscreen controls the host window. External fullscreen clients (for
+	// example RetroArch) instead fill the nested output above LIVI.
 	bool want = toplevel->xdg_toplevel->requested.fullscreen;
+	if (toplevel->is_dialog) {
+		apply_dialog_layout(toplevel);
+	}
 	for (int i = 0; i < server->n_screens; i++) {
 		struct livi_screen *s = &server->screens[i];
 		if (s->ui == toplevel && s->wlr_output != NULL &&
