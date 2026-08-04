@@ -1883,9 +1883,10 @@ static void xdg_toplevel_request_fullscreen(
 		}
 	}
 
-	if (toplevel->xdg_toplevel->base->initialized) {
-		/* Reflect fullscreen onto the inner toplevel too, so Electron confirms it and the
-		 * app keeps its kiosk/UI state in sync (its enter/leave-full-screen fires). */
+	if (!toplevel->is_dialog && toplevel->xdg_toplevel->base->initialized) {
+		/* Reflect fullscreen onto the inner LIVI toplevel too, so Electron confirms it and
+		 * keeps its kiosk/UI state in sync (its enter/leave-full-screen fires). External
+		 * clients are configured by apply_dialog_layout above. */
 		wlr_xdg_toplevel_set_fullscreen(toplevel->xdg_toplevel, want);
 	}
 }
