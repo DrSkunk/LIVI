@@ -71,7 +71,7 @@ export const DEFAULT_CONFIG: Config = {
   startPage: 'home',
   language: 'en',
   games: {
-    enabled: false,
+    enabled: true,
     retroArchPath: 'retroarch',
     romDirectory: DEFAULT_ROM_DIRECTORY,
     playlistDirectory: DEFAULT_PLAYLIST_DIRECTORY,

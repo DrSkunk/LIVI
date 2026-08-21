@@ -17,8 +17,10 @@ async function fixture() {
   const roms = join(root, 'roms')
   const playlists = join(root, 'playlists')
   const thumbnails = join(root, 'thumbnails')
+  await fs.mkdir(join(roms, 'doom'), { recursive: true })
   await fs.mkdir(join(roms, 'gameboy'), { recursive: true })
   await fs.mkdir(join(roms, 'gba'), { recursive: true })
+  await fs.writeFile(join(roms, 'doom', 'DOOM (Freedoom).wad'), 'wad')
   await fs.writeFile(join(roms, 'gameboy', 'Tetris (World).gb'), 'rom')
   await fs.writeFile(join(roms, 'gba', 'Advance Wars (USA).gba'), 'rom')
   return { roms, playlists, thumbnails }
@@ -40,8 +42,9 @@ describe('importRomLibrary', () => {
       thumbnailDirectory: thumbnails
     })
 
-    expect(result).toMatchObject({ games: 2, playlists: 2, thumbnailsDownloaded: 2 })
+    expect(result).toMatchObject({ games: 3, playlists: 3, thumbnailsDownloaded: 3 })
     for (const folder of [
+      'doom',
       'gameboy',
       'gameboy-color',
       'gba',
@@ -53,7 +56,11 @@ describe('importRomLibrary', () => {
     ]) {
       await expect(fs.stat(join(roms, folder))).resolves.toMatchObject({})
     }
-    expect(result.missingCores).toEqual(['Nintendo - Game Boy', 'Nintendo - Game Boy Advance'])
+    expect(result.missingCores).toEqual([
+      'DOOM',
+      'Nintendo - Game Boy',
+      'Nintendo - Game Boy Advance'
+    ])
 
     await expect(
       fs.stat(join(thumbnails, 'Nintendo - Game Boy', 'Named_Boxarts', 'Tetris (World).png'))

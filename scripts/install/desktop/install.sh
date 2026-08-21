@@ -60,6 +60,7 @@ sudo apt-get install -y $(livi_packages core | tr '\n' ' ') retroarch
 
 livi_prepare_retroarch
 livi_install_retroarch_cores
+livi_install_default_doom
 livi_install_pymobiledevice3
 livi_install_minidsp_rs
 

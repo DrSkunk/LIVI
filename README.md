@@ -193,10 +193,11 @@ The Raspberry Pi installers create a game library at `~/Games/roms` and configur
 - playlists: `~/.config/retroarch/playlists`
 - thumbnails: `~/.config/retroarch/thumbnails`
 
-Both installers—and LIVI's importer itself—create these empty compatible ROM folders:
+Both installers—and LIVI's importer itself—create these compatible ROM folders:
 
 ```text
 ~/Games/roms/
+├── doom/
 ├── gameboy/
 ├── gameboy-color/
 ├── gba/
@@ -207,9 +208,9 @@ Both installers—and LIVI's importer itself—create these empty compatible ROM
 └── master-system/
 ```
 
-Place legally obtained ROMs in the matching folder, then press **Games → Import ROMs**. LIVI detects GB, GBC, GBA, Nintendo DS, NES, SNES, Sega Genesis/Mega Drive, Sega Master System and PlayStation files; finds installed cores; writes RetroArch `.lpl` playlists; and downloads matching box art from the Libretro thumbnail repositories. Standard No-Intro/Redump filenames produce the best thumbnail matches. Multi-disc PlayStation folders containing an `.m3u` file are imported as one game. Paths can be changed under **Settings → General → Games**.
+Installers add **DOOM (Freedoom)**, a libre DOOM-compatible campaign, to the `doom` folder by default. Place legally obtained ROMs in the matching folder, then press **Games → Import ROMs**. LIVI detects DOOM WADs, GB, GBC, GBA, Nintendo DS, NES, SNES, Sega Genesis/Mega Drive and Sega Master System files; finds installed cores; writes RetroArch `.lpl` playlists; and downloads matching box art from the Libretro thumbnail repositories. Standard No-Intro/Redump filenames produce the best thumbnail matches. Multi-disc PlayStation folders containing an `.m3u` file are imported as one game. Paths can be changed under **Settings → General → Games**.
 
-The Raspberry Pi installers also install the available `libretro-gambatte`, `libretro-mgba`, `libretro-desmume`, `libretro-nestopia`, `libretro-snes9x` and `libretro-genesisplusgx` packages. SNES and Genesis packages are in Debian's non-free component and are skipped with a warning when that component is unavailable.
+The Raspberry Pi installers also install the available `libretro-prboom`, `libretro-gambatte`, `libretro-mgba`, `libretro-desmume`, `libretro-nestopia`, `libretro-snes9x` and `libretro-genesisplusgx` packages. SNES and Genesis packages are in Debian's non-free component and are skipped with a warning when that component is unavailable.
 
 Pair a Bluetooth gamepad without leaving LIVI: put the controller in pairing mode, open **Games → Pair controller**, press **Scan**, then **Pair** beside the controller. LIVI pairs, trusts, and connects it through BlueZ; RetroArch detects it as a normal Linux gamepad. Reboot once after a fresh installation so `input` and `bluetooth` group membership applies.
 

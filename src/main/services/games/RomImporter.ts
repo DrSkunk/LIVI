@@ -25,6 +25,15 @@ const archiveExtensions = new Set(['.zip', '.7z'])
 
 const systems: SystemDefinition[] = [
   {
+    id: 'doom',
+    folder: 'doom',
+    playlist: 'DOOM',
+    thumbnailRepo: 'DOOM',
+    folders: /(^|[/\\])doom([/\\]|$)/i,
+    extensions: new Set(['.wad']),
+    cores: [{ file: 'prboom_libretro.so', name: 'PrBoom' }]
+  },
+  {
     id: 'gba',
     folder: 'gba',
     playlist: 'Nintendo - Game Boy Advance',

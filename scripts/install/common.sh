@@ -86,6 +86,7 @@ livi_prepare_retroarch() {
 
   echo "→ Preparing RetroArch library directories"
   mkdir -p \
+    "$LIVI_ROMS_DIR/doom" \
     "$LIVI_ROMS_DIR/gameboy" \
     "$LIVI_ROMS_DIR/gameboy-color" \
     "$LIVI_ROMS_DIR/gba" \
@@ -111,9 +112,9 @@ livi_prepare_retroarch() {
 # is enabled, so unavailable cores are reported without aborting the LIVI setup.
 livi_install_retroarch_cores() {
   local requested package
-  requested="libretro-core-info libretro-database libretro-gambatte libretro-mgba libretro-desmume libretro-nestopia libretro-snes9x libretro-genesisplusgx"
+  requested="libretro-core-info libretro-database libretro-prboom libretro-gambatte libretro-mgba libretro-desmume libretro-nestopia libretro-snes9x libretro-genesisplusgx"
 
-  echo "→ Installing RetroArch cores (GB/GBA/NDS/NES/SNES/Genesis/Master System)"
+  echo "→ Installing RetroArch cores (DOOM/GB/GBA/NDS/NES/SNES/Genesis/Master System)"
   for package in $requested; do
     if ! apt-cache show "$package" >/dev/null 2>&1; then
       echo "   WARNING: $package is unavailable in configured apt repositories" >&2
@@ -123,6 +124,65 @@ livi_install_retroarch_cores() {
       echo "   WARNING: $package could not be installed; continuing" >&2
     fi
   done
+}
+
+# Installs Freedoom, a libre DOOM-compatible game, and places its first campaign
+# in LIVI's normal ROM library. Existing files are never replaced.
+livi_install_default_doom() {
+  local package="freedoom" source destination core playlist
+
+  echo "→ Installing default DOOM game (Freedoom)"
+  if ! apt-cache show "$package" >/dev/null 2>&1; then
+    echo "   WARNING: $package is unavailable; default DOOM game was not installed" >&2
+    return 0
+  fi
+  if ! sudo apt-get install -y "$package"; then
+    echo "   WARNING: $package could not be installed; continuing" >&2
+    return 0
+  fi
+
+  source="$(dpkg -L "$package" | grep -E '/freedoom1\.wad$' | head -1 || true)"
+  destination="$LIVI_ROMS_DIR/doom/DOOM (Freedoom).wad"
+  if [ -z "$source" ] || [ ! -f "$source" ]; then
+    echo "   WARNING: $package did not provide freedoom1.wad" >&2
+    return 0
+  fi
+  if [ ! -e "$destination" ]; then
+    cp "$source" "$destination"
+  fi
+
+  core="$(find /usr/lib -type f -name prboom_libretro.so -print -quit 2>/dev/null || true)"
+  playlist="$LIVI_RETROARCH_DIR/playlists/DOOM.lpl"
+  python3 - "$destination" "$core" "$playlist" <<'PY'
+import json
+import os
+import sys
+
+wad, core, playlist = sys.argv[1:]
+data = {"version": "1.5", "items": []}
+try:
+    with open(playlist, encoding="utf-8") as handle:
+        current = json.load(handle)
+        if isinstance(current, dict) and isinstance(current.get("items"), list):
+            data = current
+except (FileNotFoundError, json.JSONDecodeError, OSError):
+    pass
+
+if not any(isinstance(item, dict) and item.get("path") == wad for item in data["items"]):
+    data["items"].append({
+        "path": wad,
+        "label": "DOOM (Freedoom)",
+        "core_path": core or "DETECT",
+        "core_name": "PrBoom" if core else "DETECT",
+        "crc32": "DETECT",
+        "db_name": "DOOM.lpl",
+    })
+    temporary = playlist + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2)
+    os.replace(temporary, playlist)
+PY
+  echo "   DOOM: $destination"
 }
 
 # Installs the latest minidsp-rs Debian package. Its package includes the USB
