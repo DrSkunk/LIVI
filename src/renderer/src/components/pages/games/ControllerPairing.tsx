@@ -82,9 +82,11 @@ export function ControllerPairing() {
     <>
       <Button
         variant="outlined"
+        color="inherit"
         startIcon={<SportsEsportsRoundedIcon />}
         onClick={show}
         disabled={window.app?.platform !== undefined && window.app.platform !== 'linux'}
+        sx={{ minHeight: 44, whiteSpace: 'nowrap', textTransform: 'none', borderColor: 'divider' }}
       >
         Pair controller
       </Button>
@@ -93,8 +95,7 @@ export function ControllerPairing() {
         <DialogTitle>Bluetooth controllers</DialogTitle>
         <DialogContent>
           <Box sx={{ color: 'text.secondary', mb: 2 }}>
-            Put controller in pairing mode, then scan. LIVI pairs, trusts, and connects it for
-            RetroArch automatically.
+            Put your controller in pairing mode, then scan for nearby devices.
           </Box>
           {error && <Alert severity="error">{error}</Alert>}
           {devices.length === 0 && !scanning && (

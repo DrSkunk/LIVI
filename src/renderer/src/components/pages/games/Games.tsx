@@ -104,43 +104,49 @@ export function Games() {
         width: '100%',
         height: '100%',
         boxSizing: 'border-box',
-        overflow: 'hidden',
+        overflowX: 'hidden',
+        overflowY: 'auto',
         display: 'flex',
-        flexDirection: 'column',
-        background:
-          'radial-gradient(circle at 75% -15%, color-mix(in srgb, var(--ui-highlight) 16%, transparent), transparent 48%)'
+        flexDirection: 'column'
       }}
     >
       <Box
         sx={{
           display: 'flex',
           alignItems: 'center',
+          flexWrap: 'wrap',
+          flexShrink: 0,
+          gap: 1,
           px: 'clamp(16px, 3vw, 36px)',
-          pt: 'clamp(12px, 3vh, 28px)'
+          py: 'clamp(12px, 2vh, 20px)',
+          borderBottom: '1px solid',
+          borderColor: 'divider'
         }}
       >
-        <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography
-            variant="h4"
-            sx={{ fontWeight: 800, fontSize: 'clamp(1.35rem, 4vw, 2.35rem)' }}
-          >
+        <Box sx={{ minWidth: 100, flex: 1 }}>
+          <Typography sx={{ fontWeight: 500, fontSize: 'clamp(1.2rem, 3svh, 1.65rem)' }}>
             Games
           </Typography>
           <Typography color="text.secondary" sx={{ fontSize: 'clamp(.72rem, 1.6vw, .95rem)' }}>
             {loading
-              ? 'Scanning RetroArch playlists…'
+              ? 'Loading games…'
               : `${games.length} ${games.length === 1 ? 'game' : 'games'}`}
           </Typography>
         </Box>
         <Button
-          size="small"
-          variant="contained"
+          variant="outlined"
+          color="inherit"
           startIcon={
             importing ? <CircularProgress size={16} color="inherit" /> : <LibraryAddRoundedIcon />
           }
           onClick={() => void importRoms()}
           disabled={importing || loading || Boolean(launchingId)}
-          sx={{ mr: 1, whiteSpace: 'nowrap' }}
+          sx={{
+            minHeight: 44,
+            whiteSpace: 'nowrap',
+            textTransform: 'none',
+            borderColor: 'divider'
+          }}
         >
           {importing ? 'Importing…' : 'Import ROMs'}
         </Button>
@@ -149,6 +155,7 @@ export function Games() {
           aria-label="Rescan game library"
           onClick={() => void load()}
           disabled={loading || Boolean(launchingId)}
+          sx={{ width: 48, height: 48 }}
         >
           <RefreshRoundedIcon />
         </IconButton>
@@ -169,14 +176,14 @@ export function Games() {
       <Box
         sx={{
           flex: 1,
-          minHeight: 0,
+          minHeight: 202,
+          boxSizing: 'border-box',
           display: 'flex',
           alignItems: 'center',
           gap: 'clamp(14px, 2.4vw, 28px)',
           overflowX: 'auto',
-          overflowY: 'hidden',
+          overflowY: 'auto',
           scrollSnapType: 'x proximity',
-          scrollBehavior: 'smooth',
           overscrollBehaviorX: 'contain',
           px: 'clamp(16px, 3vw, 36px)',
           py: 'clamp(12px, 3vh, 30px)',
@@ -185,13 +192,12 @@ export function Games() {
         }}
       >
         {loading ? (
-          <CircularProgress sx={{ m: 'auto', color: 'var(--ui-highlight)' }} />
+          <CircularProgress aria-label="Loading games" sx={{ m: 'auto' }} />
         ) : games.length ? (
-          games.map((game, index) => (
+          games.map((game) => (
             <GameCard
               key={game.id}
               game={game}
-              index={index}
               launching={launchingId === game.id}
               onLaunch={launch}
             />
