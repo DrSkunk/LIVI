@@ -188,6 +188,8 @@ Video: 1920x1080 - View Area: 0/0/0/0 (T/B/L/R) - Safe Area: 120/20/500/500 (T/B
 
 ## RetroArch games
 
+The Games page uses a horizontal library with cover art, game titles and system names. Select a game to launch it; import and controller-pairing controls remain in the page header. The library follows LIVI's light, dark and custom dashboard colors.
+
 The Raspberry Pi installers create a game library at `~/Games/roms` and configure LIVI to use RetroArch's standard playlist and thumbnail directories:
 
 - playlists: `~/.config/retroarch/playlists`
@@ -213,6 +215,10 @@ Installers add **DOOM (Freedoom)**, a libre DOOM-compatible campaign, to the `do
 The Raspberry Pi installers also install the available `libretro-prboom`, `libretro-gambatte`, `libretro-mgba`, `libretro-desmume`, `libretro-nestopia`, `libretro-snes9x` and `libretro-genesisplusgx` packages. SNES and Genesis packages are in Debian's non-free component and are skipped with a warning when that component is unavailable.
 
 Pair a Bluetooth gamepad without leaving LIVI: put the controller in pairing mode, open **Games → Pair controller**, press **Scan**, then **Pair** beside the controller. LIVI pairs, trusts, and connects it through BlueZ; RetroArch detects it as a normal Linux gamepad. Reboot once after a fresh installation so `input` and `bluetooth` group membership applies.
+
+## MiniDSP
+
+The MiniDSP page provides master volume and bass gain controls, with touch-sized step buttons and preset selection. The active preset is marked with a check. Controls follow LIVI's dashboard theme; connection status and refresh are shown in the header.
 
 
 ## Installation

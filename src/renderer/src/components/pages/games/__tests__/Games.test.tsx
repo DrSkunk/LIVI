@@ -46,22 +46,37 @@ describe('Games', () => {
     const mario = await screen.findByRole('button', { name: 'Play Super Mario Bros.' })
     expect(screen.getByRole('button', { name: 'Play Sonic' })).toBeInTheDocument()
     expect(screen.getByText('2 games')).toBeInTheDocument()
+    expect(screen.getByText('NES')).toBeInTheDocument()
+    await waitFor(() => expect(mario.querySelector('img')).toHaveStyle({ objectFit: 'contain' }))
 
     fireEvent.click(mario)
     await waitFor(() => expect(launch).toHaveBeenCalledWith('mario'))
+    expect(mario).toBeDisabled()
+    expect(
+      screen.getByRole('progressbar', { name: 'Launching Super Mario Bros.' })
+    ).toBeInTheDocument()
   })
 
-  test('opens Bluetooth controller pairing inside the Games HUD', async () => {
+  test('opens Bluetooth controller pairing from the Games header', async () => {
     render(<Games />)
     fireEvent.click(await screen.findByRole('button', { name: 'Pair controller' }))
     expect(screen.getByRole('dialog', { name: 'Bluetooth controllers' })).toBeInTheDocument()
+  })
+
+  test('keeps the manual RetroArch action available for an empty library', async () => {
+    vi.mocked(window.games.getLibrary).mockResolvedValueOnce([])
+    render(<Games />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open RetroArch', exact: true }))
+    await waitFor(() => expect(openRetroArch).toHaveBeenCalledOnce())
+    expect(screen.getByRole('button', { name: 'Opening RetroArch…' })).toBeDisabled()
   })
 
   test('shows setup instructions and imports ROMs when library is empty', async () => {
     vi.mocked(window.games.getLibrary).mockResolvedValueOnce([])
     render(<Games />)
 
-    expect(await screen.findByText('Add games to LIVI')).toBeInTheDocument()
+    expect(await screen.findByText('No games yet')).toBeInTheDocument()
     expect(screen.getByText('~/Games/roms')).toBeInTheDocument()
     fireEvent.click(screen.getAllByRole('button', { name: 'Import ROMs' }).at(-1)!)
     await waitFor(() => expect(importRoms).toHaveBeenCalledOnce())
