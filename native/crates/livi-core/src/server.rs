@@ -11,7 +11,6 @@ use std::time::Duration;
 use livi_core_proto::PROTOCOL;
 use livi_core_proto::frame::{Decoder, FrameError, encode};
 use livi_core_proto::message::{Action, FromCore, MediaControl, ToCore};
-use livi_core_proto::state::MediaSource;
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::unix::OwnedWriteHalf;
@@ -44,7 +43,6 @@ pub struct Core {
     mfi_dir: PathBuf,
     minidsp: tokio::sync::mpsc::UnboundedSender<MiniDspAsk>,
     minidsp_asks: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<MiniDspAsk>>>,
-    spotify: crate::spotify::Sender,
 }
 
 impl Core {
@@ -56,7 +54,6 @@ impl Core {
         asks: UiSenders,
     ) -> Self {
         let (minidsp, minidsp_asks) = tokio::sync::mpsc::unbounded_channel();
-        let spotify = asks.spotify.clone();
         Self {
             hub: Arc::new(hub),
             config_file,
@@ -72,7 +69,6 @@ impl Core {
             mfi_dir: PathBuf::new(),
             minidsp,
             minidsp_asks: std::sync::Mutex::new(Some(minidsp_asks)),
-            spotify,
         }
     }
 
@@ -137,18 +133,9 @@ impl Core {
         self.quit.notify_one();
     }
 
-    pub fn media(&self, control: MediaControl) -> Result<(), String> {
-        match self.hub.watch().borrow().media_source {
-            MediaSource::Dab => self.dab_media(control),
-            MediaSource::Spotify => self
-                .spotify
-                .send(crate::spotify::Ask::Control(control))
-                .map_err(|_| "Spotify receiver is not available".to_string()),
-            MediaSource::Phone => self
-                .asks
-                .commands
-                .send(UiCommand::Media(control))
-                .map_err(|_| "media controls are not available".to_string()),
+    pub fn media(&self, control: MediaControl) {
+        if !self.dab_media(control) {
+            let _ = self.asks.commands.send(UiCommand::Media(control));
         }
     }
 
@@ -166,13 +153,13 @@ impl Core {
             .map_err(|_| "games are not available".to_string())
     }
 
-    fn dab_media(&self, control: MediaControl) -> Result<(), String> {
+    fn dab_media(&self, control: MediaControl) -> bool {
         let ask = {
             let state = self.hub.watch();
             let s = state.borrow();
             crate::dab::media_ask(&s.dab, s.sessions.active.is_some(), control)
         };
-        ask.map_or(Ok(()), |ask| self.ask_dab(ask))
+        ask.is_some_and(|ask| self.ask_dab(ask).is_ok())
     }
 
     pub fn goodbye(&self) -> oneshot::Receiver<()> {
@@ -198,9 +185,8 @@ impl Core {
                 self.asks.wants.send_modify(|w| *w.get_mut(screen) = front);
                 Ok(())
             }
-            Action::Media { control } => self.media(control),
-            Action::SelectMediaSource { source } => {
-                self.hub.update(|s| s.media_source = source);
+            Action::Media { control } => {
+                self.media(control);
                 Ok(())
             }
             Action::ImportMfi { file, path } => {
@@ -238,13 +224,7 @@ impl Core {
                 by,
             }),
             Action::Seek { position_ms } => {
-                if self.hub.watch().borrow().media_source == MediaSource::Spotify {
-                    self.spotify
-                        .send(crate::spotify::Ask::Seek(position_ms))
-                        .map_err(|_| "Spotify controls are unavailable".to_string())?;
-                } else {
-                    let _ = self.asks.commands.send(UiCommand::Seek(position_ms));
-                }
+                let _ = self.asks.commands.send(UiCommand::Seek(position_ms));
                 Ok(())
             }
             Action::NextDevice => {
@@ -448,7 +428,7 @@ async fn client(core: Arc<Core>, stream: UnixStream) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use livi_core_proto::patch::PatchOp;
-    use livi_core_proto::state::{Front, MediaSource, PerScreen, State};
+    use livi_core_proto::state::{Front, PerScreen, State};
     use serde_json::json;
 
     use super::*;
@@ -491,23 +471,6 @@ mod tests {
             }
         }
 
-        async fn reply(&mut self, id: u32) {
-            loop {
-                match self.recv().await {
-                    Some(FromCore::Patch { .. }) => {}
-                    Some(FromCore::Reply {
-                        id: response,
-                        error,
-                    }) => {
-                        assert_eq!(response, id);
-                        assert_eq!(error, None);
-                        return;
-                    }
-                    response => panic!("unexpected response: {response:?}"),
-                }
-            }
-        }
-
         async fn hello(path: &std::path::Path) -> Self {
             let mut peer = Self::connect(path).await;
             peer.send(&ToCore::Hello {
@@ -546,7 +509,6 @@ mod tests {
             front: livi,
             sessions: Default::default(),
             now_playing: Default::default(),
-            media_source: MediaSource::default(),
             telemetry: Default::default(),
             navigation: Default::default(),
             system: Default::default(),
@@ -630,36 +592,6 @@ mod tests {
             Some(FromCore::Reply { id: 9, error: None })
         );
         assert_eq!(asks.commands.recv().await, Some(UiCommand::Seek(61000)));
-        ui.send(&ToCore::Action {
-            id: 20,
-            action: Action::SelectMediaSource {
-                source: MediaSource::Spotify,
-            },
-        })
-        .await;
-        ui.reply(20).await;
-        ui.send(&ToCore::Action {
-            id: 21,
-            action: Action::Media {
-                control: MediaControl::Next,
-            },
-        })
-        .await;
-        ui.reply(21).await;
-        assert!(matches!(
-            asks.spotify.as_mut().unwrap().recv().await,
-            Some(crate::spotify::Ask::Control(MediaControl::Next))
-        ));
-        ui.send(&ToCore::Action {
-            id: 22,
-            action: Action::Seek { position_ms: 12000 },
-        })
-        .await;
-        ui.reply(22).await;
-        assert!(matches!(
-            asks.spotify.as_mut().unwrap().recv().await,
-            Some(crate::spotify::Ask::Seek(12000))
-        ));
         for (id, action, ask) in [
             (
                 10,

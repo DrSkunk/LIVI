@@ -37,7 +37,6 @@ pub struct Services {
     helper: Option<HelperSupervisor>,
     compositor: Option<Watched>,
     ui: Option<UiSupervisor>,
-    spotify: Option<(crate::spotify::Sender, tokio::task::JoinHandle<()>)>,
 }
 
 struct Watched {
@@ -183,15 +182,6 @@ impl Services {
         let clusters = ClusterPlanes::new(gst.clone(), ctrl.clone());
 
         let (host_ready, host_ready_rx) = watch::channel(compositor.is_none());
-        let spotify = asks.spotify.take().map(|spotify_asks| {
-            let sender = asks.spotify_from_phone.clone();
-            let hub = hub.clone();
-            let user_data = user_data.to_path_buf();
-            let task = tokio::spawn(async move {
-                crate::spotify::run(hub, &user_data, spotify_asks).await;
-            });
-            (sender, task)
-        });
         let display = compositor.is_some().then(|| ctrl.ui());
         let ui = res
             .ui
@@ -278,15 +268,10 @@ impl Services {
             helper: Some(helper),
             compositor,
             ui,
-            spotify,
         }
     }
 
     pub async fn stop(mut self) {
-        if let Some((sender, task)) = self.spotify.take() {
-            let _ = sender.send(crate::spotify::Ask::Shutdown);
-            let _ = task.await;
-        }
         if let Some(ui) = self.ui.take() {
             ui.stop().await;
         }

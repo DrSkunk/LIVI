@@ -72,7 +72,6 @@ pub fn apply_media(ui: &AppWindow, client: Option<&Client>, mut m: MediaView) {
     ui.set_artist(m.artist.into());
     ui.set_album(m.album.into());
     ui.set_app(m.app.into());
-    ui.set_media_source(m.source.clone().into());
     ui.set_can_seek(m.can_seek);
     ui.set_total_ms(m.duration_ms as f32);
     match m.artwork.take() {
@@ -182,11 +181,10 @@ pub fn set_view(ui: &AppWindow, dab: bool) {
 
 pub fn path(ui: &AppWindow) -> &'static str {
     let d = ui.global::<DabState>();
-    match ui.get_media_source().as_str() {
-        "spotify" => "/media/spotify",
-        "dab" if d.get_receiver() => "/media/dabplus",
-        "phone" if d.get_receiver() => "/media/phone",
-        _ => "/media",
+    match (d.get_receiver(), d.get_view_dab()) {
+        (false, _) => "/media",
+        (true, true) => "/media/dabplus",
+        (true, false) => "/media/phone",
     }
 }
 
@@ -194,7 +192,6 @@ pub fn set_texts(ui: &AppWindow, tr: impl Fn(&str, &str) -> String) {
     let t = ui.global::<MediaText>();
     t.set_phone_source(tr("media.phoneSource", "Phone").into());
     t.set_dab_source(tr("media.dabSource", "DAB+").into());
-    t.set_spotify_source(tr("media.spotifySource", "Spotify").into());
     t.set_no_stations(tr("media.noStations", "No stations yet").into());
     t.set_no_artwork(tr("media.noArtwork", "No Artwork").into());
 }
@@ -264,9 +261,7 @@ pub fn wire(ui: &AppWindow, client: &Client) {
             if let Some(ui) = weak.upgrade() {
                 set_view(&ui, false);
             }
-            c.act(Action::SelectMediaSource {
-                source: livi_core_proto::state::MediaSource::Phone,
-            })
+            c.act(Action::DabStop)
         }
     });
     d.on_resume({
@@ -276,28 +271,6 @@ pub fn wire(ui: &AppWindow, client: &Client) {
                 set_view(&ui, true);
             }
             c.act(Action::DabResume)
-        }
-    });
-    d.on_select_dab({
-        let (c, weak) = (client.clone(), weak.clone());
-        move || {
-            if let Some(ui) = weak.upgrade() {
-                set_view(&ui, true);
-            }
-            c.act(Action::SelectMediaSource {
-                source: livi_core_proto::state::MediaSource::Dab,
-            })
-        }
-    });
-    d.on_spotify({
-        let (c, weak) = (client.clone(), weak.clone());
-        move || {
-            if let Some(ui) = weak.upgrade() {
-                set_view(&ui, false);
-            }
-            c.act(Action::SelectMediaSource {
-                source: livi_core_proto::state::MediaSource::Spotify,
-            })
         }
     });
     d.on_pick({

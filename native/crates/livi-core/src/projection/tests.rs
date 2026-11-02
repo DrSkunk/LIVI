@@ -68,7 +68,6 @@ impl Rig {
             front: livi(),
             sessions: Default::default(),
             now_playing: Default::default(),
-            media_source: Default::default(),
             telemetry: Default::default(),
             navigation: Default::default(),
             system: Default::default(),
@@ -540,10 +539,7 @@ async fn media_keys_go_to_the_radio_while_it_is_the_source() {
         "the phone keeps the keys while it is the source"
     );
 
-    rig.hub.update(|s| {
-        s.dab.active = true;
-        s.media_source = MediaSource::Dab;
-    });
+    rig.hub.update(|s| s.dab.active = true);
     rig.p.input(press("KeyP"));
     rig.p.input(Input::Key {
         code: "KeyP".into(),

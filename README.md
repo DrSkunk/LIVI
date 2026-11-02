@@ -285,12 +285,6 @@ DAB+ radio via USB RTL-SDR (RTL2832U with R820T2).
 - radio text and station logos in LIVI's media player
 - station order and hidden stations in Settings → DAB+
 
-## Spotify Connect
-
-LIVI can appear as a Spotify Connect receiver on the local network. Select **LIVI** in Spotify's device picker to connect; no Spotify username or password is stored by LIVI. The media source tabs select which source receives the head-unit's playback controls and supplies its player view. Selecting a source does not stop the others: Spotify, DAB+, and phone-projected audio can play together and are mixed by the operating system's audio service.
-
-This receiver uses librespot, an unofficial third-party implementation that is not provided, approved, or endorsed by Spotify. Spotify service and account requirements apply, and Spotify's terms or policies may restrict this use. Check those terms before enabling or distributing a build with this feature; this is not Spotify's licensed hardware SDK.
-
 ## RetroArch games
 
 The **Games** tab shows the RetroArch library with cover art and starts games fullscreen above LIVI; when RetroArch closes, LIVI comes back on the Games page. It reads RetroArch's standard directories:
