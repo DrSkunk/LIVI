@@ -253,6 +253,7 @@
     "enabling": "正在启用…",
     "opening": "正在打开…",
     "gpsEnabled": "启用",
+    "gpsSpeedEnabled": "使用 GPS 获取车速",
     "gpsDevice": "设备",
     "gpsBaudRate": "波特率",
     "gpsInfo": "GPS 数据",

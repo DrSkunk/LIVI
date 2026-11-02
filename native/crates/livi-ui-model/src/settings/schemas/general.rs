@@ -613,6 +613,11 @@ fn gps() -> Node {
         vec![
             Node::checkbox(Label::new("settings.gpsEnabled", "Enable"), "gpsEnabled")
                 .icon("gpsEnabled"),
+            Node::checkbox(
+                Label::new("settings.gpsSpeedEnabled", "Use GPS for vehicle speed"),
+                "gpsSpeedEnabled",
+            )
+            .icon("gpsEnabled"),
             Node::text(Label::new("settings.gpsDevice", "Device"), "gpsDevice")
                 .icon("gpsDevice")
                 .page(Label::new("settings.gpsDevice", "Device")),
