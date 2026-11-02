@@ -60,6 +60,17 @@ livi-link-host = { path = "crates/livi-link-host" }
 livi-link-provision = { path = "crates/livi-link-provision" }
 livi-mdns = { path = "crates/livi-mdns" }
 livi-media = { path = "crates/livi-media" }
+librespot-connect = { version = "0.8.0", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-core = { version = "0.8.0", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-discovery = { version = "0.8.0", default-features = false, features = [
+  "rustls-tls-native-roots",
+  "with-libmdns",
+] }
+librespot-metadata = { version = "0.8.0", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-playback = { version = "0.8.0", default-features = false, features = [
+  "gstreamer-backend",
+  "rustls-tls-native-roots",
+] }
 livi-net = { path = "crates/livi-net" }
 livi-rtlsdr = { path = "crates/livi-rtlsdr" }
 livi-runtime = { path = "crates/livi-runtime" }

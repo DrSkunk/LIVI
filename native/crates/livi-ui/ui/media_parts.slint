@@ -8,6 +8,7 @@ import { Focus } from "focus.slint";
 export global MediaText {
     in property <string> phone-source: "Phone";
     in property <string> dab-source: "DAB+";
+    in property <string> spotify-source: "Spotify";
     in property <string> no-stations: "No stations yet";
     in property <string> no-artwork: "No Artwork";
 }
@@ -158,10 +159,12 @@ component SourceTab inherits Rectangle {
 }
 
 export component SourceTabs inherits Rectangle {
-    in property <bool> dab-active;
+    in property <bool> show-dab;
+    in property <string> active-source;
     in property <int> focus-base;
     callback phone();
     callback dab();
+    callback spotify();
     height: pill.height + 8px;
     pill := Rectangle {
         y: 8px;
@@ -179,11 +182,25 @@ export component SourceTabs inherits Rectangle {
             spacing: 8px;
             SourceTab {
                 label: MediaText.phone-source;
-                on: !root.dab-active;
+                on: root.active-source == "phone";
                 focused: Focus.main(root.focus-base);
                 picked => { root.phone(); }
             }
-            Rectangle {
+            if root.show-dab: Rectangle {
+                width: 1px;
+                VerticalLayout {
+                    padding-top: 6px;
+                    padding-bottom: 6px;
+                    Rectangle { background: Theme.divider; }
+                }
+            }
+            if root.show-dab: SourceTab {
+                label: MediaText.dab-source;
+                on: root.active-source == "dab";
+                focused: Focus.main(root.focus-base + 1);
+                picked => { root.dab(); }
+            }
+            if root.show-dab: Rectangle {
                 width: 1px;
                 VerticalLayout {
                     padding-top: 6px;
@@ -192,10 +209,10 @@ export component SourceTabs inherits Rectangle {
                 }
             }
             SourceTab {
-                label: MediaText.dab-source;
-                on: root.dab-active;
-                focused: Focus.main(root.focus-base + 1);
-                picked => { root.dab(); }
+                label: MediaText.spotify-source;
+                on: root.active-source == "spotify";
+                focused: Focus.main(root.focus-base + (root.show-dab ? 2 : 1));
+                picked => { root.spotify(); }
             }
         }
     }

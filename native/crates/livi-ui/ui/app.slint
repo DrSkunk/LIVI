@@ -41,6 +41,7 @@ export component AppWindow inherits Window {
     in property <string> artist;
     in property <string> album;
     in property <string> app;
+    in property <string> media-source: "phone";
     in property <image> artwork;
     in property <bool> has-artwork;
     in property <bool> playing;
@@ -135,6 +136,7 @@ export component AppWindow inherits Window {
             if root.page == Page.media: MediaPage {
                 width: parent.width;
                 height: parent.height;
+                media-source: root.media-source;
                 track-title: root.track-title;
                 artist: root.artist;
                 album: root.album;
