@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use livi_core_proto::message::MediaControl;
-use livi_core_proto::state::{Dab, DabScan, DabSignal, DabStation, State};
+use livi_core_proto::state::{Dab, DabScan, DabSignal, DabStation, MediaSource, State};
 use livi_dab::{CHANNELS, Ensemble, Event, Receiver};
 use livi_media::gst_host::{AudioCodec, AudioOpts, GstHost, aac_raw_key};
 use livi_rtlsdr::RtlSdr;
@@ -244,6 +244,9 @@ pub async fn run(
                             s.dab.station = None;
                             s.dab.playing = false;
                             s.dab.text = None;
+                            if s.media_source == MediaSource::Dab {
+                                s.media_source = MediaSource::Phone;
+                            }
                         });
                     }
                     DabAsk::Pause => {
@@ -414,6 +417,7 @@ impl Out {
             s.dab.playing = false;
             s.dab.text = None;
             s.dab.error = None;
+            s.media_source = MediaSource::Dab;
         });
     }
 }

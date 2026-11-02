@@ -62,9 +62,10 @@ impl Follow {
         let all = keys.is_none_or(|k| k.contains(""));
         let hit = |key: &str| all || keys.is_some_and(|k| k.contains(key));
         let mut out = Vec::new();
-        if hit("nowPlaying") || hit("sessions") {
+        if hit("nowPlaying") || hit("sessions") || hit("mediaSource") {
             out.push(Update::Media(self.media.read(state)));
         }
+
         if hit("dab")
             && let Some(d) = self.media.read_dab(state)
         {
@@ -194,5 +195,41 @@ impl Follow {
             out.push(Update::Open(start.to_string()));
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn source_only_changes_refresh_the_media_view() {
+        let mut follow = Follow::default();
+        let keys = BTreeSet::from(["mediaSource".to_string()]);
+
+        for source in ["spotify", "dab", "phone"] {
+            let updates = follow.changed(
+                Some(&keys),
+                &json!({
+                    "mediaSource": source,
+                    "nowPlaying": {},
+                    "sessions": {},
+                }),
+            );
+
+            assert!(matches!(
+                updates.as_slice(),
+                [Update::Media(media)] if media.source == source
+            ));
+        }
+    }
+
+    #[test]
+    fn unrelated_changes_do_not_refresh_the_media_view() {
+        let keys = BTreeSet::from(["unrelated".to_string()]);
+        let updates = Follow::default().changed(Some(&keys), &json!({}));
+
+        assert!(updates.is_empty());
     }
 }

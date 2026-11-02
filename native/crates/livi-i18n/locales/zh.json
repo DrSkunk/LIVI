@@ -374,6 +374,7 @@
     "source": "来源",
     "phoneSource": "手机",
     "dabSource": "DAB+",
+    "spotifySource": "Spotify",
     "stationList": "电台列表",
     "favorite": "收藏",
     "noStations": "暂无电台，请在 设置 > 通用 > DAB+ 中扫描",

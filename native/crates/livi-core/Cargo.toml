@@ -20,9 +20,15 @@ livi-dab.workspace = true
 livi-rtlsdr.workspace = true
 livi-session-io.workspace = true
 livi-wifi.workspace = true
+librespot-connect.workspace = true
+librespot-core.workspace = true
+librespot-discovery.workspace = true
+librespot-metadata.workspace = true
+librespot-playback.workspace = true
 axum = "0.8.9"
 base64.workspace = true
 flate2.workspace = true
+futures-util.workspace = true
 jiff = { version = "0.2.38", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 libc.workspace = true
 serde = { workspace = true, features = ["derive"] }
@@ -43,6 +49,7 @@ tokio = { workspace = true, features = [
   "fs",
 ] }
 tower-http = { version = "0.7.1", features = ["cors"] }
+uuid.workspace = true
 zbus = { workspace = true, features = ["tokio"] }
 
 [dev-dependencies]
