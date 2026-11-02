@@ -375,6 +375,7 @@
     "source": "Quelle",
     "phoneSource": "Telefon",
     "dabSource": "DAB+",
+    "spotifySource": "Spotify",
     "stationList": "Senderliste",
     "favorite": "Favorit",
     "noStations": "Noch keine Sender, Suche unter Einstellungen > Allgemein > DAB+",

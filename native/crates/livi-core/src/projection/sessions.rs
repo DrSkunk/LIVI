@@ -324,7 +324,9 @@ impl Projection {
             s.front.cluster = cluster;
             s.front.aux = aux;
             s.sessions = sessions;
-            s.now_playing = now_playing;
+            if s.media_source == MediaSource::Phone {
+                s.now_playing = now_playing;
+            }
             s.navigation = navigation;
             s.devices = list;
             s.cluster = self.cluster.clone();

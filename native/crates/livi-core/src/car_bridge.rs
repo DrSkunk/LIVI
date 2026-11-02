@@ -329,7 +329,11 @@ pub async fn run(core: Arc<Core>, car_data: mpsc::UnboundedSender<Value>) {
                 }
             } => match line {
                 Some(line) => match parse(&line) {
-                    FromBridge::Button(control) => core.media(control),
+                    FromBridge::Button(control) => {
+                        if let Err(e) = core.media(control) {
+                            eprintln!("[bridge] media control failed: {e}");
+                        }
+                    }
                     FromBridge::Car(patch) => {
                         let _ = car_data.send(patch);
                     }
