@@ -87,13 +87,24 @@ impl Projection {
             }
             return;
         }
-        if let (Some(control), Some(dab)) = (key.media_control(), &self.dab)
-            && let Some(ask) = self.dab_media_ask(control)
-        {
-            if down {
-                let _ = dab.send(ask);
+        if let Some(control) = key.media_control() {
+            match self.hub.watch().borrow().media_source {
+                MediaSource::Dab => {
+                    if let (Some(dab), Some(ask)) = (&self.dab, self.dab_media_ask(control))
+                        && down
+                    {
+                        let _ = dab.send(ask);
+                    }
+                    return;
+                }
+                MediaSource::Spotify => {
+                    if down && let Some(spotify) = &self.spotify {
+                        let _ = spotify.send(crate::spotify::Ask::Control(control));
+                    }
+                    return;
+                }
+                MediaSource::Phone => {}
             }
-            return;
         }
         if self.front_main() != Front::Projection && !key.works_behind() {
             return;

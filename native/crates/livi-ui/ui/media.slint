@@ -292,6 +292,7 @@ component PhonePlayer inherits Rectangle {
 }
 
 export component MediaPage inherits Rectangle {
+    in property <string> media-source;
     in property <string> track-title;
     in property <string> artist;
     in property <string> album;
@@ -311,21 +312,23 @@ export component MediaPage inherits Rectangle {
     callback seek(float);
     callback spectrum-changed(bool);
 
-    property <int> base: DabState.receiver ? 2 : 0;
-    property <bool> dab-shown: DabState.receiver && DabState.view-dab;
-    property <length> tabs-h: DabState.receiver ? 48px : 0;
+    property <int> base: 3;
+    property <bool> dab-shown: root.media-source == "dab" && DabState.receiver;
+    property <length> tabs-h: 48px;
 
     background: Theme.backdrop;
 
     Rectangle {
-        if DabState.receiver: SourceTabs {
+        SourceTabs {
             y: 0;
             width: parent.width;
             height: root.tabs-h;
-            dab-active: DabState.view-dab;
+            show-dab: DabState.receiver;
+            active-source: root.media-source;
             focus-base: 0;
             phone => { DabState.phone(); }
-            dab => { DabState.resume(); }
+            dab => { DabState.select-dab(); }
+            spotify => { DabState.spotify(); }
         }
         if !root.dab-shown: PhonePlayer {
             y: root.tabs-h;

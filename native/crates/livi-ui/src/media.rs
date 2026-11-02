@@ -19,6 +19,7 @@ pub struct MediaView {
     pub artist: String,
     pub album: String,
     pub app: String,
+    pub source: String,
     pub duration_ms: f64,
     pub elapsed_ms: Option<f64>,
     pub playing: bool,
@@ -50,6 +51,7 @@ impl MediaReader {
             serde_json::from_value(state["nowPlaying"].clone()).unwrap_or_default();
         let sessions: Sessions =
             serde_json::from_value(state["sessions"].clone()).unwrap_or_default();
+        let source = state["mediaSource"].as_str().unwrap_or("phone").to_owned();
         let artwork = (now.artwork != self.artwork).then(|| {
             self.artwork = now.artwork.clone();
             now.artwork.as_deref().and_then(decode)
@@ -59,10 +61,11 @@ impl MediaReader {
             artist: text_or_dash(now.artist),
             album: now.album.unwrap_or_default(),
             app: now.app.unwrap_or_default(),
+            source: source.clone(),
             duration_ms: now.duration_ms.unwrap_or(0.0),
             elapsed_ms: now.elapsed_ms,
             playing: now.playing.unwrap_or(false),
-            can_seek: sessions.active == Some(Protocol::Carplay),
+            can_seek: source == "spotify" || sessions.active == Some(Protocol::Carplay),
             artwork,
             session: format!(
                 "{}:{}",
@@ -105,4 +108,22 @@ pub fn decode(base64: &str) -> Option<Pixels> {
         img.width(),
         img.height(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn spotify_media_can_be_seeked_without_a_phone_session() {
+        let view = MediaReader::default().read(&json!({
+            "mediaSource": "spotify",
+            "nowPlaying": {},
+            "sessions": {},
+        }));
+
+        assert_eq!(view.source, "spotify");
+        assert!(view.can_seek);
+    }
 }
