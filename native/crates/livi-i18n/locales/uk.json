@@ -260,6 +260,7 @@
     "enabling": "Увімкнення…",
     "opening": "Відкриття…",
     "gpsEnabled": "Увімкнути",
+    "gpsSpeedEnabled": "Використовувати GPS для швидкості автомобіля",
     "gpsDevice": "Пристрій",
     "gpsBaudRate": "Швидкість передачі",
     "gpsInfo": "Дані GPS",

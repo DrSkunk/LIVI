@@ -14,6 +14,8 @@
 //! `notification` merge
 //! field by field, so `{ gps: { lat: 50 } }` keeps the last `lng`, every other field is replaced
 //! whole. LIVI sends the merged snapshot to every client as `telemetry:update`.
+//! With `gpsSpeedEnabled` and `gpsEnabled` on, fresh `gps.speedMs` supplies `speedKph`
+//! instead of ECU/external speed. It expires after three seconds without a speed update.
 //!
 //! Where each field goes, ✓ used, · not used, TODO the receiver takes it and LIVI does not send
 //! it yet. LIVI holds every field in its store and hands it to every Socket.IO client.

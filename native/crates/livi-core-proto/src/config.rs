@@ -44,6 +44,7 @@ pub struct Config {
     pub cluster_palettes: std::collections::BTreeMap<String, String>,
 
     pub gps_enabled: bool,
+    pub gps_speed_enabled: bool,
     pub gps_device: String,
     pub gps_baud_rate: u32,
     pub timezone: String,
@@ -547,6 +548,7 @@ pub fn defaults() -> Config {
         cluster_layout: String::new(),
         cluster_palettes: Default::default(),
         gps_enabled: false,
+        gps_speed_enabled: false,
         gps_device: "/dev/ttyAMA0".into(),
         gps_baud_rate: 38400,
         timezone: String::new(),

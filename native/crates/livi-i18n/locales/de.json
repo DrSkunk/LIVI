@@ -260,6 +260,7 @@
     "enabling": "Aktiviere…",
     "opening": "Öffne…",
     "gpsEnabled": "Aktivieren",
+    "gpsSpeedEnabled": "GPS für Fahrzeuggeschwindigkeit verwenden",
     "gpsDevice": "Gerät",
     "gpsBaudRate": "Baudrate",
     "gpsInfo": "GPS-Daten",

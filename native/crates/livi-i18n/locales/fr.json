@@ -260,6 +260,7 @@
     "enabling": "Activation…",
     "opening": "Ouverture…",
     "gpsEnabled": "Activer",
+    "gpsSpeedEnabled": "Utiliser le GPS pour la vitesse du véhicule",
     "gpsDevice": "Périphérique",
     "gpsBaudRate": "Débit en bauds",
     "gpsInfo": "Données GPS",
