@@ -5,6 +5,7 @@
 pub mod display;
 pub mod feed;
 pub mod ops;
+pub mod readiness;
 pub mod ui_planes;
 
 const LEN_BYTES: usize = 4;

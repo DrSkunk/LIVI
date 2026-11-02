@@ -49,6 +49,7 @@ mod mfi;
 mod minidsp;
 mod nav_text;
 mod nmea;
+mod os_readiness;
 mod paths;
 mod power;
 mod privileged;

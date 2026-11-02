@@ -34,6 +34,7 @@ const HELPER_MAX_RESTARTS: u32 = 5;
 const COMPOSITOR_STOP_GRACE: Duration = Duration::from_secs(3);
 
 pub struct Services {
+    readiness: Option<crate::os_readiness::Reporter>,
     helper: Option<HelperSupervisor>,
     compositor: Option<Watched>,
     ui: Option<UiSupervisor>,
@@ -190,6 +191,11 @@ impl Services {
         if ui.is_none() {
             println!("[core] running without a UI");
         }
+        let readiness = crate::os_readiness::Reporter::start(
+            ctrl.clone(),
+            compositor.as_ref().and_then(Child::id),
+            ui.as_ref().map(|ui| ui.pid.clone()),
+        );
         let compositor = compositor.map(|child| watch_compositor(child, quit));
         tokio::spawn(spectrum::follow(
             gst.clone(),
@@ -265,6 +271,7 @@ impl Services {
         tokio::spawn(follow_host(gst, plane, clusters, state));
 
         Self {
+            readiness,
             helper: Some(helper),
             compositor,
             ui,
@@ -272,6 +279,9 @@ impl Services {
     }
 
     pub async fn stop(mut self) {
+        if let Some(readiness) = self.readiness.take() {
+            readiness.stop().await;
+        }
         if let Some(ui) = self.ui.take() {
             ui.stop().await;
         }

@@ -5,6 +5,86 @@
 use super::{
     Offered, assign, calibrated, choose, panel_id, panel_name, size_of, touch_cal_of, wl_output_in,
 };
+use smithay::utils::{Logical, Point, Size, Transform};
+
+#[test]
+fn waveshare_90_scans_out_counterclockwise_and_touch_is_its_inverse() {
+    let transform = super::output_transform(Some("90"), Transform::Normal).unwrap();
+    assert_eq!(transform, Transform::_90);
+    let native: Size<f64, Logical> = (400.0, 1280.0).into();
+    let logical = transform.transform_size(native);
+    assert_eq!(logical, (1280.0, 400.0).into());
+    // Smithay's output scanout uses the inverse transform: content's top-left
+    // lands at native bottom-left, i.e. counterclockwise, not clockwise.
+    let scanout = transform.invert();
+    assert_eq!(
+        scanout.transform_point_in(Point::from((0.0, 0.0)), &logical),
+        Point::from((0.0, 1280.0))
+    );
+    for (native_point, logical_point) in [
+        ((0.0, 0.0), (1280.0, 0.0)),
+        ((400.0, 0.0), (1280.0, 400.0)),
+        ((0.0, 1280.0), (0.0, 0.0)),
+        ((400.0, 1280.0), (0.0, 400.0)),
+    ] {
+        let touched = transform.transform_point_in(Point::from(native_point), &native);
+        assert_eq!(touched, Point::from(logical_point));
+        assert_eq!(
+            scanout.transform_point_in(touched, &logical),
+            Point::from(native_point)
+        );
+    }
+}
+
+#[test]
+fn output_override_is_explicit_and_metadata_remains_the_default() {
+    assert_eq!(
+        super::output_transform(None, Transform::_270),
+        Some(Transform::_270)
+    );
+    assert_eq!(
+        super::output_transform(Some("normal"), Transform::_270),
+        Some(Transform::Normal)
+    );
+    assert_eq!(
+        super::output_transform(Some("90"), Transform::_270),
+        Some(Transform::_90)
+    );
+    assert_eq!(
+        super::output_transform(Some("bad"), Transform::Normal),
+        None
+    );
+}
+
+#[test]
+fn requested_waveshare_timing_never_falls_back_to_a_monitor() {
+    let modes = [
+        mode(1920, 1080, 60, true),
+        mode(400, 1280, 50, false),
+        mode(400, 1280, 59, false),
+        mode(400, 1280, 60, false),
+        mode(400, 1280, 75, false),
+    ];
+    assert_eq!(
+        super::select_mode(&modes, Some("400x1280@60"), true),
+        Some(3)
+    );
+    assert_eq!(
+        super::select_mode(&modes[..3], Some("400x1280@60"), true),
+        Some(2)
+    );
+    for setting in ["400x1280@90", "1280x400@60", "broken", "400x1280@bad"] {
+        assert_eq!(super::select_mode(&modes, Some(setting), true), None);
+    }
+    assert_eq!(
+        super::select_mode(&modes[..1], Some("400x1280"), true),
+        None
+    );
+    assert_eq!(
+        assign(&[(0, Some("HDMI-A-1".into()))], &names(&["HDMI-A-2"])),
+        vec![]
+    );
+}
 
 fn mode(w: u16, h: u16, refresh: u32, preferred: bool) -> Offered {
     Offered {

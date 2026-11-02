@@ -4,7 +4,69 @@ LIVI OS is an immutable, read-only Linux image built from
 [livi-os-buildroot](https://github.com/DrSkunk/livi-os-buildroot). It cannot accept the
 system files LIVI normally installs on its first start (udev rule, sudoers drop-ins,
 systemd units, a root copy of `livi-helperd`). Instead the image ships them and tells LIVI
-so with `LIVI_OS=1`. This page is the exact interface the image has to provide.
+so with `LIVI_OS=1`.
+
+## Buildroot API 2: display and readiness
+
+The Buildroot fork's [Rust AppImage contract](https://github.com/DrSkunk/livi-os-buildroot/blob/main/docs/rust-appimage-contract.md)
+is authoritative for that image. Its privileged-helper ABI differs from the older
+upstream interface documented further below. **The API marker alone does not mean
+this AppImage passes the complete Buildroot contract.** In particular, the current
+helper launcher still targets `/usr/libexec/livi-helperd` with environment settings
+and stale-process cleanup, whereas Buildroot requires the immutable
+`/usr/libexec/livi-projection-helper` wrapper, five validated positional arguments,
+and validated fixed-path configuration. That helper integration is not implemented
+by the display/readiness changes; do not broaden sudo permissions to accommodate it.
+
+The DRM compositor honors inherited `LIVI_MAIN_CONNECTOR`, `LIVI_DISPLAY_MODE`,
+`LIVI_MAIN_TRANSFORM` and `LIVI_MAIN_SCALE` ahead of saved settings, including
+control replay/reconnect. For the native 400x1280 Waveshare panel:
+
+```sh
+LIVI_MAIN_CONNECTOR=HDMI-A-1
+LIVI_DISPLAY_MODE=400x1280@60
+LIVI_MAIN_TRANSFORM=90
+LIVI_MAIN_SCALE=1
+```
+
+`90` is **counterclockwise content scanout**: Smithay 0.7's `DrmCompositor`
+inverts `Transform::_90` for scanout. Logical size is 1280x400, while KMS keeps
+the advertised 400x1280 mode. The existing native-touch path applies `_90`
+once, `(x, y) -> (1280-y, x)`, the inverse of scanout. No extra libinput
+rotation/calibration should be added for output orientation. `normal`/`0`,
+`180`, and `270` are also accepted; absent overrides preserve connector
+orientation metadata. Only scale `1` is supported; other explicit scales and
+unknown transforms fail rather than silently using different settings.
+
+Explicit connectors do not fall back to another monitor. `WIDTHxHEIGHT@HZ`
+selects only an advertised timing of that size within 1 Hz of the requested
+refresh, preferring the closest. In `LIVI_OS=1 LIVI_OS_API=2` mode, explicit
+sizes cannot fall back either, and secondary outputs require explicit connector
+configuration. Ordinary unconfigured desktop mode selection is unchanged.
+
+For `LIVI_OS=1 LIVI_OS_API=2`, core uses `LIVI_OS_SESSION_FILE` (trimmed,
+nonempty, bounded to 1024 bytes) and atomically replaces `LIVI_OS_READY_FILE`
+every 500 ms while ready. Reports are bounded to 16 KiB, use Linux
+`CLOCK_MONOTONIC` seconds, and contain actual live core/UI/compositor PIDs and
+actual physical output geometry, transform and scale.
+
+Core polls its existing private compositor connection, not a second control
+client. The compositor records UI surface identity and client PID only after
+a visible UI buffer was rendered, queued, and acknowledged by a successful
+DRM page flip (`frame_submitted` returning `Some`). Shader calibration also
+requires UI visibility in the offscreen and final compositions. Static UI does
+not need continuous redraws. Readiness is invalidated on UI surface loss,
+display removal, session pause, rendering/flip failure, stalled flips,
+control disconnect, stale compositor evidence, child exit, and core shutdown.
+A replacement UI/output must present a new frame; old proof is not replayed.
+Missing proof never becomes a success report. Reports are removed on failure;
+after a hard core crash the OS must reject stale reports.
+
+Host-side protocol/supervision tests are not hardware acceptance. A Linux
+AArch64 build and real Pi validation of scanout, all touch corners, unplug/
+reconnect, deliberate child failures, and the remaining helper ABI are required.
+
+## Older upstream helper interface (not the Buildroot ABI)
 
 The AppImage declares the version of this contract it speaks in
 `resources/livi-os-helper-api` (one line). This is contract version `2`. The image should

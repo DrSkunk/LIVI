@@ -196,6 +196,12 @@ pub fn send_panels(state: &mut LiviState) {
 }
 
 fn handle_line(state: &mut LiviState, line: &str) {
+    if line == "health" {
+        let line =
+            crate::drm::presented(state).map_or_else(|| "presented -\n".to_string(), |p| p.line());
+        send(state, &line);
+        return;
+    }
     if line == "restart" {
         log::info!("restart requested -> waiting for inner UI to quit, then re-exec");
         state.full_restart = true;
