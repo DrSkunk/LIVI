@@ -45,58 +45,75 @@ export component Gauge inherits Rectangle {
     property <float> hw: (g.tick-w + g.fit) / 2;
     property <float> hl: nh / 2;
 
-    if root.backdrop: Image {
-        x: (g.cx - g.shadow-half) * u;
-        y: (g.cy - g.shadow-half) * u;
-        width: g.shadow-half * 2 * u;
-        height: g.shadow-half * 2 * u;
-        source: g.shadow;
-        colorize: root.backdrop-color;
-        image-rendering: smooth;
+    // The scale only changes with the theme or size, so it is drawn once into a
+    // cached layer instead of re-tessellating every tick on each frame.
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        cache-rendering-hint: true;
+
+        if root.backdrop: Image {
+            x: (g.cx - g.shadow-half) * u;
+            y: (g.cy - g.shadow-half) * u;
+            width: g.shadow-half * 2 * u;
+            height: g.shadow-half * 2 * u;
+            source: g.shadow;
+            colorize: root.backdrop-color;
+            image-rendering: smooth;
+        }
+
+        Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: g.box-w;
+            viewbox-height: g.box-h;
+            commands: g.minor;
+            fill: root.scale-color;
+        }
+        Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: g.box-w;
+            viewbox-height: g.box-h;
+            commands: g.major;
+            fill: root.major-color;
+        }
+        if g.red-minor != "": Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: g.box-w;
+            viewbox-height: g.box-h;
+            commands: g.red-minor;
+            fill: Signal.warn;
+            opacity: 0.55;
+        }
+        if g.red-major != "": Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: g.box-w;
+            viewbox-height: g.box-h;
+            commands: g.red-major;
+            fill: Signal.warn;
+        }
+        for c in g.caps: Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: g.box-w;
+            viewbox-height: g.box-h;
+            commands: c.path;
+            fill: root.scale-color;
+            opacity: c.opacity;
+        }
+        for l in g.labels: Text {
+            x: l.x * root.u - self.width / 2;
+            y: l.y * root.u - self.height / 2;
+            text: l.text;
+            color: root.major-color;
+            font-size: g.label-size * root.u;
+        }
     }
 
-    Path {
-        width: parent.width;
-        height: parent.height;
-        viewbox-width: g.box-w;
-        viewbox-height: g.box-h;
-        commands: g.minor;
-        fill: root.scale-color;
-    }
-    Path {
-        width: parent.width;
-        height: parent.height;
-        viewbox-width: g.box-w;
-        viewbox-height: g.box-h;
-        commands: g.major;
-        fill: root.major-color;
-    }
-    if g.red-minor != "": Path {
-        width: parent.width;
-        height: parent.height;
-        viewbox-width: g.box-w;
-        viewbox-height: g.box-h;
-        commands: g.red-minor;
-        fill: Signal.warn;
-        opacity: 0.55;
-    }
-    if g.red-major != "": Path {
-        width: parent.width;
-        height: parent.height;
-        viewbox-width: g.box-w;
-        viewbox-height: g.box-h;
-        commands: g.red-major;
-        fill: Signal.warn;
-    }
-    for c in g.caps: Path {
-        width: parent.width;
-        height: parent.height;
-        viewbox-width: g.box-w;
-        viewbox-height: g.box-h;
-        commands: c.path;
-        fill: root.scale-color;
-        opacity: c.opacity;
-    }
+    // Ticks past the needle are invisible; skip them so they are not tessellated.
     for tr in g.trail: Path {
         width: parent.width;
         height: parent.height;
@@ -104,7 +121,8 @@ export component Gauge inherits Rectangle {
         viewbox-height: g.box-h;
         commands: tr.path;
         fill: tr.index >= g.redline-index ? Signal.warn : root.pointer-color;
-        opacity: root.pointer-idx > 0 && tr.index <= root.pointer-idx ? root.op * 0.5 * tr.index / root.pointer-idx : 0;
+        visible: root.pointer-idx > 0 && tr.index > 0 && tr.index <= root.pointer-idx;
+        opacity: root.op * 0.5 * tr.index / max(1, root.pointer-idx);
     }
     Path {
         width: parent.width;
@@ -130,13 +148,6 @@ export component Gauge inherits Rectangle {
             y: root.nyc + (-root.hw) * sin(root.th) + root.hl * cos(root.th);
         }
         Close {}
-    }
-    for l in g.labels: Text {
-        x: l.x * root.u - self.width / 2;
-        y: l.y * root.u - self.height / 2;
-        text: l.text;
-        color: root.major-color;
-        font-size: g.label-size * root.u;
     }
 }
 
