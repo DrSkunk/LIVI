@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use livi_core_proto::LIFELINE_ENV;
-use livi_core_proto::state::{Front, MediaSource, PerScreen, State};
+use livi_core_proto::state::{Front, PerScreen, State};
 use tokio::net::UnixListener;
 use tokio::sync::Notify;
 
@@ -57,7 +57,6 @@ mod resources;
 mod server;
 mod services;
 mod spectrum;
-mod spotify;
 mod state_files;
 mod status_file;
 mod sun_schedule;
@@ -190,7 +189,6 @@ async fn run() -> Result<Exit, String> {
         front: livi,
         sessions: Default::default(),
         now_playing: Default::default(),
-        media_source: MediaSource::default(),
         telemetry: Default::default(),
         navigation: Default::default(),
         system: livi_core_proto::state::System {

@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use crate::input::Input;
 use crate::patch::PatchOp;
-use crate::state::{Front, MediaSource, Screen, State};
+use crate::state::{Front, Screen, State};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -62,9 +62,6 @@ pub enum Action {
     },
     Media {
         control: MediaControl,
-    },
-    SelectMediaSource {
-        source: MediaSource,
     },
     #[serde(rename_all = "camelCase")]
     Seek {

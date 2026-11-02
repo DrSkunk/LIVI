@@ -19,7 +19,7 @@ use livi_core_proto::config::{Config, KeyBindings};
 use livi_core_proto::input::{Input, Phase, Point};
 use livi_core_proto::message::{MediaControl, Radio};
 use livi_core_proto::state::{
-    Front, MediaSource, Navigation, NowPlaying, PerScreen, Protocol, Screen, Sessions, State,
+    Front, Navigation, NowPlaying, PerScreen, Protocol, Screen, Sessions, State,
 };
 use livi_core_proto::theme::{AppearancePreference, Cluster, LayoutSlot, Theme, livi_theme};
 use livi_cp::helper_sock::HelperSock;
@@ -465,7 +465,6 @@ pub struct Projection {
     theme_asked: String,
     theme_ready: (mpsc::UnboundedSender<Theme>, mpsc::UnboundedReceiver<Theme>),
     dab: Option<mpsc::UnboundedSender<crate::dab::DabAsk>>,
-    spotify: Option<crate::spotify::Sender>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -501,10 +500,8 @@ pub struct UiAsks {
     pub goodbye: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
     pub activity: watch::Sender<Activity>,
     pub dab: Option<crate::dab::DabAsks>,
-    pub spotify: Option<crate::spotify::Asks>,
     pub games: Option<crate::games::GamesAsks>,
     pub dab_from_phone: mpsc::UnboundedSender<crate::dab::DabAsk>,
-    pub spotify_from_phone: crate::spotify::Sender,
     pub input_from_compositor: mpsc::UnboundedSender<Input>,
     pub camera_found: mpsc::UnboundedSender<UiCommand>,
 }
@@ -520,7 +517,6 @@ pub struct UiSenders {
     pub update: mpsc::UnboundedSender<UpdateAsk>,
     pub activity: watch::Receiver<Activity>,
     pub dab: mpsc::UnboundedSender<crate::dab::DabAsk>,
-    pub spotify: crate::spotify::Sender,
     pub games: mpsc::UnboundedSender<crate::games::GamesAsk>,
 }
 
@@ -541,7 +537,6 @@ pub fn ui_channels(wants: PerScreen<Front>) -> (UiSenders, UiAsks, DongleAsks, U
     let (update_tx, update_rx) = mpsc::unbounded_channel();
     let (activity_tx, activity_rx) = watch::channel(Activity::default());
     let (dab_tx, dab_rx) = mpsc::unbounded_channel();
-    let (spotify_tx, spotify_rx) = crate::spotify::channel();
     let (games_tx, games_rx) = mpsc::unbounded_channel();
     let feed = spectrum::Feed::new();
     (
@@ -556,7 +551,6 @@ pub fn ui_channels(wants: PerScreen<Front>) -> (UiSenders, UiAsks, DongleAsks, U
             update: update_tx,
             activity: activity_rx,
             dab: dab_tx.clone(),
-            spotify: spotify_tx.clone(),
             games: games_tx,
         },
         UiAsks {
@@ -567,10 +561,8 @@ pub fn ui_channels(wants: PerScreen<Front>) -> (UiSenders, UiAsks, DongleAsks, U
             goodbye: goodbye_rx,
             activity: activity_tx,
             dab: Some(dab_rx),
-            spotify: Some(spotify_rx),
             games: Some(games_rx),
             dab_from_phone: dab_tx,
-            spotify_from_phone: spotify_tx,
             input_from_compositor: input_tx,
             camera_found: commands_tx,
         },
@@ -648,7 +640,6 @@ impl Projection {
             theme_asked: String::new(),
             theme_ready: mpsc::unbounded_channel(),
             dab: None,
-            spotify: None,
             hub,
         }
     }
@@ -670,7 +661,6 @@ impl Projection {
         self.follow_theme(&self.config_seen.clone());
         self.activity = Some(asks.activity);
         self.dab = Some(asks.dab_from_phone);
-        self.spotify = Some(asks.spotify_from_phone);
         let mut keep = tokio::time::interval(hands_free::KEEP_EVERY);
         keep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
@@ -723,14 +713,11 @@ impl Projection {
                     if changed.is_err() {
                         return;
                     }
-                    let (cfg, telemetry, source) = {
+                    let (cfg, telemetry) = {
                         let s = state.borrow_and_update();
-                        (s.config.clone(), s.telemetry.clone(), s.media_source)
+                        (s.config.clone(), s.telemetry.clone())
                     };
                     self.on_state(cfg, telemetry);
-                    if source == MediaSource::Phone {
-                        self.publish();
-                    }
                 }
                 made = player_created(&mut created) => match made {
                     Ok(()) => self.keyframe(),

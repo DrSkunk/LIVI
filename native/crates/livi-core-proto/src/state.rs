@@ -16,8 +16,6 @@ pub struct State {
     pub front: PerScreen<Front>,
     pub sessions: Sessions,
     pub now_playing: NowPlaying,
-    #[serde(default)]
-    pub media_source: MediaSource,
     pub navigation: Navigation,
     pub system: System,
     pub devices: Vec<DeviceView>,
@@ -368,15 +366,6 @@ pub struct NowPlaying {
     pub elapsed_ms: Option<f64>,
     pub playing: Option<bool>,
     pub artwork: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MediaSource {
-    #[default]
-    Phone,
-    Dab,
-    Spotify,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
