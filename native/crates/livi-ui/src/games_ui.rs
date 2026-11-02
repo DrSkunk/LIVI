@@ -18,7 +18,7 @@ use crate::media::Pixels;
 use crate::{AppWindow, ControllerData, Focus, FocusZone, GameData, GamesState, GamesText, Page};
 
 const COVER_MAX_PX: u32 = 480;
-const HEADER: usize = 3;
+const HEADER: usize = 5;
 
 pub struct GamesView {
     pub games: Games,
@@ -144,10 +144,12 @@ pub fn set_texts(ui: &AppWindow, tr: impl Fn(&str, &str) -> String) {
     let t = ui.global::<GamesText>();
     t.set_title(tr("games.title", "Games").into());
     t.set_loading(tr("games.loading", "Loading games…").into());
-    t.set_import(tr("games.import", "Import ROMs").into());
+    t.set_import(tr("games.addGames", "Add games").into());
     t.set_importing(tr("games.importing", "Importing…").into());
     t.set_pair_controller(tr("games.pairController", "Pair controller").into());
     t.set_rescan(tr("games.rescan", "Rescan").into());
+    t.set_settings(tr("games.basicSettings", "Basic settings").into());
+    t.set_advanced(tr("games.retroArch", "RetroArch").into());
     t.set_empty_title(tr("games.emptyTitle", "No games yet").into());
     t.set_empty_roms(
         tr("games.emptyRoms", "Place legally obtained ROMs in {{dir}}.")
@@ -156,8 +158,8 @@ pub fn set_texts(ui: &AppWindow, tr: impl Fn(&str, &str) -> String) {
     );
     t.set_empty_import(
         tr(
-            "games.emptyImport",
-            "Import ROMs to create playlists and download cover art.",
+            "games.addLibraryHint",
+            "Add a ROM from storage, or rescan your games folder. Use a gamepad to play.",
         )
         .into(),
     );
@@ -221,6 +223,8 @@ pub fn activate(ui: &AppWindow, i: usize) {
         0 => s.invoke_import(),
         1 => s.invoke_open_pairing(),
         2 => s.invoke_rescan(),
+        3 => s.invoke_open_settings(),
+        4 => s.invoke_open_retroarch(),
         n => {
             let games = s.get_games();
             match games.row_data(n - HEADER) {
@@ -239,8 +243,17 @@ pub fn wire(ui: &AppWindow, client: &Client) {
         let c = client.clone();
         move || c.act(action.clone())
     };
-    s.on_import(act(Action::GamesImport));
-    s.on_rescan(act(Action::GamesRefresh));
+    let open_settings = |path: &'static str| {
+        let (weak, client) = (ui.as_weak(), client.clone());
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            crate::choose(&ui, Page::Settings);
+            crate::settings_ui::open_path(&ui, &client, path);
+        }
+    };
+    s.on_import(open_settings("general/games/library"));
+    s.on_open_settings(open_settings("general/games"));
+    s.on_rescan(act(Action::GamesImport));
     s.on_open_retroarch(act(Action::GamesOpenRetroArch));
     s.on_scan(act(Action::ControllersScan));
     s.on_launch({

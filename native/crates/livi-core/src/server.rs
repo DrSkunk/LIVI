@@ -278,6 +278,7 @@ impl Core {
             }
             Action::GamesRefresh => self.ask_games(GamesAsk::Refresh),
             Action::GamesImport => self.ask_games(GamesAsk::Import),
+            Action::GamesAdd { path } => self.ask_games(GamesAsk::Add(path)),
             Action::GamesLaunch { id } => self.ask_games(GamesAsk::Launch(id)),
             Action::GamesOpenRetroArch => self.ask_games(GamesAsk::OpenRetroArch),
             Action::GamesStop => self.ask_games(GamesAsk::Stop),

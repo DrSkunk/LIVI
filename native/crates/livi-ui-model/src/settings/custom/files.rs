@@ -10,6 +10,7 @@ pub enum Wanted {
     Picture,
     Certificate,
     Identity,
+    Game,
 }
 
 impl Wanted {
@@ -18,6 +19,10 @@ impl Wanted {
             Wanted::Picture => &[".png", ".jpg", ".jpeg"],
             Wanted::Certificate => &[".p7b"],
             Wanted::Identity => &[".pk8"],
+            Wanted::Game => &[
+                ".gb", ".gbc", ".gba", ".nes", ".sfc", ".smc", ".md", ".gen", ".smd", ".sms",
+                ".sg", ".gg", ".wad", ".nds",
+            ],
         }
     }
 
@@ -31,6 +36,7 @@ impl Wanted {
             Wanted::Picture => t.t("settings.importPng", "Import PNG"),
             Wanted::Certificate => t.t("settings.mfiCertificate", "Certificate"),
             Wanted::Identity => t.t("settings.mfiIdentity", "Identity"),
+            Wanted::Game => t.t("games.addGames", "Add games"),
         }
     }
 
@@ -39,6 +45,7 @@ impl Wanted {
             Wanted::Picture => "ImageOutlined",
             Wanted::Certificate => "VerifiedUserOutlined",
             Wanted::Identity => "KeyOutlined",
+            Wanted::Game => "SportsEsportsOutlined",
         }
     }
 }
@@ -147,5 +154,13 @@ mod tests {
         assert_eq!(rows[1].icon, Some("KeyOutlined"));
         assert_eq!(rows[1].local, Some(Local::PickEntry(1)));
         assert_eq!(entry_rows(&[], Wanted::Picture, &t)[0].kind, RowKind::Info);
+    }
+
+    #[test]
+    fn the_game_picker_accepts_supported_roms_but_not_archives() {
+        assert!(Wanted::Game.accepts("Racing.GB"));
+        assert!(Wanted::Game.accepts("Racing.gba"));
+        assert!(!Wanted::Game.accepts("Racing.zip"));
+        assert!(!Wanted::Game.accepts("notes.txt"));
     }
 }

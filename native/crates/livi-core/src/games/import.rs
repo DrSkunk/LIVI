@@ -168,6 +168,35 @@ fn find_core(system: &System, roots: &[PathBuf]) -> Option<(PathBuf, &'static st
     })
 }
 
+pub fn add_rom(dirs: &Dirs, source: &Path) -> io::Result<()> {
+    let invalid = |message| io::Error::new(io::ErrorKind::InvalidInput, message);
+    let metadata = fs::metadata(source)?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > 512 * 1024 * 1024 {
+        return Err(invalid("Choose a non-empty ROM file smaller than 512 MiB"));
+    }
+    if ARCHIVES.contains(&extension(source).as_str()) {
+        return Err(invalid("Extract the ROM before adding it"));
+    }
+    let system = system_for(source, source.parent().unwrap_or(source))
+        .ok_or_else(|| invalid("Unsupported ROM file type"))?;
+    let name = source
+        .file_name()
+        .ok_or_else(|| invalid("ROM filename missing"))?;
+    let folder = dirs.roms.join(SYSTEMS[system].folder);
+    fs::create_dir_all(&folder)?;
+    let destination = folder.join(name);
+    let mut input = fs::File::open(source)?;
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&destination)?;
+    if let Err(error) = io::copy(&mut input, &mut output).and_then(|_| output.sync_all()) {
+        fs::remove_file(&destination)?;
+        return Err(error);
+    }
+    Ok(())
+}
+
 pub fn collect(dirs: &Dirs) -> io::Result<Vec<Rom>> {
     fs::create_dir_all(&dirs.roms)?;
     for system in &SYSTEMS {
@@ -381,6 +410,38 @@ mod tests {
     use super::*;
     use crate::config_file::tests::TempDir;
     use crate::games::library::{self, tests::dirs};
+
+    #[test]
+    fn adding_a_rom_copies_it_to_its_system_without_overwriting_games() {
+        let tmp = TempDir::new();
+        let d = dirs(&tmp.0);
+        let source = tmp.0.join("Racing.GB");
+        fs::write(&source, b"racing").unwrap();
+        add_rom(&d, &source).unwrap();
+        let target = d.roms.join("gameboy/Racing.GB");
+        assert_eq!(fs::read(&target).unwrap(), b"racing");
+        fs::write(&source, b"changed").unwrap();
+        assert_eq!(
+            add_rom(&d, &source).unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(fs::read(target).unwrap(), b"racing");
+    }
+
+    #[test]
+    fn adding_invalid_or_archived_roms_reports_an_error() {
+        let tmp = TempDir::new();
+        let d = dirs(&tmp.0);
+        for (name, data) in [("empty.gb", ""), ("game.zip", "zip"), ("notes.txt", "text")] {
+            let path = tmp.0.join(name);
+            fs::write(&path, data).unwrap();
+            assert_eq!(
+                add_rom(&d, &path).unwrap_err().kind(),
+                io::ErrorKind::InvalidInput
+            );
+        }
+        assert!(!d.roms.exists());
+    }
 
     fn fixture(tmp: &TempDir) -> Dirs {
         let d = dirs(&tmp.0);

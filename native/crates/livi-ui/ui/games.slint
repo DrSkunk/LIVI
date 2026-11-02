@@ -28,6 +28,8 @@ export global GamesText {
     in property <string> importing: "Importing…";
     in property <string> pair-controller: "Pair controller";
     in property <string> rescan: "Rescan";
+    in property <string> settings: "Basic settings";
+    in property <string> advanced: "RetroArch";
     in property <string> empty-title: "No games yet";
     in property <string> empty-roms;
     in property <string> empty-import: "Import ROMs to create playlists and download cover art.";
@@ -63,6 +65,7 @@ export global GamesState {
     callback rescan();
     callback launch(string);
     callback open-retroarch();
+    callback open-settings();
     callback open-pairing();
     callback close-pairing();
     callback scan();
@@ -426,6 +429,19 @@ export component GamesPage inherits Rectangle {
                 focused: !GamesState.pairing-open && Focus.main(2);
                 clicked => { GamesState.rescan(); }
             }
+            PillButton {
+                text: GamesText.settings;
+                has-icon: false;
+                focused: !GamesState.pairing-open && Focus.main(3);
+                clicked => { GamesState.open-settings(); }
+            }
+            PillButton {
+                text: GamesText.advanced;
+                icon: @image-url("icons/SportsEsportsOutlined.svg");
+                enabled: !GamesState.busy && !GamesState.importing;
+                focused: !GamesState.pairing-open && Focus.main(4);
+                clicked => { GamesState.open-retroarch(); }
+            }
         }
         Rectangle { height: 1px; background: Theme.rule; }
         if GamesState.notice != "": Text {
@@ -442,11 +458,11 @@ export component GamesPage inherits Rectangle {
         }
         if GamesState.games.length > 0: Library {
             vertical-stretch: 1;
-            focus-base: 3;
+            focus-base: 5;
         }
         if GamesState.scanned && GamesState.games.length == 0: EmptyLibrary {
             vertical-stretch: 1;
-            focus-base: 3;
+            focus-base: 5;
         }
         if !GamesState.scanned: Rectangle { vertical-stretch: 1; }
     }

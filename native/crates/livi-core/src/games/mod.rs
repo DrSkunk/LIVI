@@ -26,6 +26,7 @@ const STOP_GRACE: Duration = Duration::from_secs(3);
 pub enum GamesAsk {
     Refresh,
     Import,
+    Add(String),
     Launch(String),
     OpenRetroArch,
     Stop,
@@ -182,7 +183,8 @@ impl Games {
                 self.hub.update(|s| s.games.error = None);
                 self.refresh();
             }
-            GamesAsk::Import => self.import(&cfg),
+            GamesAsk::Import => self.import(&cfg, None),
+            GamesAsk::Add(path) => self.import(&cfg, Some(path)),
             GamesAsk::Launch(id) => {
                 let game = match self.library.get(&id) {
                     Some(g) => Some(g.clone()),
@@ -212,9 +214,12 @@ impl Games {
         }
     }
 
-    fn import(&mut self, cfg: &GamesConfig) {
+    fn import(&mut self, cfg: &GamesConfig, source: Option<String>) {
         // A second press while one runs joins the running import.
         if std::mem::replace(&mut self.importing, true) {
+            if source.is_some() {
+                self.fail("Another game import is in progress; try again when it finishes");
+            }
             return;
         }
         self.hub.update(|s| {
@@ -224,7 +229,20 @@ impl Games {
         });
         let (dirs, done, fetch) = (Dirs::of(cfg), self.done.clone(), self.fetch);
         tokio::spawn(async move {
-            let _ = done.send(Done::Imported(import::import(dirs, fetch).await));
+            let result = async {
+                if let Some(source) = source {
+                    let target = dirs.clone();
+                    tokio::task::spawn_blocking(move || {
+                        import::add_rom(&target, std::path::Path::new(&source))
+                    })
+                    .await
+                    .map_err(|e| format!("Adding game failed: {e}"))?
+                    .map_err(|e| format!("Adding game failed: {e}"))?;
+                }
+                import::import(dirs, fetch).await
+            }
+            .await;
+            let _ = done.send(Done::Imported(result));
         });
     }
 
@@ -407,6 +425,40 @@ pub(crate) mod tests {
         .unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
         script.to_string_lossy().into_owned()
+    }
+
+    #[tokio::test]
+    async fn adding_a_game_copies_imports_and_refreshes_the_library() {
+        let r = rig("/nonexistent/retroarch");
+        until(&r.hub, |s| s.games.scanned).await;
+        let source = r.dir.0.join("Racing.gb");
+        fs::write(&source, b"homebrew").unwrap();
+        r.asks
+            .send(GamesAsk::Add(source.to_string_lossy().into_owned()))
+            .unwrap();
+        until(&r.hub, |s| {
+            s.games.library.iter().any(|g| g.title == "Racing")
+        })
+        .await;
+        assert_eq!(
+            fs::read(r.dir.0.join("roms/gameboy/Racing.gb")).unwrap(),
+            b"homebrew"
+        );
+        assert!(r.hub.watch().borrow().games.error.is_none());
+        r.asks
+            .send(GamesAsk::Add(source.to_string_lossy().into_owned()))
+            .unwrap();
+        until(&r.hub, |s| s.games.error.is_some()).await;
+        assert!(
+            r.hub
+                .watch()
+                .borrow()
+                .games
+                .error
+                .as_ref()
+                .unwrap()
+                .starts_with("Adding game failed:")
+        );
     }
 
     #[tokio::test]

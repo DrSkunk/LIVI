@@ -137,6 +137,7 @@ pub(super) fn custom_name(page: CustomPage) -> &'static str {
         CustomPage::DashboardLayouts => "Dashboard layouts",
         CustomPage::GpsHwInfo => "GPS hardware",
         CustomPage::GpsInfo => "GPS info",
+        CustomPage::GameLibrary => "Add games",
         CustomPage::IconUploader => "UI icon",
         CustomPage::MfiCertificate => "MFi certificate",
         CustomPage::PowerOff => "Power off",

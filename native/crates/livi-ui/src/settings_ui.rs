@@ -136,6 +136,9 @@ fn picked(wanted: Wanted, path: &std::path::Path) -> Vec<Change> {
         },
         Wanted::Certificate => mfi(MfiFile::Certificate),
         Wanted::Identity => mfi(MfiFile::Identity),
+        Wanted::Game => vec![Change::Act(Action::GamesAdd {
+            path: path.to_string_lossy().into_owned(),
+        })],
     }
 }
 

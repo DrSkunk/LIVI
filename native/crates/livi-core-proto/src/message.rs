@@ -133,6 +133,9 @@ pub enum Action {
     },
     GamesRefresh,
     GamesImport,
+    GamesAdd {
+        path: String,
+    },
     GamesLaunch {
         id: String,
     },
@@ -263,6 +266,12 @@ mod tests {
 
     #[test]
     fn games_actions_travel_by_name() {
+        let add = Action::GamesAdd {
+            path: "/media/usb/race.gb".into(),
+        };
+        let wire = json!({ "kind": "gamesAdd", "path": "/media/usb/race.gb" });
+        assert_eq!(serde_json::to_value(&add).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<Action>(wire).unwrap(), add);
         let launch = Action::GamesLaunch { id: "abc".into() };
         let wire = json!({ "kind": "gamesLaunch", "id": "abc" });
         assert_eq!(serde_json::to_value(&launch).unwrap(), wire);

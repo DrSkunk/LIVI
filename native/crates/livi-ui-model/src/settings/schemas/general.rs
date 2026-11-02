@@ -702,6 +702,12 @@ fn games() -> Node {
         "games",
         Label::new("settings.games", "Games"),
         vec![
+            Node::custom(
+                Label::new("games.addGames", "Add games"),
+                "library",
+                CustomPage::GameLibrary,
+            )
+            .icon("games"),
             Node::checkbox(
                 Label::new("settings.gamesEnabled", "Enable Games"),
                 "games.enabled",

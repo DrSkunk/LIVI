@@ -441,6 +441,14 @@
     "presets": "Presets"
   },
   "games": {
+    "addGames": "Add games",
+    "browse": "Browse",
+    "basicSettings": "Basic settings",
+    "retroArch": "RetroArch",
+    "advanced": "Full RetroArch settings",
+    "scanFolder": "Scan games folder",
+    "addHint": "Choose a ROM from local storage or a mounted USB drive. It is copied into your library; existing games are never replaced. Use a gamepad to play.",
+    "addLibraryHint": "Add a ROM from storage, or rescan your games folder. Use a gamepad to play.",
     "title": "Games",
     "count": "{{count}} games",
     "countOne": "1 game",

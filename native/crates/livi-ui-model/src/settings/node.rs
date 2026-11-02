@@ -111,6 +111,7 @@ pub enum CustomPage {
     DashboardLayouts,
     GpsHwInfo,
     GpsInfo,
+    GameLibrary,
     IconUploader,
     MfiCertificate,
     PowerOff,

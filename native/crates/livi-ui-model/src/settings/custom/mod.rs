@@ -7,6 +7,7 @@ mod car;
 mod dab;
 mod devices;
 pub mod files;
+mod games;
 mod gps;
 pub mod icon;
 mod mfi;
@@ -47,6 +48,7 @@ pub fn rows(page: CustomPage, state: &Value, t: &Strings, facts: &Facts) -> Opti
         CustomPage::GpsHwInfo => gps::hardware(state, t),
         CustomPage::IconUploader => icon::rows(state, t),
         CustomPage::MfiCertificate => mfi::rows(state, t),
+        CustomPage::GameLibrary => games::rows(state, t),
         CustomPage::Touch(screen) => touch::rows(screen, state, t),
         _ => return None,
     })
