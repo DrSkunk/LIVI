@@ -349,6 +349,12 @@ The bass control sets the gain of the outputs in `minidsp.bassOutputChannels` (z
 
 On apt hosts the installer installs the latest minidsp-rs Debian package and enables `minidsp.service` (skip with `LIVI_SKIP_MINIDSP=1`); elsewhere install minidsp-rs by hand.
 
+## Clock
+
+The Clock tab shows the local system time in a 1990s Mercedes-inspired instrument. Choose a Classic or Amber analogue dial, or a Digital display, under Settings → Appearance → Clock Style. On wide displays, including the 1280×400 Waveshare, the clock also has touch and D-pad style buttons. The choice is saved and takes effect immediately.
+
+The tab can be hidden under Settings → General → Tab Settings → Sidebar. The same Sidebar settings include an optional auto-hide for the Clock page; the menu reappears on touch, pointer movement, or D-pad input and hides again after three seconds of inactivity. Clock can also be selected as the start page under Settings → General → Start Page.
+
 ## Multi-Display
 
 LIVI can run as multiple windows at once, each placeable on its own physical display.

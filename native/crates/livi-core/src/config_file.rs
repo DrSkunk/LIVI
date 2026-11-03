@@ -544,6 +544,32 @@ pub mod tests {
     }
 
     #[test]
+    fn clock_preferences_are_saved_reloaded_and_validated() {
+        let dir = TempDir::new();
+        let file = file_in(&dir);
+        let before = file.load(&HostFacts::default());
+        for style in ["classic", "amber", "digital"] {
+            let next = apply_patch(
+                &before,
+                &json!({
+                    "clockStyle": style,
+                    "clockAutoHide": true,
+                    "sidebarTabs": { "clock": false },
+                    "startPage": "/clock"
+                }),
+            )
+            .unwrap();
+            file.save(&next).unwrap();
+            let reloaded = file.load(&HostFacts::default());
+            assert_eq!(reloaded, next);
+            assert!(reloaded.clock_auto_hide);
+            assert!(!reloaded.sidebar_tabs.clock);
+            assert_eq!(reloaded.start_page, "/clock");
+        }
+        assert!(apply_patch(&before, &json!({ "clockStyle": "unknown" })).is_err());
+    }
+
+    #[test]
     fn one_screen_of_a_per_screen_setting_changes_alone() {
         let before = defaults();
         let next = apply_patch(&before, &json!({ "camera": { "cluster": true } })).unwrap();

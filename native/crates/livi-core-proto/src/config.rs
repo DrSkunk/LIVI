@@ -141,6 +141,10 @@ pub struct Config {
     pub sun_longitude: f64,
     pub ui_style: UiStyle,
     #[serde(default)]
+    pub clock_style: ClockStyle,
+    #[serde(default)]
+    pub clock_auto_hide: bool,
+    #[serde(default)]
     pub sidebar_tabs: SidebarTabs,
 
     pub display_mode: PerScreen<String>,
@@ -214,6 +218,7 @@ pub struct SidebarTabs {
     pub projection: bool,
     pub telemetry: bool,
     pub media: bool,
+    pub clock: bool,
     pub camera: bool,
     pub games: bool,
     pub minidsp: bool,
@@ -225,6 +230,7 @@ impl Default for SidebarTabs {
             projection: true,
             telemetry: true,
             media: true,
+            clock: true,
             camera: true,
             games: true,
             minidsp: true,
@@ -315,6 +321,15 @@ impl AppearanceMode {
 pub enum UiStyle {
     Standard,
     Comand,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClockStyle {
+    #[default]
+    Classic,
+    Amber,
+    Digital,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -624,6 +639,8 @@ pub fn defaults() -> Config {
         sun_latitude: 0.0,
         sun_longitude: 0.0,
         ui_style: UiStyle::Comand,
+        clock_style: ClockStyle::default(),
+        clock_auto_hide: false,
         sidebar_tabs: SidebarTabs::default(),
         display_mode: PerScreen::default(),
         display_connector: PerScreen::default(),
@@ -829,5 +846,36 @@ mod tests {
             serde_json::from_value(serde_json::json!({ "media": false })).unwrap();
         assert!(!partial.media);
         assert!(partial.projection);
+        assert!(partial.clock);
+    }
+
+    #[test]
+    fn clock_style_round_trips_and_defaults_for_older_configs() {
+        let mut saved = serde_json::to_value(defaults()).unwrap();
+        assert_eq!(saved["clockStyle"], "classic");
+        saved.as_object_mut().unwrap().remove("clockStyle");
+        let config: Config = serde_json::from_value(saved).unwrap();
+        assert_eq!(config.clock_style, ClockStyle::Classic);
+
+        for (name, style) in [
+            ("classic", ClockStyle::Classic),
+            ("amber", ClockStyle::Amber),
+            ("digital", ClockStyle::Digital),
+        ] {
+            assert_eq!(serde_json::to_value(style).unwrap(), name);
+            assert_eq!(
+                serde_json::from_value::<ClockStyle>(name.into()).unwrap(),
+                style
+            );
+        }
+        assert!(serde_json::from_value::<ClockStyle>("unknown".into()).is_err());
+    }
+
+    #[test]
+    fn clock_auto_hide_defaults_off_for_older_configs() {
+        let mut saved = serde_json::to_value(defaults()).unwrap();
+        saved.as_object_mut().unwrap().remove("clockAutoHide");
+        let config: Config = serde_json::from_value(saved).unwrap();
+        assert!(!config.clock_auto_hide);
     }
 }

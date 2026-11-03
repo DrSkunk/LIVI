@@ -54,8 +54,7 @@ fn open(main: &AppWindow, client: &Client, spec: &Secondary) -> Option<Secondary
     w.set_has_dashboard(spec.dashboard);
     copy_theme(main, &w);
     set_window_texts(&w);
-    w.global::<DashState>()
-        .set_clock(crate::clock::now_text().into());
+    w.global::<DashState>().set_clock(main.get_clock());
     let window = w.window();
     match spec.bounds.as_ref().filter(|_| !in_compositor()) {
         Some(b) => {

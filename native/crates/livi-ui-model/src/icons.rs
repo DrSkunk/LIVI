@@ -68,6 +68,7 @@ const SETTINGS: &[(&str, &str)] = &[
     ("tabSettings", "GridViewOutlined"),
     ("keyBindings", "KeyboardOutlined"),
     ("startPage", "HomeOutlined"),
+    ("clock", "ScheduleOutlined"),
     ("fftDelay", "GraphicEqOutlined"),
     ("carType", "LocalGasStationOutlined"),
     ("steering", "SwapHorizOutlined"),
