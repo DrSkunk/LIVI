@@ -16,8 +16,8 @@ use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
 use slint::{ComponentHandle, Model};
 
 use crate::{
-    AppWindow, DabState, Focus, FocusZone, MiniDspState, Page, PhoneState, RowKind, ScreenKind,
-    SettingsState,
+    AppWindow, ClockFace, DabState, Focus, FocusZone, MiniDspState, Page, PhoneState, RowKind,
+    ScreenKind, SettingsState,
 };
 
 const SEEK_STEP_MS: f32 = 15_000.0;
@@ -49,6 +49,7 @@ enum Target {
     Favorite,
     Station(usize),
     Games(usize),
+    ClockStyle(ClockFace),
     DspRefresh,
     DspStep(bool, i32),
     DspSlider(bool),
@@ -147,6 +148,12 @@ fn targets(ui: &AppWindow) -> Vec<Target> {
         Page::Games => (0..crate::games_ui::targets(ui))
             .map(Target::Games)
             .collect(),
+        Page::Clock if ui.get_clock_wide() => {
+            [ClockFace::Classic, ClockFace::Amber, ClockFace::Digital]
+                .into_iter()
+                .map(Target::ClockStyle)
+                .collect()
+        }
         Page::Minidsp => {
             let mut out = vec![Target::DspRefresh];
             if crate::minidsp_ui::ready() {
@@ -297,6 +304,7 @@ fn activate(ui: &AppWindow, target: Target) {
         Target::Source(true) => d.invoke_resume(),
         Target::Favorite => d.invoke_toggle_favorite(),
         Target::Games(i) => crate::games_ui::activate(ui, i),
+        Target::ClockStyle(face) => ui.invoke_clock_style_picked(face),
         Target::Station(i) => {
             if let Some(st) = d.get_stations().row_data(i) {
                 d.invoke_pick(st.service_id);
@@ -375,7 +383,7 @@ fn open_tab(ui: &AppWindow, enter: bool) {
     ui.set_page(tab.page);
     ui.invoke_page_chosen(tab.page);
     TRAIL.with_borrow_mut(Vec::clear);
-    if enter && tab.page != Page::Projection {
+    if enter && tab.page != Page::Projection && (tab.page != Page::Clock || ui.get_clock_wide()) {
         enter_main(ui);
     }
 }
@@ -466,6 +474,7 @@ fn context(ui: &AppWindow, repeat: bool) -> Context {
         projection: page == Page::Projection,
         streaming: ui.get_phone() == PhoneState::Streaming,
         telemetry: page == Page::Telemetry,
+        nav_only: page == Page::Clock && list.is_empty(),
         settings_depth: if page == Page::Settings {
             crate::settings_ui::depth()
         } else {
@@ -557,6 +566,10 @@ pub fn wire(ui: &AppWindow, client: &Client) {
         }
     });
 }
+
+#[cfg(test)]
+#[path = "clock_ui_tests.rs"]
+mod clock_ui_tests;
 
 pub fn text_done(ui: &AppWindow) {
     ui.global::<Focus>().set_editing(false);

@@ -15,10 +15,11 @@ const MAX_HEIGHT: f64 = 2160.0;
 const WIFI_PASSWORD_MIN: usize = 8;
 const WIFI_PASSWORD_MAX: usize = 63;
 
-const PAGES: [(&str, &str, &str); 8] = [
+const PAGES: [(&str, &str, &str); 9] = [
     ("/", "Home", "settings.startPageHome"),
     ("/telemetry", "Telemetry", "settings.startPageTelemetry"),
     ("/media", "Media", "settings.startPageMedia"),
+    ("/clock", "Clock", "settings.startPageClock"),
     ("/camera", "Camera", "settings.startPageCamera"),
     ("/games", "Games", "settings.startPageGames"),
     ("/minidsp", "MiniDSP", "settings.startPageMinidsp"),
@@ -455,6 +456,19 @@ fn tab_settings() -> Node {
                         "sidebarTabs.media",
                     )
                     .icon("media"),
+                    Node::checkbox(
+                        Label::new("settings.showClockTab", "Show Clock"),
+                        "sidebarTabs.clock",
+                    )
+                    .icon("clock"),
+                    Node::checkbox(
+                        Label::new(
+                            "settings.autoHideClockSidebar",
+                            "Auto-hide sidebar on Clock",
+                        ),
+                        "clockAutoHide",
+                    )
+                    .icon("clock"),
                     Node::checkbox(
                         Label::new("settings.showCameraTab", "Show Camera"),
                         "sidebarTabs.camera",

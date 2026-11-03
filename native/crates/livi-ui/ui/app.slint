@@ -20,8 +20,9 @@ import { MaskData } from "mask.slint";
 import { TouchCalibration, TouchCalibrationState } from "touch_calibration.slint";
 import { GamesPage, GamesState, GamesText, GameData, ControllerData } from "games.slint";
 import { MiniDspPage, MiniDspState, DspPhase, DspPresetData, DspControlData } from "minidsp.slint";
+import { ClockFace, ClockPage, ClockText } from "clock.slint";
 
-export { Theme, Focus, FocusZone, Page, PhoneState, TabData, TouchPhase, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData, MediaText, Press, DabState, StationData, DashState, GaugeData, CapData, TrailData, LabelData, OverlayState, MaskData, TouchCalibrationState, MiniDspState, DspPhase, DspPresetData, DspControlData, GamesState, GamesText, GameData, ControllerData }
+export { Theme, Focus, FocusZone, Page, PhoneState, TabData, TouchPhase, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData, MediaText, Press, DabState, StationData, DashState, GaugeData, CapData, TrailData, LabelData, OverlayState, MaskData, TouchCalibrationState, MiniDspState, DspPhase, DspPresetData, DspControlData, GamesState, GamesText, GameData, ControllerData, ClockFace, ClockText }
 
 export component AppWindow inherits Window {
     in-out property <Page> page: Page.media;
@@ -29,6 +30,15 @@ export component AppWindow inherits Window {
     in property <image> projection-icon;
     in property <PhoneState> phone;
     in property <string> clock;
+    in property <ClockFace> clock-face: ClockFace.classic;
+    in property <bool> clock-auto-hide;
+    in property <string> clock-time: "--:--";
+    in property <bool> clock-valid;
+    in property <float> clock-hour-angle;
+    in property <float> clock-minute-angle;
+    in property <float> clock-second-angle;
+    // Leave at least 64px per style button in the wide layout.
+    out property <bool> clock-wide: content.width >= 544px && content.width >= content.height * 2.2;
     in property <bool> right-hand;
     in property <int> stream-width: 1280;
     in property <int> stream-height: 720;
@@ -58,14 +68,16 @@ export component AppWindow inherits Window {
     callback next();
     callback seek(float);
     callback spectrum-changed(bool);
+    callback clock-style-picked(ClockFace);
 
-    property <bool> nav-hidden: root.page == Page.projection && root.phone == PhoneState.streaming;
+    property <bool> nav-hidden: (root.page == Page.projection && root.phone == PhoneState.streaming)
+        || (root.page == Page.clock && root.clock-auto-hide && root.nav-asleep);
     property <bool> nav-asleep;
 
     public function wake-nav() {
         root.nav-asleep = false;
         DashState.dots-shown = true;
-        if (root.page == Page.telemetry) {
+        if (root.page == Page.telemetry || (root.page == Page.clock && root.clock-auto-hide)) {
             nav-timer.start();
             nav-timer.restart();
         } else {
@@ -78,9 +90,16 @@ export component AppWindow inherits Window {
         running: false;
         triggered => {
             self.stop();
-            root.nav-asleep = true;
-            DashState.dots-shown = false;
+            if (root.page == Page.telemetry) {
+                root.nav-asleep = true;
+                DashState.dots-shown = false;
+            } else if (root.page == Page.clock && root.clock-auto-hide) {
+                root.nav-asleep = true;
+            }
         }
+    }
+    changed clock-auto-hide => {
+        root.wake-nav();
     }
     changed page => {
         root.wake-nav();
@@ -120,7 +139,7 @@ export component AppWindow inherits Window {
                 root.page-chosen(p);
             }
         }
-        Rectangle {
+        content := Rectangle {
             horizontal-stretch: 1;
             if root.page == Page.projection: ProjectionPage {
                 width: parent.width;
@@ -153,6 +172,19 @@ export component AppWindow inherits Window {
                 next => { root.next(); }
                 seek(f) => { root.seek(f); }
                 spectrum-changed(on) => { root.spectrum-changed(on); }
+            }
+            if root.page == Page.clock: ClockPage {
+                width: parent.width;
+                height: parent.height;
+                style: root.clock-face;
+                time: root.clock-time;
+                valid: root.clock-valid;
+                wide-layout: root.clock-wide;
+                right-hand: root.right-hand;
+                hour-angle: root.clock-hour-angle;
+                minute-angle: root.clock-minute-angle;
+                second-angle: root.clock-second-angle;
+                style-picked(style) => { root.clock-style-picked(style); }
             }
             if root.page == Page.games: GamesPage {
                 width: parent.width;

@@ -43,6 +43,7 @@ pub struct Context {
     pub projection: bool,
     pub streaming: bool,
     pub telemetry: bool,
+    pub nav_only: bool,
     pub settings_depth: usize,
     pub repeat: bool,
 }
@@ -169,7 +170,7 @@ pub fn decide(code: &str, ctx: Context, config: &Value) -> Outcome {
     }
 
     if ctx.zone == Zone::None && (left || right || up || down || enter || select_down) {
-        return if ctx.projection {
+        return if ctx.projection || ctx.nav_only {
             Outcome::ToNav
         } else {
             Outcome::EnterMain
@@ -256,6 +257,7 @@ mod tests {
             projection: false,
             streaming: false,
             telemetry: false,
+            nav_only: false,
             settings_depth: 0,
             repeat: false,
         }
@@ -360,6 +362,14 @@ mod tests {
             decide("KeyS", ctx(Zone::None), &config()),
             Outcome::CycleSession
         );
+    }
+
+    #[test]
+    fn a_page_without_controls_returns_to_navigation() {
+        let mut c = ctx(Zone::None);
+        c.nav_only = true;
+        assert_eq!(decide("ArrowDown", c, &config()), Outcome::ToNav);
+        assert_eq!(decide("Enter", c, &config()), Outcome::ToNav);
     }
 
     #[test]
