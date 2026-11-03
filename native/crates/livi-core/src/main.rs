@@ -191,6 +191,7 @@ async fn run() -> Result<Exit, String> {
         sessions: Default::default(),
         now_playing: Default::default(),
         media_source: MediaSource::default(),
+        spotify: Default::default(),
         telemetry: Default::default(),
         navigation: Default::default(),
         system: livi_core_proto::state::System {

@@ -127,6 +127,8 @@ pub struct Config {
     pub dab_ppm: i32,
 
     pub minidsp: MiniDspConfig,
+    #[serde(default)]
+    pub spotify_client_id: String,
 
     pub auto_conn: bool,
     pub auto_switch_on_reverse: bool,
@@ -612,6 +614,7 @@ pub fn defaults() -> Config {
         dab_gain_db: 19.7,
         dab_ppm: 0,
         minidsp: default_minidsp(),
+        spotify_client_id: String::new(),
         auto_conn: true,
         auto_switch_on_reverse: true,
         start_page: "/".into(),

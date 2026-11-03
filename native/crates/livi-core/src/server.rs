@@ -143,7 +143,7 @@ impl Core {
             MediaSource::Spotify => self
                 .spotify
                 .send(crate::spotify::Ask::Control(control))
-                .map_err(|_| "Spotify receiver is not available".to_string()),
+                .map_err(|_| "Spotify client is not available".to_string()),
             MediaSource::Phone => self
                 .asks
                 .commands
@@ -203,6 +203,10 @@ impl Core {
                 self.hub.update(|s| s.media_source = source);
                 Ok(())
             }
+            Action::Spotify { command } => self
+                .spotify
+                .send(crate::spotify::Ask::Command(command))
+                .map_err(|_| "Spotify client is not available".to_string()),
             Action::ImportMfi { file, path } => {
                 match crate::mfi::import(&self.mfi_dir, file, std::path::Path::new(&path)) {
                     Ok(()) => self.refresh_mfi().await,
@@ -547,6 +551,7 @@ mod tests {
             sessions: Default::default(),
             now_playing: Default::default(),
             media_source: MediaSource::default(),
+            spotify: Default::default(),
             telemetry: Default::default(),
             navigation: Default::default(),
             system: Default::default(),
@@ -659,6 +664,22 @@ mod tests {
         assert!(matches!(
             asks.spotify.as_mut().unwrap().recv().await,
             Some(crate::spotify::Ask::Seek(12000))
+        ));
+        let command = livi_core_proto::message::SpotifyCommand::Search {
+            query: "test".into(),
+            offset: 10,
+        };
+        ui.send(&ToCore::Action {
+            id: 23,
+            action: Action::Spotify {
+                command: command.clone(),
+            },
+        })
+        .await;
+        ui.reply(23).await;
+        assert!(matches!(
+            asks.spotify.as_mut().unwrap().recv().await,
+            Some(crate::spotify::Ask::Command(received)) if received == command
         ));
         for (id, action, ask) in [
             (

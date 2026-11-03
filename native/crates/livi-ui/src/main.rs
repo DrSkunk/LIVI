@@ -22,6 +22,7 @@ mod minidsp_ui;
 mod overlay_ui;
 mod secondary;
 mod settings_ui;
+mod spotify_ui;
 mod touch_ui;
 
 use std::cell::{Cell, RefCell};
@@ -131,6 +132,7 @@ fn apply_language(ui: &AppWindow, lang: &str) {
     settings_ui::set_language(lang);
     secondary::set_texts();
     media_ui::set_texts(ui, settings_ui::tr);
+    spotify_ui::set_texts(ui, settings_ui::tr);
     minidsp_ui::set_texts(ui, settings_ui::tr);
     dashboard_ui::set_texts(&ui.global::<DashState>(), settings_ui::tr);
     ui.set_no_camera(settings_ui::tr("camera.noCamera", "No camera found").into());
@@ -151,6 +153,7 @@ fn apply(ui: &AppWindow, update: Update) {
     match update {
         Update::Media(m) => CLIENT.with_borrow(|c| media_ui::apply_media(ui, c.as_ref(), m)),
         Update::Dab(d) => media_ui::apply_dab(ui, d),
+        Update::Spotify(s) => spotify_ui::apply(ui, s),
         Update::Games(g) => games_ui::apply(ui, g),
         Update::MiniDsp(v) => minidsp_ui::apply(ui, v),
         Update::Dash(d) => {
@@ -234,10 +237,22 @@ fn open_path(ui: &AppWindow, path: &str) {
             return;
         }
     };
-    match (page, parts.get(1).copied()) {
-        (Page::Media, Some("dabplus")) => ui.global::<DabState>().set_view_dab(true),
-        (Page::Media, Some("phone")) => ui.global::<DabState>().set_view_dab(false),
-        _ => {}
+    if page == Page::Media {
+        let source = match parts.get(1).copied() {
+            Some("dabplus") => Some(livi_core_proto::state::MediaSource::Dab),
+            Some("phone") => Some(livi_core_proto::state::MediaSource::Phone),
+            Some("spotify") => Some(livi_core_proto::state::MediaSource::Spotify),
+            _ => None,
+        };
+        if let Some(source) = source {
+            ui.global::<DabState>()
+                .set_view_dab(source == livi_core_proto::state::MediaSource::Dab);
+            CLIENT.with_borrow(|c| {
+                if let Some(c) = c {
+                    c.act(livi_core_proto::message::Action::SelectMediaSource { source });
+                }
+            });
+        }
     }
     choose(ui, page);
     if page == Page::Settings {
@@ -420,6 +435,7 @@ fn wire(ui: &AppWindow, client: &Client) {
         move |phase, x, y| send_touch(&c, phase, x, y)
     });
     media_ui::wire(ui, client);
+    spotify_ui::wire(ui, client);
     minidsp_ui::wire(ui, client);
     ui.on_spectrum_changed({
         let c = client.clone();

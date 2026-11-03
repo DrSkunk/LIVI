@@ -285,11 +285,25 @@ DAB+ radio via USB RTL-SDR (RTL2832U with R820T2).
 - radio text and station logos in LIVI's media player
 - station order and hidden stations in Settings → DAB+
 
-## Spotify Connect
+## Spotify client
 
-LIVI can appear as a Spotify Connect receiver on the local network. Select **LIVI** in Spotify's device picker to connect; no Spotify username or password is stored by LIVI. The media source tabs select which source receives the head-unit's playback controls and supplies its player view. Selecting a source does not stop the others: Spotify, DAB+, and phone-projected audio can play together and are mixed by the operating system's audio service.
+The **Media → Spotify** source has browser-based login, playlists, saved albums, track/album/playlist search, and direct playback through librespot. The official Spotify app is not needed to select music. Spotify Premium and your own Spotify developer application are required; this replaces the previous Connect-discovery receiver.
 
-This receiver uses librespot, an unofficial third-party implementation that is not provided, approved, or endorsed by Spotify. Spotify service and account requirements apply, and Spotify's terms or policies may restrict this use. Check those terms before enabling or distributing a build with this feature; this is not Spotify's licensed hardware SDK.
+1. Create an application in the [Spotify developer dashboard](https://developer.spotify.com/dashboard) with Web API access. Register **`http://127.0.0.1:5589/callback`** as an exact redirect URI.
+2. Set its **client ID** under **Settings → General → Connections → Spotify developer client ID**. No client secret is needed or accepted.
+3. Open **Media → Spotify → Log in**. LIVI opens Spotify authorization in the system browser (or use **Open login** / copy the displayed URL). Approve access and return to LIVI. Login expires after five minutes; **Cancel** stops it.
+4. Choose **Playlists**, **Saved albums**, or **Search**. **Open** browses a collection, **Play** replaces the LIVI queue and starts playback, and **Add to queue** appends tracks. **Load more** paginates results.
+5. **LIVI queue** shows the local playback order and current track. Play any queued entry, remove entries, or clear the queue. End-of-track advances automatically; there is no repeat/shuffle or queue synchronization with other Spotify devices. Collections/queues are limited to 10,000 tracks; unavailable/local tracks are excluded from collection playback.
+
+OAuth uses Authorization Code + PKCE, a random validated state, and a loopback-only callback. The browser must run **on the same machine as LIVI core**: opening the URL on your phone will not reach a Pi's loopback callback. A headless installation needs a browser on the head unit, or an explicitly configured SSH forward from the browser machine (`ssh -L 5589:127.0.0.1:5589 user@head-unit`). The port must be free.
+
+Only the reusable refresh credential and its client ID are saved in `spotify/credentials.json` beneath LIVI's user-data directory (private directory `0700`, file `0600`; not encrypted). Access tokens remain in memory and refresh automatically. Tokens are not put in configuration, shared UI state, or LIVI error messages. **Log out** stops playback and deletes the saved credential; changing the client ID also clears it. To revoke authorization at Spotify, remove LIVI's app from your Spotify account's connected-app settings. Protect your user-data directory and exclude it from shared backups.
+
+Scopes: `streaming`, `user-read-private`, `playlist-read-private`, `playlist-read-collaborative`, and `user-library-read`. Spotify development-mode apps require permitted test accounts and are subject to account/app limits and API restrictions. Some playlists expose metadata but not contents (notably playlists you do not own/collaborate on under current development-mode restrictions); API failures and rate limits appear in the Spotify view. See the [Spotify API migration guide](https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide). Login and playback depend on Spotify accepting the configured application and account; they cannot be guaranteed for every app.
+
+The media source tabs select which source receives the head-unit's playback controls and supplies its player view. Selecting a source does not stop the others: Spotify, DAB+, and phone-projected audio can play together and are mixed by the operating system's audio service. Volume/mute apply to Spotify too; changing the output device reconnects its player and resumes the local queue.
+
+librespot is an unofficial third-party implementation, not provided, approved, or endorsed by Spotify. Spotify's terms or policies may restrict this use. Check those terms before enabling or distributing a build with this feature; this is not Spotify's licensed hardware SDK.
 
 ## RetroArch games
 

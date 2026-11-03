@@ -6,8 +6,9 @@ import { Theme } from "theme.slint";
 import { Focus } from "focus.slint";
 import { MediaText, Press, RoundButton, Spectrum, SourceTabs } from "media_parts.slint";
 import { DabPage, DabState, StationData } from "dab.slint";
+import { SpotifyPage, SpotifyState, SpotifyText, SpotifyRow } from "spotify.slint";
 
-export { MediaText, Press, DabState, StationData }
+export { MediaText, Press, DabState, StationData, SpotifyState, SpotifyText, SpotifyRow }
 
 
 component Progress inherits Rectangle {
@@ -312,7 +313,7 @@ export component MediaPage inherits Rectangle {
     callback seek(float);
     callback spectrum-changed(bool);
 
-    property <int> base: 3;
+    property <int> base: DabState.receiver ? 3 : 2;
     property <bool> dab-shown: root.media-source == "dab" && DabState.receiver;
     property <length> tabs-h: 48px;
 
@@ -330,7 +331,7 @@ export component MediaPage inherits Rectangle {
             dab => { DabState.select-dab(); }
             spotify => { DabState.spotify(); }
         }
-        if !root.dab-shown: PhonePlayer {
+        if !root.dab-shown && root.media-source != "spotify": PhonePlayer {
             y: root.tabs-h;
             width: parent.width;
             height: parent.height - root.tabs-h;
@@ -353,6 +354,21 @@ export component MediaPage inherits Rectangle {
             next => { root.next(); }
             seek(f) => { root.seek(f); }
             spectrum-changed(on) => { root.spectrum-changed(on); }
+        }
+        if root.media-source == "spotify": SpotifyPage {
+            y: root.tabs-h;
+            width: parent.width;
+            height: parent.height - root.tabs-h;
+            focus-base: root.base;
+            track-title: root.track-title;
+            artist: root.artist;
+            playing: root.playing;
+            progress: root.progress;
+            can-seek: root.can-seek;
+            prev => { root.prev(); }
+            play-pause => { root.play-pause(); }
+            next => { root.next(); }
+            seek(f) => { root.seek(f); }
         }
         if root.dab-shown: DabPage {
             y: root.tabs-h;

@@ -68,6 +68,7 @@ pub fn follow(ui: &AppWindow) {
 }
 
 pub fn apply_media(ui: &AppWindow, client: Option<&Client>, mut m: MediaView) {
+    let source_changed = ui.get_media_source().as_str() != m.source;
     ui.set_track_title(m.title.into());
     ui.set_artist(m.artist.into());
     ui.set_album(m.album.into());
@@ -107,6 +108,9 @@ pub fn apply_media(ui: &AppWindow, client: Option<&Client>, mut m: MediaView) {
         }
     }
     tick(ui);
+    if source_changed && ui.get_page() == Page::Media {
+        crate::report_page(ui);
+    }
 }
 
 pub fn apply_dab(ui: &AppWindow, v: DabView) {
@@ -219,7 +223,7 @@ pub fn pressed_feedback(ui: &AppWindow, which: Pressed) {
     flash(ui, which);
     let now = Instant::now();
     LIVE.with_borrow_mut(|l| match which {
-        Pressed::Play if l.dab_active => l.dab_guess.toggle(l.dab_playing, now),
+        Pressed::Play if ui.get_media_source() == "dab" => l.dab_guess.toggle(l.dab_playing, now),
         Pressed::Play => l.playback.toggled(now),
         Pressed::Prev => l.playback.went_back(),
         Pressed::Next => {}
@@ -236,8 +240,9 @@ pub fn wire(ui: &AppWindow, client: &Client) {
             let Some(ui) = weak.upgrade() else { return };
             pressed_feedback(&ui, which);
             let d = ui.global::<DabState>();
-            let dab_idle =
-                d.get_receiver() && d.get_view_dab() && !LIVE.with_borrow(|l| l.dab_active);
+            let dab_idle = d.get_receiver()
+                && ui.get_media_source() == "dab"
+                && !LIVE.with_borrow(|l| l.dab_active);
             if dab_idle {
                 c.act(Action::DabResume);
             } else {

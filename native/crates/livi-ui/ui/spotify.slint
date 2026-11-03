@@ -1,0 +1,229 @@
+// SPDX-FileCopyrightText: 2025-2026 Lasse Heitgres
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Additional terms: see NOTICE
+
+import { LineEdit, ScrollView, Slider } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Focus, FocusZone } from "focus.slint";
+
+export struct SpotifyRow {
+    uri: string,
+    title: string,
+    subtitle: string,
+    collection: bool,
+    playable: bool,
+}
+
+export global SpotifyText {
+    in property <string> login: "Log in";
+    in property <string> logout: "Log out";
+    in property <string> cancel: "Cancel";
+    in property <string> browser: "Open login";
+    in property <string> playlists: "Playlists";
+    in property <string> albums: "Saved albums";
+    in property <string> queue: "LIVI queue";
+    in property <string> search: "Search";
+    in property <string> more: "Load more";
+    in property <string> clear: "Clear queue";
+    in property <string> play: "Play";
+    in property <string> pause: "Pause";
+    in property <string> previous: "Previous";
+    in property <string> next: "Next";
+    in property <string> open: "Open";
+    in property <string> add: "Add to queue";
+    in property <string> remove: "Remove";
+    in property <string> loading: "Loading...";
+    in property <string> hint: "Set your Spotify developer client ID in Settings > Connections, then log in.";
+    in property <string> waiting: "Authorize in the browser on this device. You can copy the login URL below.";
+    in property <string> empty: "No items. Choose a library or search.";
+}
+
+export global SpotifyState {
+    in property <bool> logged-in;
+    in property <bool> connecting;
+    in property <bool> busy;
+    in property <string> account;
+    in property <string> error;
+    in property <string> auth-url;
+    in property <[SpotifyRow]> items;
+    in property <bool> more;
+    in-out property <bool> queue-view;
+    in-out property <string> query;
+    callback command(int);
+    callback row(int, int);
+}
+
+component SpotifyButton inherits Rectangle {
+    in property <string> text;
+    in property <int> focus-index;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: 36px;
+    min-width: label.preferred-width + 16px;
+    background: Theme.comand ? Theme.key : Theme.surface;
+    border-radius: Theme.comand ? Theme.radius : 6px;
+    border-width: Focus.main(root.focus-index) ? Theme.ring(3px) : 1px;
+    border-color: Focus.main(root.focus-index) ? Theme.focus-color : Theme.divider;
+    opacity: root.enabled ? 1 : 0.4;
+    label := Text {
+        text: root.text;
+        color: Theme.text;
+        font-size: 13px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SpotifyPage inherits Rectangle {
+    in property <int> focus-base;
+    in property <string> track-title;
+    in property <string> artist;
+    in property <bool> playing;
+    in property <float> progress;
+    in property <bool> can-seek;
+    callback prev();
+    callback play-pause();
+    callback next();
+    callback seek(float);
+    property <bool> editing: Focus.main(root.focus-base + 6) && Focus.editing;
+    changed editing => {
+        if root.editing { search.focus(); } else { search.clear-focus(); }
+    }
+    background: Theme.backdrop;
+
+    VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 6px;
+            SpotifyButton {
+                text: SpotifyState.connecting ? SpotifyText.cancel : SpotifyText.login;
+                focus-index: root.focus-base;
+                enabled: !SpotifyState.logged-in || SpotifyState.connecting;
+                clicked => { SpotifyState.command(0); }
+            }
+            SpotifyButton {
+                text: SpotifyText.logout;
+                focus-index: root.focus-base + 1;
+                clicked => { SpotifyState.command(1); }
+            }
+            SpotifyButton {
+                text: SpotifyText.browser;
+                focus-index: root.focus-base + 5;
+                enabled: SpotifyState.auth-url != "";
+                clicked => { SpotifyState.command(5); }
+            }
+            Text {
+                text: SpotifyState.busy ? SpotifyText.loading : SpotifyState.account;
+                color: Theme.text;
+                overflow: elide;
+                vertical-alignment: center;
+            }
+        }
+        if !SpotifyState.logged-in: Text {
+            text: SpotifyState.auth-url != "" ? SpotifyText.waiting : SpotifyText.hint;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+            font-size: 13px;
+        }
+        if SpotifyState.auth-url != "": LineEdit {
+            text: SpotifyState.auth-url;
+            read-only: true;
+        }
+        if SpotifyState.error != "": Text {
+            text: SpotifyState.error;
+            color: Theme.primary;
+            wrap: word-wrap;
+            font-size: 13px;
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            SpotifyButton { text: SpotifyText.playlists; focus-index: root.focus-base + 2; enabled: SpotifyState.logged-in; clicked => { SpotifyState.command(2); } }
+            SpotifyButton { text: SpotifyText.albums; focus-index: root.focus-base + 3; enabled: SpotifyState.logged-in; clicked => { SpotifyState.command(3); } }
+            SpotifyButton { text: SpotifyText.queue; focus-index: root.focus-base + 4; enabled: SpotifyState.logged-in; clicked => { SpotifyState.command(4); } }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            search := LineEdit {
+                text <=> SpotifyState.query;
+                placeholder-text: SpotifyText.search;
+                enabled: SpotifyState.logged-in;
+                accepted => { SpotifyState.command(7); }
+            }
+            SpotifyButton { text: SpotifyText.search; focus-index: root.focus-base + 7; enabled: SpotifyState.logged-in && !SpotifyState.busy; clicked => { SpotifyState.command(7); } }
+        }
+        ScrollView {
+            vertical-stretch: 1;
+            content-width: self.width;
+            content-y: Focus.zone == FocusZone.main && Focus.main-index >= root.focus-base + 14
+                ? -max(0px, floor((Focus.main-index - root.focus-base - 14) / 3) * 52px - self.height / 2)
+                : 0px;
+            VerticalLayout {
+                spacing: 4px;
+                if SpotifyState.items.length == 0: Text {
+                    text: SpotifyText.empty;
+                    color: Theme.text-secondary;
+                    wrap: word-wrap;
+                }
+                for item[i] in SpotifyState.items: HorizontalLayout {
+                    height: 48px;
+                    spacing: 6px;
+                    Text {
+                        text: item.title + (item.subtitle != "" ? "\n" + item.subtitle : "");
+                        color: Theme.text;
+                        font-size: 13px;
+                        overflow: elide;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    SpotifyButton {
+                        text: item.collection && !SpotifyState.queue-view ? SpotifyText.open : SpotifyText.play;
+                        focus-index: root.focus-base + 14 + i * 3;
+                        enabled: item.playable && !SpotifyState.busy;
+                        clicked => { SpotifyState.row(i, 0); }
+                    }
+                    SpotifyButton {
+                        text: SpotifyState.queue-view ? SpotifyText.remove : item.collection ? SpotifyText.play : SpotifyText.add;
+                        focus-index: root.focus-base + 15 + i * 3;
+                        enabled: item.playable && !SpotifyState.busy;
+                        clicked => { SpotifyState.row(i, 1); }
+                    }
+                    SpotifyButton {
+                        text: SpotifyText.add;
+                        focus-index: root.focus-base + 16 + i * 3;
+                        enabled: !SpotifyState.queue-view && item.playable && !SpotifyState.busy;
+                        clicked => { SpotifyState.row(i, 2); }
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            SpotifyButton { text: SpotifyText.more; focus-index: root.focus-base + 8; enabled: SpotifyState.more && !SpotifyState.busy && !SpotifyState.queue-view; clicked => { SpotifyState.command(8); } }
+            SpotifyButton { text: SpotifyText.clear; focus-index: root.focus-base + 9; enabled: SpotifyState.logged-in; clicked => { SpotifyState.command(9); } }
+        }
+        Text {
+            text: root.track-title + (root.artist != "" ? " - " + root.artist : "");
+            color: Theme.text;
+            overflow: elide;
+            font-size: 14px;
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            SpotifyButton { text: SpotifyText.previous; focus-index: root.focus-base + 10; enabled: SpotifyState.logged-in; clicked => { root.prev(); } }
+            SpotifyButton { text: root.playing ? SpotifyText.pause : SpotifyText.play; focus-index: root.focus-base + 11; enabled: SpotifyState.logged-in; clicked => { root.play-pause(); } }
+            SpotifyButton { text: SpotifyText.next; focus-index: root.focus-base + 12; enabled: SpotifyState.logged-in; clicked => { root.next(); } }
+            Slider {
+                value: root.progress * 100;
+                minimum: 0;
+                maximum: 100;
+                enabled: root.can-seek;
+                changed(v) => { root.seek(v / 100); }
+            }
+        }
+    }
+}

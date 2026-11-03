@@ -123,6 +123,16 @@ fn connections() -> Node {
         "connections",
         Label::new("settings.connections", "Connections"),
         vec![
+            Node::text(
+                Label::new("settings.spotifyClientId", "Spotify developer client ID"),
+                "spotifyClientId",
+            )
+            .length(Some(0), Some(32))
+            .display_value()
+            .page(Label::new(
+                "settings.spotifyClientId",
+                "Spotify developer client ID",
+            )),
             Node::text(Label::new("settings.carName", "Car Name"), "carName")
                 .icon("carName")
                 .display_value()

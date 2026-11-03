@@ -18,6 +18,8 @@ pub struct State {
     pub now_playing: NowPlaying,
     #[serde(default)]
     pub media_source: MediaSource,
+    #[serde(default)]
+    pub spotify: Spotify,
     pub navigation: Navigation,
     pub system: System,
     pub devices: Vec<DeviceView>,
@@ -377,6 +379,31 @@ pub enum MediaSource {
     Phone,
     Dab,
     Spotify,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Spotify {
+    pub logged_in: bool,
+    pub connecting: bool,
+    pub busy: bool,
+    pub auth_url: Option<String>,
+    pub account: String,
+    pub error: Option<String>,
+    pub items: Vec<SpotifyItem>,
+    pub next_offset: Option<u32>,
+    pub queue: Vec<SpotifyItem>,
+    pub queue_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpotifyItem {
+    pub uri: String,
+    pub title: String,
+    pub subtitle: String,
+    pub kind: String,
+    pub playable: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

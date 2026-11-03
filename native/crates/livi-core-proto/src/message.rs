@@ -66,6 +66,9 @@ pub enum Action {
     SelectMediaSource {
         source: MediaSource,
     },
+    Spotify {
+        command: SpotifyCommand,
+    },
     #[serde(rename_all = "camelCase")]
     Seek {
         position_ms: u32,
@@ -160,6 +163,23 @@ pub enum Action {
     },
     Quit,
     Restart,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SpotifyCommand {
+    Login,
+    Logout,
+    Cancel,
+    Playlists { offset: u32 },
+    Albums { offset: u32 },
+    Search { query: String, offset: u32 },
+    Open { uri: String, offset: u32 },
+    Play { uri: String },
+    Enqueue { uri: String },
+    PlayQueue { index: usize },
+    RemoveQueue { index: usize },
+    ClearQueue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

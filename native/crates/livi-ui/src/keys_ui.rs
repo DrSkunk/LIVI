@@ -45,7 +45,9 @@ enum Target {
     PlayPause,
     Next,
     Progress,
-    Source(bool),
+    Source(u8),
+    Spotify(usize),
+    SpotifySearch,
     Favorite,
     Station(usize),
     Games(usize),
@@ -117,10 +119,27 @@ fn targets(ui: &AppWindow) -> Vec<Target> {
         Page::Media => {
             let mut out = Vec::new();
             let d = ui.global::<DabState>();
+            out.push(Target::Source(0));
             if d.get_receiver() {
-                out.extend([Target::Source(false), Target::Source(true)]);
+                out.push(Target::Source(1));
             }
-            if d.get_receiver() && d.get_view_dab() {
+            out.push(Target::Source(2));
+            if ui.get_media_source() == "spotify" {
+                out.extend((0..14).map(|i| match i {
+                    6 => Target::SpotifySearch,
+                    10 => Target::Prev,
+                    11 => Target::PlayPause,
+                    12 => Target::Next,
+                    13 => Target::Progress,
+                    _ => Target::Spotify(i),
+                }));
+                out.extend(
+                    (0..ui.global::<crate::SpotifyState>().get_items().row_count() * 3)
+                        .map(|i| Target::Spotify(14 + i)),
+                );
+                return out;
+            }
+            if d.get_receiver() && ui.get_media_source() == "dab" {
                 if d.get_art_shown() {
                     out.push(Target::Artwork);
                 }
@@ -177,7 +196,7 @@ fn kind(t: Target) -> Focused {
         | Target::DspSlider(_)
         | Target::Progress => Focused::Slider,
         Target::Number => Focused::Number,
-        Target::Text | Target::ColorHex => Focused::Text,
+        Target::Text | Target::ColorHex | Target::SpotifySearch => Focused::Text,
         _ => Focused::Plain,
     }
 }
@@ -293,8 +312,14 @@ fn activate(ui: &AppWindow, target: Target) {
         Target::Prev => ui.invoke_prev(),
         Target::PlayPause => ui.invoke_play_pause(),
         Target::Next => ui.invoke_next(),
-        Target::Source(false) => d.invoke_phone(),
-        Target::Source(true) => d.invoke_resume(),
+        Target::Source(0) => d.invoke_phone(),
+        Target::Source(1) => d.invoke_select_dab(),
+        Target::Source(2) => d.invoke_spotify(),
+        Target::Source(_) => {}
+        Target::Spotify(i) if i < 14 => ui.global::<crate::SpotifyState>().invoke_command(i as i32),
+        Target::Spotify(i) => ui
+            .global::<crate::SpotifyState>()
+            .invoke_row(((i - 14) / 3) as i32, ((i - 14) % 3) as i32),
         Target::Favorite => d.invoke_toggle_favorite(),
         Target::Games(i) => crate::games_ui::activate(ui, i),
         Target::Station(i) => {

@@ -18,6 +18,7 @@ use livi_ui_model::overlay;
 pub enum Update {
     Media(MediaView),
     Dab(DabView),
+    Spotify(livi_core_proto::state::Spotify),
     Games(crate::games_ui::GamesView),
     MiniDsp(livi_ui_model::minidsp::View),
     Dash(Box<DashView>),
@@ -73,6 +74,14 @@ impl Follow {
         }
         if hit("games") {
             out.push(Update::Games(self.covers.read(state)));
+        }
+        if hit("spotify")
+            && let Some(value) = state.get("spotify")
+        {
+            match serde_json::from_value(value.clone()) {
+                Ok(spotify) => out.push(Update::Spotify(spotify)),
+                Err(error) => eprintln!("[spotify] invalid core state: {error}"),
+            }
         }
         if hit("minidsp") || hit("config") {
             let next = livi_ui_model::minidsp::view(state);
@@ -231,5 +240,19 @@ mod tests {
         let updates = Follow::default().changed(Some(&keys), &json!({}));
 
         assert!(updates.is_empty());
+    }
+
+    #[test]
+    fn spotify_changes_refresh_account_and_library_state() {
+        let keys = BTreeSet::from(["spotify".to_string()]);
+        let spotify = livi_core_proto::state::Spotify {
+            logged_in: true,
+            account: "Test".into(),
+            ..Default::default()
+        };
+        let updates = Follow::default().changed(Some(&keys), &json!({ "spotify": spotify }));
+        assert!(
+            matches!(updates.as_slice(), [Update::Spotify(s)] if s.account == "Test" && s.logged_in)
+        );
     }
 }
