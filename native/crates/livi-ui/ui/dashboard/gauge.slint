@@ -8,6 +8,7 @@ import { GaugeData, Signal } from "state.slint";
 export component Gauge inherits Rectangle {
     in property <GaugeData> g;
     in property <float> value-t;
+    in property <bool> reading-valid: true;
     in property <length> u;
     in property <color> scale-color;
     in property <color> major-color;
@@ -18,7 +19,7 @@ export component Gauge inherits Rectangle {
 
     property <bool> started;
     property <float> t: started ? value-t : -0.08;
-    property <float> op: started ? 1 : 0;
+    property <float> op: started && reading-valid ? 1 : 0;
     animate t { duration: 420ms; easing: ease-out; }
     animate op { duration: 700ms; easing: ease-out; }
     Timer {

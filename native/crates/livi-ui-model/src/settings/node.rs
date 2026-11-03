@@ -106,6 +106,7 @@ pub struct Choice {
 pub enum CustomPage {
     About,
     CarReadings,
+    Obd2Info,
     ColorCalibration,
     ContrastGammaCalibration,
     DabReceiver,

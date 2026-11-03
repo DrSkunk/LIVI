@@ -130,6 +130,7 @@ pub(super) fn custom_name(page: CustomPage) -> &'static str {
     match page {
         CustomPage::About => "About",
         CustomPage::CarReadings => "Car readings",
+        CustomPage::Obd2Info => "OBD-II status and live values",
         CustomPage::ColorCalibration => "Color calibration",
         CustomPage::ContrastGammaCalibration => "Contrast / Gamma",
         CustomPage::DabReceiver => "DAB receiver",
