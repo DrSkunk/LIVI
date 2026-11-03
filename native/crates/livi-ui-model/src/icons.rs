@@ -129,7 +129,6 @@ const SETTINGS: &[(&str, &str)] = &[
     ("network", "RouterOutlined"),
     ("ethernet", "LanOutlined"),
     ("internet", "PublicOutlined"),
-    ("clock", "ScheduleOutlined"),
     ("softwareUpdate", "SystemUpdateAltOutlined"),
     ("logs", "ArticleOutlined"),
     ("debugLogging", "BugReportOutlined"),
