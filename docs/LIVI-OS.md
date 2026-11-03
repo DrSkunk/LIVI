@@ -70,12 +70,12 @@ The Buildroot image must ship the root-owned, immutable
 `NOSETENV` sudoers grant. Core calls only `sudo -n` on that fixed helper, with a
 cleared environment, no shell and these validated positional arguments:
 
-| Arguments | Operation |
-| --------- | --------- |
-| `status` | JSON installed version/serial, board, slot, trial, pending, staged version and `update_key` |
-| `check stable` / `check nightly` | Fetch and verify the signed manifest; return JSON `channel`, `installed`, `available`, `update` |
+| Arguments                        | Operation                                                                                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`                         | JSON installed version/serial, board, slot, trial, pending, staged version and `update_key`                                                           |
+| `check stable` / `check nightly` | Fetch and verify the signed manifest; return JSON `channel`, `installed`, `available`, `update`                                                       |
 | `stage stable` / `stage nightly` | Run `livi-os-update update --channel CHANNEL --progress`; download, verify, write/read back inactive boot/root slots and stage, **without rebooting** |
-| `apply` | Run the slot manager's guarded trial reboot |
+| `apply`                          | Run the slot manager's guarded trial reboot                                                                                                           |
 
 Staging stdout is bounded newline-delimited JSON with `phase` (`downloading` or
 `staging`), `message`, `received` and `total`. Download progress counts whole
