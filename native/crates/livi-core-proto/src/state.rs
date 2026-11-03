@@ -184,6 +184,76 @@ pub enum UpdatePhase {
     Error,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OsChannel {
+    #[default]
+    Stable,
+    Nightly,
+}
+
+impl OsChannel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Nightly => "nightly",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OsUpdatePhase {
+    #[default]
+    Idle,
+    Checking,
+    Downloading,
+    Staging,
+    Rebooting,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OsUpdate {
+    pub enabled: bool,
+    pub channel: OsChannel,
+    pub status: Option<OsStatus>,
+    pub release: Option<OsRelease>,
+    pub phase: OsUpdatePhase,
+    pub message: String,
+    pub received: u64,
+    pub total: u64,
+    pub error: Option<String>,
+    pub confirm_reboot: bool,
+}
+
+/// JSON returned by the image's signed updater, not the application release feed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OsStatus {
+    pub board: String,
+    pub version: String,
+    pub serial: u64,
+    pub slot: String,
+    pub trial: bool,
+    pub pending: bool,
+    pub staged: Option<OsStaged>,
+    pub update_key: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OsStaged {
+    pub version: String,
+    pub serial: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OsRelease {
+    pub channel: OsChannel,
+    pub installed: String,
+    pub available: String,
+    pub update: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CameraView {
@@ -237,6 +307,12 @@ pub enum DeviceStatus {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct System {
+    #[serde(default)]
+    pub power_busy: bool,
+    #[serde(default)]
+    pub power_error: Option<String>,
+    #[serde(default)]
+    pub os_update: OsUpdate,
     pub wifi_interfaces: Vec<String>,
     pub bt_adapters: Vec<String>,
     pub interface_models: BTreeMap<String, String>,
@@ -440,6 +516,15 @@ impl<T> PerScreen<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn older_system_snapshots_default_to_os_updates_disabled() {
+        let mut value = serde_json::to_value(System::default()).unwrap();
+        value.as_object_mut().unwrap().remove("osUpdate");
+        let system: System = serde_json::from_value(value).unwrap();
+        assert_eq!(system.os_update, OsUpdate::default());
+        assert!(!system.os_update.enabled);
+    }
 
     #[test]
     fn per_screen_addresses_each_screen() {

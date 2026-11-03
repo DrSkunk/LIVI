@@ -128,6 +128,13 @@ fn publish(core: &Core, update: &Update) {
     core.hub.update(|s| s.update = update);
 }
 
+fn host_busy(core: &Core) -> bool {
+    let system = core.hub.watch().borrow().system.clone();
+    system.power_busy
+        || system.os_update.phase != livi_core_proto::state::OsUpdatePhase::Idle
+        || system.os_update.confirm_reboot
+}
+
 #[cfg(not(target_os = "macos"))]
 async fn install(downloaded: &Path) -> Result<PathBuf, String> {
     let current = std::env::var_os("APPIMAGE")
@@ -309,6 +316,12 @@ pub async fn run(core: Arc<Core>, mut asks: mpsc::UnboundedReceiver<UpdateAsk>) 
                     if !matches!(state.phase, UpdatePhase::Idle | UpdatePhase::Error) {
                         continue;
                     }
+                    if host_busy(&core) {
+                        state.phase = UpdatePhase::Error;
+                        state.error = Some("A host power or OS update operation is in progress".into());
+                        publish(&core, &state);
+                        continue;
+                    }
                     let Some(url) = state.latest.as_ref().and_then(|r| r.url.clone()) else {
                         state.phase = UpdatePhase::Error;
                         state.error = Some("No build for this machine".into());
@@ -352,6 +365,12 @@ pub async fn run(core: Arc<Core>, mut asks: mpsc::UnboundedReceiver<UpdateAsk>) 
                     let Some(downloaded) = file.clone().filter(|_| state.phase == UpdatePhase::Ready) else {
                         continue;
                     };
+                    if host_busy(&core) {
+                        state.phase = UpdatePhase::Error;
+                        state.error = Some("A host power or OS update operation is in progress".into());
+                        publish(&core, &state);
+                        continue;
+                    }
                     state.phase = UpdatePhase::Installing;
                     publish(&core, &state);
                     match install(&downloaded).await {

@@ -6,13 +6,75 @@ use livi_core_proto::message::Action;
 use livi_core_proto::state::{Update, UpdatePhase};
 use serde_json::Value;
 
-use super::{DASH, info, mono};
+use super::{DASH, info, mono, os_update};
 use crate::i18n::Strings;
 use crate::settings::value::patch;
 use crate::settings::view::{Change, Dialog, Facts, Local, Row, RowKind};
 
 /// Attribution required by NOTICE (GPL-3.0 section 7(b)) for this fork.
 pub const UPSTREAM_ATTRIBUTION: &str = "LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)";
+
+pub fn power(state: &Value, t: &Strings, restart: bool) -> Vec<Row> {
+    let busy = state["system"]["powerBusy"].as_bool() == Some(true);
+    let update: Update = serde_json::from_value(state["update"].clone()).unwrap_or_default();
+    let updating =
+        !matches!(update.phase, UpdatePhase::Idle | UpdatePhase::Error) || os_update::busy(state);
+    let mut rows = vec![
+        info(
+            if restart {
+                t.t("settings.confirmRestart", "Confirm restart? On a kiosk this reboots the host; on a desktop it restarts LIVI.")
+            } else {
+                t.t("settings.confirmPowerOff", "Confirm power off? On a kiosk this shuts down the host; on a desktop it closes LIVI.")
+            },
+            None,
+            String::new(),
+        ),
+        Row {
+            kind: RowKind::Button,
+            button: if busy {
+                t.t("settings.powerRequested", "Power request in progress")
+            } else if restart {
+                t.t("settings.restartNow", "Restart now")
+            } else {
+                t.t("settings.powerOffNow", "Power off now")
+            },
+            enabled: !busy && !updating,
+            action: Some(if restart {
+                Action::Restart
+            } else {
+                Action::Quit
+            }),
+            ..Row::default()
+        },
+    ];
+    if updating {
+        rows.push(info(
+            t.t(
+                "settings.powerUpdateBusy",
+                "Finish the software update operation first.",
+            ),
+            None,
+            String::new(),
+        ));
+    }
+    if state["system"]["osUpdate"]["status"]["pending"].as_bool() == Some(true) {
+        rows.push(info(
+            t.t(
+                "settings.powerPendingOs",
+                "A staged OS update will be tried at the next boot.",
+            ),
+            None,
+            String::new(),
+        ));
+    }
+    if let Some(error) = state["system"]["powerError"].as_str() {
+        rows.push(Row {
+            alert: true,
+            ..info(error.into(), None, String::new())
+        });
+    }
+    rows
+}
 
 pub fn about(t: &Strings, f: &Facts) -> Vec<Row> {
     let or_dash = |s: &str| {
@@ -162,7 +224,9 @@ fn plan(state: &Value, t: &Strings, f: &Facts) -> Plan {
     } else {
         String::new()
     };
-    let in_flight = !matches!(update.phase, UpdatePhase::Idle | UpdatePhase::Error);
+    let in_flight = !matches!(update.phase, UpdatePhase::Idle | UpdatePhase::Error)
+        || os_update::busy(state)
+        || state["system"]["powerBusy"].as_bool() == Some(true);
     Plan {
         update,
         nightly,
@@ -249,10 +313,14 @@ pub fn update(state: &Value, t: &Strings, f: &Facts) -> Vec<Row> {
             ..info(message, None, String::new())
         });
     }
+    out.extend(os_update::rows(state, t));
     out
 }
 
 pub fn update_dialog(state: &Value, t: &Strings, f: &Facts) -> Option<Dialog> {
+    if let Some(dialog) = os_update::dialog(state, t) {
+        return Some(dialog);
+    }
     let p = plan(state, t, f);
     let phase = p.update.phase;
     if phase == UpdatePhase::Idle {
@@ -361,6 +429,40 @@ mod tests {
             run: "41".into(),
             ..Facts::default()
         }
+    }
+
+    #[test]
+    fn power_pages_require_a_button_press_not_an_entry_side_effect() {
+        use crate::settings::custom::{rows, watch};
+        use crate::settings::node::CustomPage;
+        for (page, action) in [
+            (CustomPage::Restart, Action::Restart),
+            (CustomPage::PowerOff, Action::Quit),
+        ] {
+            assert!(watch(page).is_none());
+            let rows = rows(page, &json!({}), &Strings::new("en"), &facts()).unwrap();
+            assert_eq!(rows[1].action, Some(action));
+            assert!(rows[1].enabled);
+            assert!(rows[0].label.contains("Confirm"));
+        }
+    }
+
+    #[test]
+    fn power_pages_show_failures_and_disable_operations_during_updates() {
+        let t = Strings::new("en");
+        let failed = json!({ "system": { "powerError": "sudo denied", "powerBusy": false } });
+        let rows = power(&failed, &t, false);
+        assert!(rows[1].enabled);
+        assert!(rows.iter().any(|r| r.alert && r.label == "sudo denied"));
+        let busy = json!({ "system": { "powerBusy": true } });
+        assert!(!power(&busy, &t, true)[1].enabled);
+        let mut updating = json!({ "system": { "osUpdate": livi_core_proto::state::OsUpdate {
+            enabled: true, phase: livi_core_proto::state::OsUpdatePhase::Staging, ..Default::default()
+        } } });
+        assert!(!power(&updating, &t, false)[1].enabled);
+        updating =
+            json!({ "update": Update { phase: UpdatePhase::Installing, ..Default::default() } });
+        assert!(!power(&updating, &t, false)[1].enabled);
     }
 
     fn state(update: Value, nightly: bool) -> Value {
