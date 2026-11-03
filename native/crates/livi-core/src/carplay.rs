@@ -846,6 +846,7 @@ mod tests {
             cameras: Vec::new(),
             mfi: Default::default(),
             minidsp: Default::default(),
+            network: Default::default(),
             config,
         };
         let (_state_tx, state_rx) = watch::channel(state);

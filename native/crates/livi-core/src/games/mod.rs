@@ -345,6 +345,7 @@ pub(crate) mod tests {
             dab: Default::default(),
             games: Default::default(),
             minidsp: Default::default(),
+            network: Default::default(),
             cameras: Vec::new(),
             mfi: Default::default(),
             config: crate::config_file::defaults(),

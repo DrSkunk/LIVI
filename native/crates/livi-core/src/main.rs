@@ -48,6 +48,7 @@ mod log_file;
 mod mfi;
 mod minidsp;
 mod nav_text;
+mod network;
 mod nmea;
 mod os_readiness;
 mod os_update;
@@ -196,6 +197,7 @@ async fn run() -> Result<Exit, String> {
         cameras: Vec::new(),
         mfi: Default::default(),
         minidsp: Default::default(),
+        network: Default::default(),
         config,
     });
     let (asks_tx, asks, dongle_asks, update_asks) = projection::ui_channels(wants);
@@ -227,6 +229,11 @@ async fn run() -> Result<Exit, String> {
     }
     if let Some(asks) = core.take_minidsp_asks() {
         tokio::spawn(minidsp::run(core.clone(), asks));
+    }
+    if network::Helper::available()
+        && let Some(asks) = core.take_network_asks()
+    {
+        tokio::spawn(network::run(core.clone(), asks));
     }
     tokio::spawn(fonts::follow(core.clone(), user_data.join("fonts")));
     state_files::start(&core, core.activity(), &user_data);

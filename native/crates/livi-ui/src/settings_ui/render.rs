@@ -139,6 +139,7 @@ pub(super) fn custom_name(page: CustomPage) -> &'static str {
         CustomPage::GpsInfo => "GPS info",
         CustomPage::IconUploader => "UI icon",
         CustomPage::MfiCertificate => "MFi certificate",
+        CustomPage::Network => "Network",
         CustomPage::PowerOff => "Power off",
         CustomPage::Restart => "Restart",
         CustomPage::SoftwareUpdate => "Software update",
@@ -159,6 +160,34 @@ pub(super) fn show_color(s: &SettingsState, hsl: Hsl, c: [u8; 3], custom: bool) 
     s.set_color_light_mid(color(from_hsl(Hsl { l: 50.0, ..hsl })));
 }
 
+// Only labels and progress are pushed; the typed name and password stay
+// in the Slint drafts until Connect.
+fn show_join(s: &SettingsState, v: &JoinView, t: &Strings) {
+    s.set_can_back(true);
+    s.set_show_apply(false);
+    s.set_dialog_open(false);
+    s.set_title(v.title.clone().into());
+    s.set_join_ask_ssid(v.ask_ssid);
+    s.set_join_ask_psk(v.ask_psk);
+    s.set_join_ask_security(v.ask_security);
+    s.set_join_security_label(v.security_label.clone().into());
+    let options: Vec<SharedString> = v.security_options.iter().map(Into::into).collect();
+    if let Some(fresh) = refill(&s.get_join_security_options(), options) {
+        s.set_join_security_options(fresh);
+    }
+    s.set_join_security(v.security_index as i32);
+    s.set_join_busy(v.busy);
+    s.set_join_status(v.status.clone().into());
+    s.set_join_error(v.error.clone().into());
+    s.set_join_ssid_label(v.ssid_label.clone().into());
+    s.set_join_psk_label(v.psk_label.clone().into());
+    s.set_join_psk_hint(v.psk_hint.clone().into());
+    s.set_join_show_label(v.show_label.clone().into());
+    s.set_join_connect_text(v.connect.clone().into());
+    s.set_join_space(t.t("network.space", "Space").into());
+    s.set_kind(ScreenKind::Join);
+}
+
 pub(super) fn render_screen(c: &mut Controller, s: &SettingsState, state: &Value) {
     if c.model.screen(&c.stack, state, &c.strings).is_none() {
         c.stack.clear();
@@ -166,6 +195,13 @@ pub(super) fn render_screen(c: &mut Controller, s: &SettingsState, state: &Value
     let Some(screen) = c.model.screen(&c.stack, state, &c.strings) else {
         return;
     };
+    if c.join.as_mut().is_some_and(|j| j.follow(state)) {
+        c.join = None;
+    }
+    if let Some(join) = &c.join {
+        show_join(s, &join.view(state, &c.strings), &c.strings);
+        return;
+    }
     let screen = match &c.browser {
         Some(b) => Screen::List {
             title: b.title(&c.strings),

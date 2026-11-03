@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -158,8 +160,46 @@ pub enum Action {
     MiniDspSelectPreset {
         preset: u32,
     },
+    /// The network page is open (`on`) or closed: its status is kept fresh while open.
+    NetworkWatch {
+        on: bool,
+    },
+    NetworkRefresh,
+    NetworkScan,
+    NetworkConnect {
+        ssid: String,
+        /// None for an open network or to reuse a saved profile.
+        psk: Option<Secret>,
+        hidden: bool,
+        /// None lets the helper detect it from the scan.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        security: Option<WifiSecurity>,
+    },
+    NetworkForget {
+        uuid: String,
+    },
     Quit,
     Restart,
+}
+
+/// How a manually entered Wi-Fi network is secured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WifiSecurity {
+    Open,
+    Wpa2,
+    Wpa3,
+}
+
+/// A password. A plain string on the wire, never in `Debug` output.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Secret(pub String);
+
+impl fmt::Debug for Secret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Secret(..)")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -333,6 +373,41 @@ mod tests {
         assert_eq!(
             serde_json::to_value(Action::MiniDspRefresh).unwrap(),
             json!({ "kind": "miniDspRefresh" })
+        );
+    }
+
+    #[test]
+    fn network_actions_on_the_wire() {
+        let join = Action::NetworkConnect {
+            ssid: "Garage".into(),
+            psk: Some(Secret("hunter22".into())),
+            hidden: false,
+            security: None,
+        };
+        let wire = json!({ "kind": "networkConnect", "ssid": "Garage", "psk": "hunter22", "hidden": false });
+        assert_eq!(serde_json::to_value(&join).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<Action>(wire).unwrap(), join);
+        let wpa3 = Action::NetworkConnect {
+            ssid: "Garage".into(),
+            psk: Some(Secret("hunter22".into())),
+            hidden: true,
+            security: Some(WifiSecurity::Wpa3),
+        };
+        let wire = json!({ "kind": "networkConnect", "ssid": "Garage", "psk": "hunter22", "hidden": true, "security": "wpa3" });
+        assert_eq!(serde_json::to_value(&wpa3).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<Action>(wire).unwrap(), wpa3);
+        assert!(!format!("{join:?}").contains("hunter22"));
+        assert_eq!(
+            serde_json::to_value(Action::NetworkForget { uuid: "u-1".into() }).unwrap(),
+            json!({ "kind": "networkForget", "uuid": "u-1" })
+        );
+        assert_eq!(
+            serde_json::to_value(Action::NetworkWatch { on: true }).unwrap(),
+            json!({ "kind": "networkWatch", "on": true })
+        );
+        assert_eq!(
+            serde_json::to_value(Action::NetworkScan).unwrap(),
+            json!({ "kind": "networkScan" })
         );
     }
 
