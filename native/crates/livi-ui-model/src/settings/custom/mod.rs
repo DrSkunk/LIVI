@@ -10,6 +10,7 @@ pub mod files;
 mod gps;
 pub mod icon;
 mod mfi;
+mod os_update;
 mod system;
 pub mod touch;
 
@@ -39,7 +40,8 @@ pub fn rows(page: CustomPage, state: &Value, t: &Strings, facts: &Facts) -> Opti
         CustomPage::DabStations => dab::stations(&dab::dab(state), t),
         CustomPage::About => system::about(t, facts),
         CustomPage::SoftwareUpdate => system::update(state, t, facts),
-        CustomPage::Restart | CustomPage::PowerOff => Vec::new(),
+        CustomPage::Restart => system::power(state, t, true),
+        CustomPage::PowerOff => system::power(state, t, false),
         CustomPage::WifiLinkInfo => system::link_speed(state, t),
         CustomPage::CarReadings => car::readings(state, t),
         CustomPage::DashboardLayouts => car::layouts(state, t),
@@ -63,8 +65,6 @@ pub fn watch(page: CustomPage) -> Option<Watch> {
     match page {
         CustomPage::WifiLinkInfo => Some(Watch::LinkSpeed),
         CustomPage::SoftwareUpdate => Some(Watch::Act(Action::CheckUpdate)),
-        CustomPage::Restart => Some(Watch::Act(Action::Restart)),
-        CustomPage::PowerOff => Some(Watch::Act(Action::Quit)),
         _ => None,
     }
 }

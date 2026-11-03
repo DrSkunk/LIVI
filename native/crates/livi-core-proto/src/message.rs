@@ -103,6 +103,9 @@ pub enum Action {
     DownloadUpdate,
     InstallUpdate,
     AbortUpdate,
+    OsUpdate {
+        command: OsUpdateCommand,
+    },
     DabScan,
     DabStopScan,
     #[serde(rename_all = "camelCase")]
@@ -160,6 +163,17 @@ pub enum Action {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum OsUpdateCommand {
+    Status,
+    Check { channel: crate::state::OsChannel },
+    Stage,
+    RequestReboot,
+    CancelReboot,
+    ConfirmReboot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MfiFile {
     Certificate,
@@ -212,6 +226,28 @@ mod tests {
             serde_json::to_value(Action::Quit).unwrap(),
             json!({ "kind": "quit" })
         );
+    }
+
+    #[test]
+    fn os_update_actions_accept_only_typed_commands_and_channels() {
+        let action = Action::OsUpdate {
+            command: OsUpdateCommand::Check {
+                channel: crate::state::OsChannel::Nightly,
+            },
+        };
+        let wire =
+            json!({ "kind": "osUpdate", "command": { "kind": "check", "channel": "nightly" } });
+        assert_eq!(serde_json::to_value(&action).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<Action>(wire).unwrap(), action);
+        for command in [
+            json!({ "kind": "install", "path": "/tmp/update.json" }),
+            json!({ "kind": "check", "channel": "anything" }),
+        ] {
+            assert!(
+                serde_json::from_value::<Action>(json!({ "kind": "osUpdate", "command": command }))
+                    .is_err()
+            );
+        }
     }
 
     #[test]

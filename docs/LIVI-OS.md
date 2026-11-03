@@ -6,6 +6,102 @@ system files LIVI normally installs on its first start (udev rule, sudoers drop-
 systemd units, a root copy of `livi-helperd`). Instead the image ships them and tells LIVI
 so with `LIVI_OS=1`.
 
+## System power controls
+
+Opening Settings -> System -> Restart System or Power Off only opens a
+confirmation page. The user must press **Restart now** or **Power off now**;
+Back cancels. About and Logs remain informational/configuration pages.
+Software Update keeps separate app-install and signed OS-trial reboot controls.
+
+On LIVI OS (or a desktop explicitly configured as `LIVI_KIOSK=1`), these power
+buttons request host reboot/shutdown. Otherwise they restart/close only LIVI.
+Core sends OS power requests to the immutable `/usr/libexec/livi-power-helper`
+using `sudo -n`, a cleared environment, and exactly `poweroff` or `reboot`.
+The image grants only these two command lines with `NOSETENV`. The helper queues
+an orderly `systemctl --no-block` request, never a forced reset, and refuses while
+the OS-update lock is held. Desktop kiosk installs retain their separate
+`/usr/local/lib/livi/livi-power.sh` helper.
+
+Core waits for the helper's exit status **before** considering the request
+accepted. On missing helper, permission denial, timeout or command failure, it
+keeps running and shows a retryable error on the power page. Repeated power
+requests and power changes during app/OS staging/install are blocked. The UI
+warns that a previously staged OS update is tried at the next boot. Internal
+application-update relaunches restart the app, not the whole host.
+
+Older images without the OS power helper require an updated OS image; installing
+desktop helpers into the immutable image or granting arbitrary systemctl/sudo
+access is not a workaround. A real Pi shutdown test is still required: orderly
+Linux shutdown alone cannot remove USB-C power; a correctly configured CarPiHAT
+uses the kernel-managed power latch to cut its supply at final poweroff.
+
+## What Wi-Fi settings configure
+
+Settings -> Connections -> Wi-Fi configures LIVI's **access point for wireless
+Android Auto/CarPlay**, not a Wi-Fi client/network chooser. Car Name is the AP
+SSID; the page selects its password, radio interface, band, channel, channel
+width and regulatory country. Wireless projection claims the selected radio;
+Dedicated Interface keeps the AP enabled independently of a connected phone.
+Choosing a LIVI Link radio delegates that wireless path to the dongle.
+
+On a normal Linux installation LIVI manages a `livi-wifi-ap.service` using
+hostapd and dnsmasq (DHCP, not a DNS server), temporarily taking the interface
+away from NetworkManager when needed. Apply restarts/reconciles the AP.
+It does not join a home/hotspot SSID, supply Internet connectivity, or turn the
+projection AP into an Internet router. OS/app OTA downloads need a separately
+configured Internet connection, such as Ethernet or another client Wi-Fi radio.
+
+The current native Wi-Fi service/launcher path is **not yet compatible with the
+Buildroot API-2 projection/configuration ABI** below: it still expects the
+desktop AP service and helper status switches that the image does not expose.
+The settings should not be taken as proof that native wireless setup works on
+this image. Do not broaden sudo permissions to make those desktop commands run.
+
+## Signed OS updates in Settings
+
+Settings -> System -> Software Update retains the application updater and adds
+an independent **Operating system** section on LIVI OS. It shows the installed
+OS, board/active slot, trial/pending state, signing-key availability, and the
+verified stable or nightly release. The OS channel is independent of the app's
+nightly preference and defaults to stable for each core session.
+
+The Buildroot image must ship the root-owned, immutable
+`/usr/libexec/livi-os-update-helper` from the companion OS repository, with its
+`NOSETENV` sudoers grant. Core calls only `sudo -n` on that fixed helper, with a
+cleared environment, no shell and these validated positional arguments:
+
+| Arguments                        | Operation                                                                                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`                         | JSON installed version/serial, board, slot, trial, pending, staged version and `update_key`                                                           |
+| `check stable` / `check nightly` | Fetch and verify the signed manifest; return JSON `channel`, `installed`, `available`, `update`                                                       |
+| `stage stable` / `stage nightly` | Run `livi-os-update update --channel CHANNEL --progress`; download, verify, write/read back inactive boot/root slots and stage, **without rebooting** |
+| `apply`                          | Run the slot manager's guarded trial reboot                                                                                                           |
+
+Staging stdout is bounded newline-delimited JSON with `phase` (`downloading` or
+`staging`), `message`, `received` and `total`. Download progress counts whole
+images after their size and signed hash have been verified; writing/readback
+uses phase messages, not an invented percentage. Nonzero exits and malformed
+responses are errors. Status is refreshed at startup, every ten seconds and
+around operations, so staged USB updates and trials survive app/core restarts.
+Status/check have bounded waits; staging has no user cancellation or timeout
+that could interrupt slot writes. Errors remain visible until another user
+operation. No paths, repository overrides, downgrade/retry flags, health
+confirmation or arbitrary commands are accepted through the helper.
+
+After staging, **Reboot...** opens an explicit **Later / Reboot now** dialog.
+Confirming re-reads status and rejects a changed staged image. Only **Reboot now**
+calls `apply`. Later leaves the update staged; the OS's existing next-power-on
+trial policy still applies. The embedded trust key, board/serial restrictions,
+failed-trial refusal, signed hashes, inactive-slot readback, tryboot and OS-owned
+health confirmation/rollback remain authoritative. The app never marks an OS
+trial good itself.
+
+An older image without this helper/permission reports an error; LIVI does not
+install privileged files or fall back to unrestricted sudo. Deploy a new signed
+OS image to bootstrap that interface. This is an optional OTA extension, not a
+change to the API-2 marker or a claim that the projection-helper ABI below is
+implemented. Desktop/non-OS app updates are unchanged.
+
 ## Buildroot API 2: display and readiness
 
 The Buildroot fork's [Rust AppImage contract](https://github.com/DrSkunk/livi-os-buildroot/blob/main/docs/rust-appimage-contract.md)
