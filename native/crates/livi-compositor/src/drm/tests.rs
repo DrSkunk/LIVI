@@ -82,8 +82,7 @@ fn requested_waveshare_timing_never_falls_back_to_a_monitor() {
     );
     assert_eq!(
         assign(&[(0, Some("HDMI-A-1".into()))], &names(&["HDMI-A-2"])),
-        [(0, "HDMI-A-2".into())],
-        "main falls back when its configured connector is disconnected"
+        vec![]
     );
 }
 
@@ -182,8 +181,8 @@ fn screens_take_their_connector_or_the_next_free_one() {
     let main_gone = [(0, Some("DSI-1".to_string())), (1, None)];
     assert_eq!(
         assign(&main_gone, &names(&["HDMI-A-1"])),
-        [(0, "HDMI-A-1".into())],
-        "main never stays dark while a display is connected"
+        [(1, "HDMI-A-1".into())],
+        "a pinned main connector never silently moves to another display"
     );
     let cluster_on_first = [(0, None), (1, Some("HDMI-A-1".to_string()))];
     assert_eq!(
