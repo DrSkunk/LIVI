@@ -82,7 +82,8 @@ fn requested_waveshare_timing_never_falls_back_to_a_monitor() {
     );
     assert_eq!(
         assign(&[(0, Some("HDMI-A-1".into()))], &names(&["HDMI-A-2"])),
-        vec![]
+        [(0, "HDMI-A-2".into())],
+        "main falls back when its configured connector is disconnected"
     );
 }
 

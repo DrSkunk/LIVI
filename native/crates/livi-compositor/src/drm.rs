@@ -521,13 +521,11 @@ fn assign(wanted: &[(usize, Option<String>)], connected: &[String]) -> Vec<(usiz
         .filter_map(|(_, c)| c.as_ref())
         .collect();
     if let Some((_, configured)) = wanted.iter().find(|(s, _)| *s == 0) {
-        let main = match configured {
-            Some(name) => connected.iter().find(|n| *n == name),
-            None => connected
-                .iter()
-                .find(|n| !claimed.contains(n))
-                .or(connected.first()),
-        };
+        let main = configured
+            .as_ref()
+            .and_then(|name| connected.iter().find(|n| *n == name))
+            .or_else(|| connected.iter().find(|n| !claimed.contains(n)))
+            .or(connected.first());
         if let Some(name) = main {
             taken.push((0, name.clone()));
         }
