@@ -101,7 +101,8 @@ the rule has to name the path that exists on the image.
 
 ## Haltech CAN capture
 
-With _Settings → Car → Receive Haltech CAN V2 telemetry_ on (`haltechCanEnabled`), LIVI runs
+With _Settings → Car → Enable CAN telemetry_ on (`haltechCanEnabled`) and
+_CAN Telemetry → CAN backend_ set to **Haltech V2**, LIVI runs
 
 ```
 sudo -n /usr/libexec/livi-can-capture
@@ -111,12 +112,60 @@ instead of `candump`. The image provides it (root, mode `0755`, no arguments) an
 
 - brings `can0` up listen-only at 1 Mbit/s, as `ip link set can0 type can bitrate 1000000
   listen-only on && ip link set can0 up` would, when it is not up yet;
-- then `exec`s `candump -L can0,360:7FF,370:7FF` (or prints the same `candump -L` line format,
+- verifies `can0` is UP, at 1 Mbit/s, listen-only and not bus-off, reporting
+  failures to stderr and exiting nonzero;
+- then `exec`s `candump -L can0,360:7FF,361:7FF,368:7FF,36A:7FF,370:7FF,372:7FF,3E0:7FF`
+  (or prints the same `candump -L` line format,
   `(<seconds>.<micros>) can0 <ID>#<DATA>`, one frame per line on stdout) until SIGTERM;
 - never transmits on the bus. Diagnostics go to stderr, LIVI logs them.
 
+The receiver publishes `rpm`, `speedKph`, `batteryV`, `coolantC`,
+`oilPressureKpa` (gauge kPa), `lambda` (wideband sensor 1), `knock1Db` and
+`knock2Db`. Signals expire independently to `null` after 1.5 seconds and clear
+when disabled. AFR is not inferred without a fuel-specific stoichiometric ratio.
+Themes decide which received fields to display. Install the updated OS capture
+filter as well as the updated AppImage to receive the additional IDs; the
+no-argument capture ABI remains unchanged and older apps ignore the extra IDs.
+
 If it exits LIVI starts it again after 2 s, doubling up to 30 s. Wiring and bring-up:
 [HALTECH-CAN.md](https://github.com/DrSkunk/livi-os-buildroot/blob/main/docs/HALTECH-CAN.md).
+
+## Optional OBD-II backend
+
+**Settings → Car → CAN Telemetry** selects `canTelemetryBackend`:
+`haltech_v2` (default, preserving existing installations) or `haltech_obd2`.
+`haltechCanEnabled` remains the master switch and defaults off. OBD additionally
+requires `obd2BusValidated=true` and `obd2Bitrate` equal to `500000` or `1000000`.
+Changing the bitrate clears validation unless it is explicitly reconfirmed.
+
+The OS supplies root-owned `/usr/libexec/livi-obd2` (0755) and
+`/usr/libexec/livi-obd2.py` (0644). Sudo allows only:
+
+```
+sudo -n /usr/libexec/livi-obd2 500000
+sudo -n /usr/libexec/livi-obd2 1000000
+```
+
+The wrapper clears the environment, accepts only the exact bitrate argument
+and runs immutable code; there is no arbitrary frame/request interface.
+The core holds stdin open. EOF/disable/app shutdown stops polling and brings
+`can0` down. Core serializes backend transitions; OS workers also share an
+exclusive lock, so V2 and OBD never capture/configure the bus concurrently.
+
+The worker uses normal CAN mode, one outstanding Service 01 request and a
+ten-request/second ceiling. It discovers capability pages and targets one ECU.
+It decodes PIDs 05/0B/0C/0D/0E/0F/11/1F/2F/42/52/5C into existing
+normalized fields plus `timingAdvanceDeg`, `engineRunTimeS` and `ethanolPct`.
+Per-signal freshness/units, supported PIDs, interface/bitrate, ECU ID,
+response age and counters arrive in the `obd2` health object and appear in
+**OBD-II status and live values**. Missing values are null, not zero.
+All selected responses are ISO-TP Single Frames; multi-frame services/VIN,
+arbitrary services, ECU writes and actuator control are not exposed.
+
+OBD operation is conditional on independently verified ECU port assignment,
+diagnostic bitrate and addressing. Enabling OBD does not establish 500 kbit/s
+support on an Elite 2500. An 8 MHz MCP2515 cannot receive a 1 Mbit/s bus.
+Install both updated app and OS; an app-only update cannot install the helper.
 
 ## Notes
 

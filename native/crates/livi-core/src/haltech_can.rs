@@ -3,12 +3,12 @@
 // Additional terms: see NOTICE
 
 //! Listen-only receiver for the Haltech CAN V2 broadcast on can0 (1 Mbit/s). The interface
-//! itself is brought up by the host, LIVI reads `candump -L` lines and turns frame 0x360 into
-//! `rpm` and 0x370 into `speedKph`. A value without a frame for [`STALE`] goes back to null.
+//! itself is brought up by the host. Signal offsets and conversions follow Haltech ECU
+//! Broadcast CAN Protocol 2.0. A value without a frame for [`STALE`] goes back to null.
 
+use std::collections::BTreeMap;
 use std::io;
 use std::process::Stdio;
-use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Map, Value};
@@ -17,10 +17,8 @@ use tokio::process::{Child, ChildStdout, Command};
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 
-use crate::server::Core;
-
 const INTERFACE: &str = "can0";
-const CANDUMP_FILTER: &str = "can0,360:7FF,370:7FF";
+const CANDUMP_FILTER: &str = "can0,360:7FF,361:7FF,368:7FF,36A:7FF,370:7FF,372:7FF,3E0:7FF";
 const RPM_ID: u16 = 0x360;
 const SPEED_ID: u16 = 0x370;
 pub const STALE: Duration = Duration::from_millis(1500);
@@ -32,19 +30,23 @@ const STOP_GRACE: Duration = Duration::from_secs(1);
 pub enum Reading {
     Rpm(f64),
     SpeedKph(f64),
+    BatteryV(f64),
+    CoolantC(f64),
+    OilPressureKpa(f64),
+    Lambda(f64),
+    KnockLevels(f64, f64),
 }
 
 impl Reading {
-    fn key(self) -> &'static str {
+    fn values(self) -> Vec<(&'static str, f64)> {
         match self {
-            Reading::Rpm(_) => "rpm",
-            Reading::SpeedKph(_) => "speedKph",
-        }
-    }
-
-    fn value(self) -> f64 {
-        match self {
-            Reading::Rpm(v) | Reading::SpeedKph(v) => v,
+            Reading::Rpm(v) => vec![("rpm", v)],
+            Reading::SpeedKph(v) => vec![("speedKph", v)],
+            Reading::BatteryV(v) => vec![("batteryV", v)],
+            Reading::CoolantC(v) => vec![("coolantC", v)],
+            Reading::OilPressureKpa(v) => vec![("oilPressureKpa", v)],
+            Reading::Lambda(v) => vec![("lambda", v)],
+            Reading::KnockLevels(a, b) => vec![("knock1Db", a), ("knock2Db", b)],
         }
     }
 }
@@ -76,10 +78,20 @@ pub fn decode(line: &str) -> Option<Reading> {
     }
     let id = u16::from_str_radix(id, 16).ok().filter(|id| *id <= 0x7ff)?;
     let byte = |i: usize| u8::from_str_radix(data.get(i * 2..i * 2 + 2)?, 16).ok();
-    let raw = (u16::from(byte(0)?) << 8) | u16::from(byte(1)?);
+    let word = |offset| {
+        Some(f64::from(u16::from_be_bytes([
+            byte(offset)?,
+            byte(offset + 1)?,
+        ])))
+    };
     match id {
-        RPM_ID => Some(Reading::Rpm(f64::from(raw))),
-        SPEED_ID => Some(Reading::SpeedKph(f64::from(raw) / 10.0)),
+        RPM_ID => Some(Reading::Rpm(word(0)?)),
+        SPEED_ID => Some(Reading::SpeedKph(word(0)? / 10.0)),
+        0x372 => Some(Reading::BatteryV(word(0)? / 10.0)),
+        0x3e0 => Some(Reading::CoolantC(word(0)? / 10.0 - 273.15)),
+        0x361 => Some(Reading::OilPressureKpa(word(2)? / 10.0 - 101.3)),
+        0x368 => Some(Reading::Lambda(word(0)? / 1000.0)),
+        0x36a => Some(Reading::KnockLevels(word(0)? / 100.0, word(2)? / 100.0)),
         _ => None,
     }
 }
@@ -93,29 +105,21 @@ struct Slot {
 /// What the receiver last pushed, and when each value last came in.
 #[derive(Debug, Default)]
 struct Fresh {
-    rpm: Slot,
-    speed: Slot,
+    slots: BTreeMap<&'static str, Slot>,
 }
 
 impl Fresh {
-    fn slot(&mut self, key: &str) -> &mut Slot {
-        if key == "rpm" {
-            &mut self.rpm
-        } else {
-            &mut self.speed
-        }
-    }
-
     fn seen(&mut self, reading: Reading, now: Instant) -> Option<Value> {
-        let slot = self.slot(reading.key());
-        slot.seen = Some(now);
-        if slot.sent == Some(reading.value()) {
-            return None;
-        }
-        slot.sent = Some(reading.value());
         let mut patch = Map::new();
-        patch.insert(reading.key().into(), reading.value().into());
-        Some(Value::Object(patch))
+        for (key, value) in reading.values() {
+            let slot = self.slots.entry(key).or_default();
+            slot.seen = Some(now);
+            if slot.sent != Some(value) {
+                slot.sent = Some(value);
+                patch.insert(key.into(), value.into());
+            }
+        }
+        (!patch.is_empty()).then_some(Value::Object(patch))
     }
 
     fn expire(&mut self, now: Instant, stale: Duration) -> Option<Value> {
@@ -128,8 +132,7 @@ impl Fresh {
 
     fn clear_if(&mut self, gone: impl Fn(&Slot) -> bool) -> Option<Value> {
         let mut patch = Map::new();
-        for key in ["rpm", "speedKph"] {
-            let slot = self.slot(key);
+        for (&key, slot) in &mut self.slots {
             if gone(slot) {
                 *slot = Slot::default();
                 patch.insert(key.into(), Value::Null);
@@ -139,9 +142,9 @@ impl Fresh {
     }
 
     fn next_deadline(&self, stale: Duration) -> Option<Instant> {
-        [self.rpm.seen, self.speed.seen]
-            .into_iter()
-            .flatten()
+        self.slots
+            .values()
+            .filter_map(|slot| slot.seen)
             .min()
             .map(|at| at + stale)
     }
@@ -328,20 +331,15 @@ async fn drive(
     if let Some(c) = capture.take() {
         c.stop().await;
     }
+    if let Some(patch) = fresh.clear() {
+        let _ = telemetry.send(patch);
+    }
 }
 
-pub async fn run(core: Arc<Core>, telemetry: mpsc::UnboundedSender<Value>) {
-    if !cfg!(target_os = "linux") {
-        return;
-    }
-    let mut state = core.hub.watch();
-    let (tx, enabled) = watch::channel(state.borrow_and_update().config.haltech_can_enabled);
-    tokio::spawn(async move {
-        while state.changed().await.is_ok() {
-            let on = state.borrow_and_update().config.haltech_can_enabled;
-            tx.send_if_modified(|was| std::mem::replace(was, on) != on);
-        }
-    });
+pub(crate) async fn receive(
+    enabled: watch::Receiver<bool>,
+    telemetry: mpsc::UnboundedSender<Value>,
+) {
     let livi_os = crate::livi_os::active();
     drive(enabled, telemetry, move || capture_command(livi_os), TIMING).await;
 }
@@ -378,6 +376,78 @@ mod tests {
         assert_eq!(decode("(1.0 can0 360#0BB8"), None);
         assert_eq!(decode(""), None);
         assert_eq!(decode("candump: interface can0 down"), None);
+    }
+
+    #[test]
+    fn haltech_v2_offsets_units_and_scaling() {
+        assert_eq!(decode("can0 372#008E"), Some(Reading::BatteryV(14.2)));
+        let Some(Reading::CoolantC(celsius)) = decode("can0 3E0#0E30") else {
+            panic!("missing coolant");
+        };
+        assert!((celsius - 90.05).abs() < 1e-9);
+        let Some(Reading::CoolantC(celsius)) = decode("can0 3E0#09E4") else {
+            panic!("missing cold coolant");
+        };
+        assert!((celsius + 19.95).abs() < 1e-9);
+        let Some(Reading::OilPressureKpa(kpa)) = decode("can0 361#FFFF1395") else {
+            panic!("missing oil pressure");
+        };
+        assert!((kpa - 400.0).abs() < 1e-9);
+        assert_eq!(decode("can0 368#03E8044C"), Some(Reading::Lambda(1.0)));
+        assert_eq!(
+            decode("can0 36A#04D20929"),
+            Some(Reading::KnockLevels(12.34, 23.45))
+        );
+        for id in ["361", "36A"] {
+            for data in ["", "00", "0000", "000000"] {
+                assert_eq!(decode(&format!("can0 {id}#{data}")), None);
+            }
+        }
+        for id in ["372", "3E0", "368"] {
+            assert_eq!(decode(&format!("can0 {id}#00")), None);
+        }
+        for data in ["0000#0000", "R", "##0000", "000000000000000000"] {
+            assert_eq!(decode(&format!("can0 36A#{data}")), None);
+        }
+    }
+
+    #[test]
+    fn every_signal_refreshes_and_expires_independently() {
+        let t0 = Instant::now();
+        let mut fresh = Fresh::default();
+        let readings = [
+            Reading::Rpm(3000.0),
+            Reading::SpeedKph(42.0),
+            Reading::BatteryV(14.2),
+            Reading::CoolantC(90.0),
+            Reading::OilPressureKpa(400.0),
+            Reading::Lambda(1.0),
+            Reading::KnockLevels(12.34, 23.45),
+        ];
+        let mut snap = crate::telemetry::Snapshot::new();
+        for reading in readings {
+            let patch = fresh.seen(reading, t0).unwrap();
+            crate::telemetry::merge(&mut snap, &patch);
+            assert_eq!(fresh.seen(reading, t0), None);
+        }
+        assert_eq!(snap["oilPressureKpa"], 400.0);
+        assert_eq!(snap["knock1Db"], 12.34);
+        assert_eq!(snap["knock2Db"], 23.45);
+        assert!(
+            !snap.contains_key("afr"),
+            "no fuel-independent AFR conversion"
+        );
+        assert_eq!(fresh.seen(Reading::BatteryV(14.2), t0 + STALE / 2), None);
+        let expired = fresh.expire(t0 + STALE, STALE).unwrap();
+        assert_eq!(expired.as_object().unwrap().len(), 7);
+        assert!(expired.get("batteryV").is_none());
+        assert!(expired.as_object().unwrap().values().all(Value::is_null));
+        assert_eq!(fresh.clear(), Some(json!({"batteryV": null})));
+        assert_eq!(fresh.clear(), None);
+        for reading in readings {
+            assert!(fresh.seen(reading, t0 + STALE * 2).is_some());
+        }
+        assert_eq!(fresh.clear().unwrap().as_object().unwrap().len(), 8);
     }
 
     #[test]
@@ -442,7 +512,7 @@ mod tests {
         };
         assert_eq!(
             line(capture_command(false)),
-            ["candump", "-L", "can0,360:7FF,370:7FF"]
+            ["candump", "-L", CANDUMP_FILTER]
         );
         assert_eq!(
             line(capture_command(true)),
@@ -525,5 +595,35 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn additional_signals_reach_telemetry_and_clear_when_disabled() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (on, enabled) = watch::channel(true);
+        let task = tokio::spawn(drive(
+            enabled,
+            tx,
+            fake(
+                "echo 'can0 372#008E'; echo 'can0 3E0#0E30'; echo 'can0 361#00001395'; echo 'can0 368#03E8'; echo 'can0 36A#04D20929'; sleep 10",
+            ),
+            TIMING,
+        ));
+        let mut snap = Map::new();
+        while snap.len() < 6 {
+            snap.extend(recv(&mut rx).await.as_object().unwrap().clone());
+        }
+        assert_eq!(snap["batteryV"], 14.2);
+        assert!((snap["coolantC"].as_f64().unwrap() - 90.05).abs() < 1e-9);
+        assert!((snap["oilPressureKpa"].as_f64().unwrap() - 400.0).abs() < 1e-9);
+        assert_eq!(snap["lambda"], 1.0);
+        assert_eq!(snap["knock1Db"], 12.34);
+        assert_eq!(snap["knock2Db"], 23.45);
+        on.send(false).unwrap();
+        let cleared = recv(&mut rx).await;
+        assert_eq!(cleared.as_object().unwrap().len(), 6);
+        assert!(cleared.as_object().unwrap().values().all(Value::is_null));
+        drop(on);
+        task.await.unwrap();
     }
 }

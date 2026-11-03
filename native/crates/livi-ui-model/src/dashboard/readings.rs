@@ -29,10 +29,12 @@ pub enum Turn {
 pub struct Readings {
     pub enabled: bool,
     pub speed: f64,
+    pub speed_valid: bool,
     pub speed_text: String,
     pub speed_label: &'static str,
     pub speed_scale: Scale,
     pub rpm: f64,
+    pub rpm_valid: bool,
     pub rpm_scale: Scale,
     pub redline: f64,
     pub gear: String,
@@ -121,13 +123,19 @@ pub fn readings(state: &Value, screen: Screen) -> Readings {
     Readings {
         enabled,
         speed: shown_speed,
-        speed_text: (shown_speed.round() as i64).clamp(0, 999).to_string(),
+        speed_valid: num(&t["speedKph"]).is_some(),
+        speed_text: if num(&t["speedKph"]).is_some() {
+            (shown_speed.round() as i64).clamp(0, 999).to_string()
+        } else {
+            "—".into()
+        },
         speed_label: match unit {
             SpeedUnit::Kmh => "KPH",
             SpeedUnit::Mph => "MPH",
         },
         speed_scale,
         rpm: num(&t["rpm"]).unwrap_or(0.0),
+        rpm_valid: num(&t["rpm"]).is_some(),
         rpm_scale,
         redline: f64::from(c.redline_rpm),
         gear: gear(t.get("gear").unwrap_or(&Value::String("P".into()))),
@@ -141,7 +149,11 @@ pub fn readings(state: &Value, screen: Screen) -> Readings {
         fuel,
         fuel_low: fuel <= FUEL_WARN_BELOW,
         battery: c.car_type == Some(CarType::Electric),
-        oil_text: format!("{}°", temperature(oil, temp_unit).round()),
+        oil_text: if num(&t["oilC"]).is_some() {
+            format!("{}°", temperature(oil, temp_unit).round())
+        } else {
+            "—".into()
+        },
         oil_ratio: (oil_round.clamp(OIL_MIN_C, OIL_MAX_C) - OIL_MIN_C) / (OIL_MAX_C - OIL_MIN_C),
         oil_hot: oil_round >= OIL_WARN_C,
     }
@@ -152,6 +164,23 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn missing_engine_values_are_not_presented_as_zero() {
+        let missing = readings(
+            &state(json!({"rpm":null,"speedKph":null,"oilC":null}), json!({})),
+            Screen::Main,
+        );
+        assert!(!missing.rpm_valid && !missing.speed_valid);
+        assert_eq!(missing.speed_text, "—");
+        assert_eq!(missing.oil_text, "—");
+        let stopped = readings(
+            &state(json!({"rpm":0,"speedKph":0}), json!({})),
+            Screen::Main,
+        );
+        assert!(stopped.rpm_valid && stopped.speed_valid);
+        assert_eq!(stopped.speed_text, "0");
+    }
 
     fn state(telemetry: Value, patch: Value) -> Value {
         let mut config = serde_json::to_value(defaults()).unwrap();

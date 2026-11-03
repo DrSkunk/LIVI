@@ -279,7 +279,12 @@ pub fn apply_patch(current: &Config, patch: &Value) -> Result<Config, String> {
             merge_into(fields, key, v);
         }
     }
-    let next: Config = serde_json::from_value(value).map_err(|e| format!("rejected: {e}"))?;
+    let mut next: Config = serde_json::from_value(value).map_err(|e| format!("rejected: {e}"))?;
+    if next.obd2_bitrate != current.obd2_bitrate
+        && patch.get("obd2BusValidated").and_then(Value::as_bool) != Some(true)
+    {
+        next.obd2_bus_validated = false;
+    }
 
     let written = serde_json::to_value(&next).map_err(|e| e.to_string())?;
     if let Some(unknown) = patch
@@ -304,6 +309,21 @@ pub mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn changing_obd_bitrate_requires_a_new_acknowledgement() {
+        let mut current = defaults();
+        current.obd2_bus_validated = true;
+        let next = apply_patch(&current, &json!({"obd2Bitrate":1000000})).unwrap();
+        assert!(!next.obd2_bus_validated);
+        assert!(
+            apply_patch(&next, &json!({"obd2BusValidated":true}))
+                .unwrap()
+                .obd2_bus_validated
+        );
+        assert!(apply_patch(&current, &json!({"obd2Bitrate":125000})).is_err());
+        assert!(apply_patch(&current, &json!({"canTelemetryBackend":"arbitrary_can"})).is_err());
+    }
 
     pub struct TempDir(pub PathBuf);
 

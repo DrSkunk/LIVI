@@ -49,6 +49,12 @@ pub struct Config {
     pub timezone: String,
 
     pub haltech_can_enabled: bool,
+    #[serde(default)]
+    pub can_telemetry_backend: CanTelemetryBackend,
+    #[serde(default)]
+    pub obd2_bitrate: Obd2Bitrate,
+    #[serde(default)]
+    pub obd2_bus_validated: bool,
 
     pub projection_width: u32,
     pub projection_height: u32,
@@ -475,6 +481,22 @@ pub struct KeyBindings {
     pub voice_assistant_release: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanTelemetryBackend {
+    #[default]
+    HaltechV2,
+    HaltechObd2,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
+#[repr(u32)]
+pub enum Obd2Bitrate {
+    #[default]
+    Kbit500 = 500000,
+    Mbit1 = 1000000,
+}
+
 pub fn defaults() -> Config {
     let off = PerScreen {
         main: false,
@@ -525,6 +547,9 @@ pub fn defaults() -> Config {
         gps_baud_rate: 38400,
         timezone: String::new(),
         haltech_can_enabled: false,
+        can_telemetry_backend: CanTelemetryBackend::HaltechV2,
+        obd2_bitrate: Obd2Bitrate::Kbit500,
+        obd2_bus_validated: false,
         projection_width: 1280,
         projection_height: 720,
         projection_fps: 60,

@@ -21,6 +21,7 @@ mod android_auto;
 mod audio_devices;
 mod blinker;
 mod camera;
+mod can_telemetry;
 mod car_bridge;
 mod carplay;
 mod child;
@@ -49,6 +50,7 @@ mod mfi;
 mod minidsp;
 mod nav_text;
 mod nmea;
+mod obd2;
 mod paths;
 mod power;
 mod privileged;
@@ -226,7 +228,7 @@ async fn run() -> Result<Exit, String> {
     tokio::spawn(gnss::run(core.clone(), inside.clone()));
     tokio::spawn(sun_schedule::run(core.clone(), inside.clone()));
     tokio::spawn(car_bridge::run(core.clone(), inside.clone()));
-    tokio::spawn(haltech_can::run(core.clone(), inside.clone()));
+    tokio::spawn(can_telemetry::run(core.clone(), inside.clone()));
     tokio::spawn(system_volume::follow(core.clone()));
     tokio::spawn(update::run(core.clone(), update_asks));
     if let Some(asks) = core.take_minidsp_asks() {

@@ -52,6 +52,7 @@
 //! | mapKpa, boostKpa, throttlePct       | ✓    | ·            | ·               | ·             |
 //! | lambda, afr                         | ✓    | ·            | ·               | ·             |
 //! | batteryV                            | ✓    | ·            | ·               | ·             |
+//! | oilPressureKpa, knock1Db, knock2Db   | stored / theme-dependent | · | · | · |
 //! | ambientLux                          | ✓    | ·            | ·               | ·             |
 //! | dimmerPct                           | ✓    | ·            | ·               | ·             |
 //! | odometerKm                          | ✓    | ✓            | ·               | ✓             |
@@ -107,6 +108,19 @@ pub struct TelemetrySnapshot {
     pub ambient_c: Option<f64>,
     /// The 12 V battery.
     pub battery_v: Option<f64>,
+    /// Oil gauge pressure, in kPa (Haltech raw / 10 - 101.3).
+    pub oil_pressure_kpa: Option<f64>,
+    /// Haltech knock sensor levels in dB, not knock counts or ignition retard.
+    pub knock1_db: Option<f64>,
+    pub knock2_db: Option<f64>,
+    /// OBD-II PID 0x0E ignition advance, degrees before TDC.
+    pub timing_advance_deg: Option<f64>,
+    /// OBD-II PID 0x1F time since engine start, seconds.
+    pub engine_run_time_s: Option<f64>,
+    /// OBD-II PID 0x52 ethanol content, percent.
+    pub ethanol_pct: Option<f64>,
+    /// Diagnostic health and per-signal freshness from the immutable OBD-II worker.
+    pub obd2: Option<Value>,
     /// 0 to 100, for an electric car the state of charge.
     pub fuel_pct: Option<f64>,
     pub range_km: Option<f64>,
@@ -270,6 +284,9 @@ mod tests {
     #[test]
     fn fields_keep_the_names_producers_send() {
         let snapshot = TelemetrySnapshot {
+            oil_pressure_kpa: Some(400.0),
+            knock1_db: Some(12.34),
+            knock2_db: Some(23.45),
             consumption_l_per100_km: Some(6.5),
             iat_c: Some(30.0),
             turn_signal: Some(TurnSignal::Left),
@@ -289,6 +306,9 @@ mod tests {
             ..Default::default()
         };
         let named = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(named["oilPressureKpa"], 400.0);
+        assert_eq!(named["knock1Db"], 12.34);
+        assert_eq!(named["knock2Db"], 23.45);
         assert_eq!(named["consumptionLPer100Km"], 6.5);
         assert_eq!(named["iatC"], 30.0);
         assert_eq!(named["turnSignal"], "left");

@@ -57,6 +57,74 @@ pub fn readings(state: &Value, t: &Strings) -> Vec<Row> {
     out
 }
 
+pub fn obd2(state: &Value, t: &Strings) -> Vec<Row> {
+    let data = &state["telemetry"]["obd2"];
+    let status = match data["status"].as_str() {
+        Some("disabled") => "Disabled",
+        Some("connecting") => "Connecting",
+        Some("available") => "Available",
+        Some("unsupported") => "Unsupported",
+        Some("stale") => "Stale",
+        Some("disconnected") => "Disconnected",
+        Some("canError") => "CAN error",
+        _ => "Not configured",
+    };
+    let mut out = vec![info(
+        t.t("settings.obd2Status", "OBD-II status"),
+        None,
+        status.into(),
+    )];
+    for (key, label) in [
+        ("interface", "CAN interface"),
+        ("bitrate", "Active bitrate (bit/s)"),
+        ("ecu", "ECU response ID"),
+        ("lastResponseAgeMs", "Last response age (ms)"),
+        ("requests", "Requests"),
+        ("timeouts", "Timeouts"),
+        ("errors", "CAN errors"),
+        ("error", "Last error"),
+    ] {
+        if let Some(value) = data.get(key).filter(|v| !v.is_null()) {
+            let shown = value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.to_string());
+            out.push(info(
+                t.t(&format!("settings.obd2_{key}"), label),
+                None,
+                shown,
+            ));
+        }
+    }
+    let pids = data["supportedPids"]
+        .as_array()
+        .map(|pids| {
+            pids.iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_else(|| "—".into());
+    out.push(info(
+        t.t("settings.obd2SupportedPids", "Supported PIDs"),
+        None,
+        pids,
+    ));
+    if let Some(signals) = data["signals"].as_object() {
+        for (key, signal) in signals {
+            let value = finite(&state["telemetry"][key]);
+            let unit = signal["unit"].as_str().unwrap_or("");
+            let freshness = signal["state"].as_str().unwrap_or("stale");
+            let shown = match value.filter(|_| freshness == "available") {
+                Some(value) => format!("{value:.2} {unit} · {freshness}"),
+                None => format!("— {unit} · {freshness}"),
+            };
+            out.push(info(key.clone(), None, shown));
+        }
+    }
+    out
+}
+
 fn layout_name(cluster: &Value, id: &str) -> String {
     cluster["theme"]["displays"]
         .as_array()
@@ -143,5 +211,28 @@ mod tests {
         assert_eq!(rows[1].label, "x.two");
         assert!(rows[0].tools[0].switch && rows[0].tools[0].on);
         assert!(!rows[0].tools[1].enabled && !rows[1].tools[2].enabled);
+    }
+
+    #[test]
+    fn obd_diagnostics_distinguish_zero_stale_unsupported_and_errors() {
+        let s = json!({"telemetry": {
+            "speedKph": 0, "rpm": null,
+            "obd2": {
+                "status": "available", "interface": "can0", "bitrate": 500000,
+                "supportedPids": ["0C", "0D"], "timeouts": 2,
+                "signals": {
+                    "speedKph": {"state":"available","unit":"km/h"},
+                    "rpm": {"state":"stale","unit":"rpm"},
+                    "oilC": {"state":"unsupported","unit":"C"}
+                }
+            }
+        }});
+        let rows = obd2(&s, &Strings::new("en"));
+        assert_eq!(rows[0].value, "Available");
+        assert!(rows.iter().any(|r| r.value == "0.00 km/h · available"));
+        assert!(rows.iter().any(|r| r.value == "— rpm · stale"));
+        assert!(rows.iter().any(|r| r.value == "— C · unsupported"));
+        let error = json!({"telemetry":{"obd2":{"status":"canError","error":"can0 down"}}});
+        assert_eq!(obd2(&error, &Strings::new("en"))[0].value, "CAN error");
     }
 }
