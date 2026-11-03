@@ -22,6 +22,7 @@ use smithay::backend::renderer::element::Kind as ElementKind;
 use smithay::backend::renderer::element::memory::{
     MemoryRenderBuffer, MemoryRenderBufferRenderElement,
 };
+use smithay::backend::renderer::element::{Element, Id};
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::session::libseat::LibSeatSession;
 use smithay::backend::session::{Event as SessionEvent, Session};
@@ -34,6 +35,7 @@ use smithay::reexports::drm::control::property::ValueType;
 use smithay::reexports::drm::control::{Device as _, Mode, ModeTypeFlags, connector, crtc};
 use smithay::reexports::input::Libinput;
 use smithay::reexports::rustix::fs::OFlags;
+use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{DeviceFd, Point, SERIAL_COUNTER, Scale, Size, Transform};
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Stroke};
 
@@ -107,6 +109,9 @@ struct Output {
     frame_pending: bool,
     direct: usize,
     needs_redraw: bool,
+    pending_ui: Option<(Id, u32)>,
+    presented_ui: Option<(Id, u32)>,
+    pending_since: Option<Instant>,
 }
 
 impl Output {
@@ -126,6 +131,74 @@ impl Output {
 enum KeyAction {
     SwitchVt(i32),
     Quit,
+}
+
+fn appliance() -> bool {
+    std::env::var("LIVI_OS").as_deref() == Ok("1")
+        && std::env::var("LIVI_OS_API").as_deref() == Ok("2")
+}
+
+fn output_transform(setting: Option<&str>, metadata: Transform) -> Option<Transform> {
+    Some(match setting {
+        None => metadata,
+        Some("normal" | "0") => Transform::Normal,
+        // DrmCompositor inverts the output transform for scanout. _90 therefore
+        // rotates content counterclockwise; native touch uses _90 once to undo it.
+        Some("90") => Transform::_90,
+        Some("180") => Transform::_180,
+        Some("270") => Transform::_270,
+        _ => return None,
+    })
+}
+
+fn ui_surfaces(state: &LiviState, screen_idx: usize) -> Vec<(Id, u32)> {
+    state
+        .toplevels
+        .iter()
+        .filter(|t| t.kind == crate::state::Kind::Ui && t.screen_idx == screen_idx)
+        .filter_map(|t| {
+            let surface = t.toplevel.wl_surface();
+            let credentials = surface
+                .client()?
+                .get_credentials(&state.display_handle)
+                .ok()?;
+            let pid = u32::try_from(credentials.pid).ok()?;
+            (crate::render::surface_size(surface) != (0, 0))
+                .then(|| (Id::from_wayland_resource(surface), pid))
+        })
+        .collect()
+}
+
+pub fn presented(state: &LiviState) -> Option<livi_host_proto::readiness::PresentedOutput> {
+    let drm = state.drm.as_ref().filter(|d| d.active)?;
+    let output = drm.outputs.iter().find(|o| o.screen_idx == 0)?;
+    if output
+        .pending_since
+        .is_some_and(|at| at.elapsed() > std::time::Duration::from_secs(1))
+    {
+        return None;
+    }
+    let presented = output.presented_ui.as_ref()?;
+    if !ui_surfaces(state, 0).contains(presented) {
+        return None;
+    }
+    let transform = match output.transform {
+        Transform::Normal => "normal",
+        Transform::_90 => "90",
+        Transform::_180 => "180",
+        Transform::_270 => "270",
+        _ => return None,
+    };
+    let (width, height) = output.mode.size();
+    Some(livi_host_proto::readiness::PresentedOutput {
+        compositor: std::process::id(),
+        ui: presented.1,
+        connector: output.connector.clone(),
+        width: u32::from(width),
+        height: u32::from(height),
+        transform: transform.to_string(),
+        scale: 1,
+    })
 }
 
 pub fn wanted() -> bool {
@@ -177,15 +250,33 @@ fn start(
     handle
         .insert_source(notifier, |event, _, state: &mut LiviState| match event {
             DrmEvent::VBlank(crtc) => vblank(state, crtc),
-            DrmEvent::Error(e) => log::error!("display: {e}"),
+            DrmEvent::Error(e) => {
+                if let Some(drm) = state.drm.as_mut() {
+                    for output in &mut drm.outputs {
+                        output.presented_ui = None;
+                        output.pending_ui = None;
+                    }
+                }
+                log::error!("display: {e}");
+            }
         })
         .map_err(|e| e.error)?;
 
     let udev = UdevBackend::new(&seat)?;
     handle
         .insert_source(udev, |event, _, state: &mut LiviState| {
-            if let UdevEvent::Changed { .. } = event {
-                rescan(state);
+            match event {
+                UdevEvent::Changed { .. } => rescan(state),
+                UdevEvent::Removed { device_id } => {
+                    if let Some(drm) = state.drm.as_mut()
+                        && drm.device.device_id() == device_id
+                    {
+                        // Losing the DRM device invalidates every committed output.
+                        drm.outputs.clear();
+                    }
+                    crate::ctrl::send_displays(state);
+                }
+                _ => {}
             }
         })
         .map_err(|e| e.error)?;
@@ -383,6 +474,9 @@ fn role_env(state: &LiviState, screen_idx: usize, what: &str) -> Option<String> 
 }
 
 fn mode_setting(state: &LiviState, screen_idx: usize) -> Option<String> {
+    if let Some(setting) = pinned_mode(state, screen_idx) {
+        return Some(setting);
+    }
     state
         .drm
         .as_ref()
@@ -390,7 +484,14 @@ fn mode_setting(state: &LiviState, screen_idx: usize) -> Option<String> {
         .unwrap_or_else(|| role_env(state, screen_idx, "DISPLAY_MODE"))
 }
 
+fn pinned_mode(state: &LiviState, screen_idx: usize) -> Option<String> {
+    (appliance() || role_env(state, screen_idx, "MODE_PINNED").as_deref() == Some("1"))
+        .then(|| role_env(state, screen_idx, "DISPLAY_MODE"))
+        .flatten()
+}
+
 pub fn set_mode(state: &mut LiviState, screen_idx: usize, setting: Option<String>) {
+    let setting = pinned_mode(state, screen_idx).or(setting);
     let Some(drm) = state.drm.as_mut() else {
         return;
     };
@@ -420,11 +521,13 @@ fn assign(wanted: &[(usize, Option<String>)], connected: &[String]) -> Vec<(usiz
         .filter_map(|(_, c)| c.as_ref())
         .collect();
     if let Some((_, configured)) = wanted.iter().find(|(s, _)| *s == 0) {
-        let main = configured
-            .as_ref()
-            .filter(|n| connected.contains(n))
-            .or_else(|| connected.iter().find(|n| !claimed.contains(n)))
-            .or(connected.first());
+        let main = match configured {
+            Some(name) => connected.iter().find(|n| *n == name),
+            None => connected
+                .iter()
+                .find(|n| !claimed.contains(n))
+                .or(connected.first()),
+        };
         if let Some(name) = main {
             taken.push((0, name.clone()));
         }
@@ -478,6 +581,7 @@ fn arrange(state: &mut LiviState) {
     let wanted: Vec<(usize, Option<String>)> = wanted
         .iter()
         .map(|&idx| (idx, role_env(state, idx, "CONNECTOR")))
+        .filter(|(idx, connector)| *idx == 0 || !appliance() || connector.is_some())
         .collect();
     let Some(drm) = state.drm.as_mut() else {
         return;
@@ -549,6 +653,11 @@ fn light(
     name: &str,
     mode_setting: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let transform_setting = role_env(state, screen_idx, "TRANSFORM");
+    let scale_setting = role_env(state, screen_idx, "SCALE");
+    if scale_setting.as_deref().is_some_and(|s| s != "1") {
+        return Err("only output scale 1 is supported".into());
+    }
     let drm = state.drm.as_mut().ok_or("no display device")?;
     let connector = drm
         .connectors
@@ -562,7 +671,9 @@ fn light(
         .iter()
         .find(|c| !busy.contains(c))
         .ok_or("no free crtc")?;
-    let (handle, transform) = (connector.handle, connector.transform);
+    let transform = output_transform(transform_setting.as_deref(), connector.transform)
+        .ok_or("invalid output transform (expected normal, 90, 180 or 270)")?;
+    let handle = connector.handle;
     let surface = drm.device.create_surface(crtc, mode, &[handle])?;
     let allocator = GbmAllocator::new(
         drm.gbm.clone(),
@@ -596,6 +707,9 @@ fn light(
         frame_pending: false,
         direct: 0,
         needs_redraw: true,
+        pending_ui: None,
+        presented_ui: None,
+        pending_since: None,
     };
     let (lw, lh) = output.logical();
     drm.outputs.push(output);
@@ -779,6 +893,10 @@ fn session_event(state: &mut LiviState, event: SessionEvent) {
             drm.libinput.suspend();
             drm.device.pause();
             drm.active = false;
+            for output in &mut drm.outputs {
+                output.presented_ui = None;
+                output.pending_ui = None;
+            }
         }
         SessionEvent::ActivateSession => {
             log::info!("session active");
@@ -809,10 +927,23 @@ fn vblank(state: &mut LiviState, crtc: crtc::Handle) {
     let Some(output) = drm.outputs.iter_mut().find(|o| o.crtc == crtc) else {
         return;
     };
-    if let Err(e) = output.surface.frame_submitted() {
-        log::error!("frame not submitted: {e}");
+    match output.surface.frame_submitted() {
+        Ok(Some(())) => {
+            if let Some(ui) = output.pending_ui.take() {
+                output.presented_ui = Some(ui);
+            }
+        }
+        Ok(None) => {
+            output.pending_ui = None;
+        }
+        Err(e) => {
+            output.presented_ui = None;
+            output.pending_ui = None;
+            log::error!("frame not submitted: {e}");
+        }
     }
     output.frame_pending = false;
+    output.pending_since = None;
     if output.needs_redraw {
         let idx = output.screen_idx;
         render(state, idx);
@@ -853,6 +984,7 @@ pub fn render(state: &mut LiviState, screen_idx: usize) {
         return;
     }
     let mut parts = crate::render::frame_parts(state, screen_idx);
+    let ui_candidates = ui_surfaces(state, screen_idx);
     let screen_x = state.screens[screen_idx].x as f64;
     let (Some(drm), Some(renderer)) = (state.drm.as_mut(), state.renderer.as_mut()) else {
         return;
@@ -879,19 +1011,38 @@ pub fn render(state: &mut LiviState, screen_idx: usize) {
     };
     output.needs_redraw = false;
     let clear = parts.clear;
-    let elements = match crate::render::calibrated(renderer, parts, output.logical()) {
-        Ok(elements) => elements,
-        Err(e) => {
-            log::error!("calibration failed: {e}");
-            return;
-        }
-    };
+    let (elements, source_states) =
+        match crate::render::calibrated(renderer, parts, output.logical()) {
+            Ok(elements) => elements,
+            Err(e) => {
+                output.presented_ui = None;
+                log::error!("calibration failed: {e}");
+                return;
+            }
+        };
     let flipped = match output
         .surface
         .render_frame(renderer, &elements, clear, FrameFlags::DEFAULT)
     {
         Ok(frame) if frame.is_empty => false,
         Ok(frame) => {
+            // A calibrated frame flattens the UI into a shader texture. Require
+            // visibility in both the offscreen composition and final DRM frame.
+            let shader_visible = source_states.is_none()
+                || elements.first().is_some_and(|element| {
+                    frame
+                        .states
+                        .element_render_state(element.id().clone())
+                        .is_some_and(|s| s.visible_area > 0)
+                });
+            let pending_ui = ui_candidates.iter().find_map(|(id, pid)| {
+                source_states
+                    .as_ref()
+                    .unwrap_or(&frame.states)
+                    .element_render_state(id.clone())
+                    .filter(|s| shader_visible && s.visible_area > 0)
+                    .map(|_| (id.clone(), *pid))
+            });
             let direct = frame.overlay_elements.len()
                 + usize::from(matches!(
                     frame.primary_element,
@@ -907,20 +1058,28 @@ pub fn render(state: &mut LiviState, screen_idx: usize) {
                 output.direct = direct;
             }
             match output.surface.queue_frame(()) {
-                Ok(()) => true,
+                Ok(()) => {
+                    output.pending_ui = pending_ui;
+                    true
+                }
                 Err(e) => {
+                    output.presented_ui = None;
+                    output.pending_ui = None;
                     log::error!("display flip: {e}");
                     return;
                 }
             }
         }
         Err(e) => {
+            output.presented_ui = None;
+            output.pending_ui = None;
             log::error!("render failed: {e}");
             return;
         }
     };
     if flipped {
         output.frame_pending = true;
+        output.pending_since = Some(Instant::now());
         crate::host::send_frame_callbacks(state);
         return;
     }

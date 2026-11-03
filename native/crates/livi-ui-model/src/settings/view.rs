@@ -101,6 +101,9 @@ pub enum Local {
     Browse(crate::settings::custom::files::Wanted),
     PickEntry(usize),
     CalibrateTouch(usize),
+    /// Opens the join form for the scanned Wi-Fi network at this index.
+    JoinNetwork(usize),
+    JoinHidden,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -352,12 +355,12 @@ fn row(node: &Node, state: &Value, t: &Strings) -> Row {
         );
     }
     let raw = get(config, node.path);
-    let mut enabled = node.disabled.is_none_or(|c| !holds(c, &state["system"]));
+    let mut enabled = node.disabled.is_none_or(|c| !holds(c, state));
     if let Kind::Select {
         read_only: Some(c), ..
     } = &node.kind
     {
-        enabled &= !holds(*c, &state["system"]);
+        enabled &= !holds(*c, state);
     }
     let kind = match &node.kind {
         Kind::Route { .. } => RowKind::Route,
@@ -452,6 +455,7 @@ impl Settings {
                 rows: children
                     .iter()
                     .enumerate()
+                    .filter(|(_, c)| c.hidden.is_none_or(|h| !holds(h, state)))
                     .flat_map(|(i, c)| {
                         let inline = match c.kind {
                             Kind::Custom(page) => custom_rows(page, state, t, &self.facts),
@@ -479,7 +483,7 @@ impl Settings {
                         offline: o.offline,
                     })
                     .collect(),
-                read_only: read_only.is_some_and(|c| holds(c, &state["system"])),
+                read_only: read_only.is_some_and(|c| holds(c, state)),
             },
             Kind::Number {
                 min,
@@ -593,7 +597,7 @@ impl Settings {
         else {
             return Vec::new();
         };
-        if read_only.is_some_and(|c| holds(c, &state["system"])) {
+        if read_only.is_some_and(|c| holds(c, state)) {
             return Vec::new();
         }
         let Some(o) = choices(node, state, t).into_iter().nth(option) else {
@@ -799,6 +803,71 @@ mod tests {
                 Change::Config(json!({ "audioOutputDevice": "hdmi" })),
                 Change::Config(json!({ "audioOutputDeviceLabel": "HDMI" })),
             ]
+        );
+    }
+
+    #[test]
+    fn clock_settings_offer_styles_sidebar_visibility_and_start_page() {
+        let s = Settings::new(schema());
+        let state = json!({
+            "config": {
+                "clockStyle": "classic",
+                "clockAutoHide": false,
+                "sidebarTabs": { "clock": true },
+                "startPage": "/"
+            }
+        });
+        let t = Strings::default();
+        let styles = s.find(&["appearance", "clockStyle"]).unwrap();
+        let Some(Screen::Select { options, .. }) = s.screen(&styles, &state, &t) else {
+            panic!("clock style is a selection");
+        };
+        assert_eq!(
+            options.iter().map(|o| o.label.as_str()).collect::<Vec<_>>(),
+            vec!["Classic", "Amber", "Digital"]
+        );
+        assert!(options[0].selected);
+        assert_eq!(
+            s.pick(&styles, 1, &state, &t),
+            vec![Change::Config(json!({ "clockStyle": "amber" }))]
+        );
+        assert_eq!(
+            s.pick(&styles, 2, &state, &t),
+            vec![Change::Config(json!({ "clockStyle": "digital" }))]
+        );
+
+        let sidebar = s.find(&["general", "tabSettings", "sidebar"]).unwrap();
+        let clock = s
+            .node(&sidebar)
+            .unwrap()
+            .children()
+            .iter()
+            .position(|node| node.path == "sidebarTabs.clock")
+            .unwrap();
+        assert_eq!(
+            s.toggle(&sidebar, clock, &state),
+            Some(Change::Config(json!({ "sidebarTabs": { "clock": false } })))
+        );
+        let auto_hide = s
+            .node(&sidebar)
+            .unwrap()
+            .children()
+            .iter()
+            .position(|node| node.path == "clockAutoHide")
+            .unwrap();
+        assert_eq!(
+            s.toggle(&sidebar, auto_hide, &state),
+            Some(Change::Config(json!({ "clockAutoHide": true })))
+        );
+
+        let start = s.find(&["general", "startPage"]).unwrap();
+        let Some(Screen::Select { options, .. }) = s.screen(&start, &state, &t) else {
+            panic!("start page is a selection");
+        };
+        let clock = options.iter().position(|o| o.label == "Clock").unwrap();
+        assert_eq!(
+            s.pick(&start, clock, &state, &t),
+            vec![Change::Config(json!({ "startPage": "/clock" }))]
         );
     }
 

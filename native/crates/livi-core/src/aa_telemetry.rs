@@ -109,6 +109,9 @@ impl AaTelemetry {
         let sent = &mut self.sent;
         let mut out = Vec::new();
 
+        if changed("speedKph") && next.get("speedKph") == Some(&Value::Null) {
+            sent.speed_mm_s = None;
+        }
         if changed("speedKph")
             && let Some(kph) = num(next, "speedKph")
         {
@@ -327,6 +330,20 @@ mod tests {
         );
         let tick = map(json!({ "speedKph": 73.40001, "rpm": 2.5, "gear": "D", "nightMode": true }));
         assert!(t.sensors(&first, &tick, now).is_empty());
+    }
+
+    #[test]
+    fn speed_is_resent_after_reception_recovers_at_the_same_speed() {
+        let mut t = AaTelemetry::default();
+        let now = Instant::now();
+        let moving = map(json!({ "speedKph": 36 }));
+        let lost = map(json!({ "speedKph": null }));
+        assert_eq!(
+            t.sensors(&Map::new(), &moving, now),
+            [Sensor::Speed(10_000)]
+        );
+        assert!(t.sensors(&moving, &lost, now).is_empty());
+        assert_eq!(t.sensors(&lost, &moving, now), [Sensor::Speed(10_000)]);
     }
 
     #[test]

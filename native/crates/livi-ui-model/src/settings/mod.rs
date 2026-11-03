@@ -14,7 +14,7 @@ pub mod view;
 
 use node::{Label, Node};
 
-pub const STATE_READ: [&str; 10] = [
+pub const STATE_READ: [&str; 11] = [
     "config",
     "system",
     "telemetry",
@@ -25,6 +25,7 @@ pub const STATE_READ: [&str; 10] = [
     "devices",
     "cluster",
     "cameras",
+    "network",
 ];
 
 pub fn schema() -> Node {
@@ -135,7 +136,7 @@ mod tests {
             all.iter()
                 .filter(|n| matches!(n.kind, Kind::Custom(_)))
                 .count()
-                == 19
+                == 20
         );
     }
 }

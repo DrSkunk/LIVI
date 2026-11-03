@@ -1,0 +1,294 @@
+// SPDX-FileCopyrightText: 2025-2026 Lasse Heitgres
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Additional terms: see NOTICE
+
+// Joining a Wi-Fi network with an on-screen keyboard.
+
+import { Theme, Ui } from "../theme.slint";
+import { RowButton } from "actions.slint";
+
+component Key inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> has-icon;
+    in property <bool> lit;
+    callback hit();
+
+    horizontal-stretch: 1;
+    min-width: 24px;
+    height: clamp(Ui.height * 0.075, 32px, 46px);
+    border-radius: Theme.comand ? Theme.radius : 6px;
+    background: root.lit || touch.pressed ? Theme.primary.with-alpha(0.35) : Theme.comand ? Theme.key : Theme.surface;
+    border-width: Theme.comand ? 1px : 0;
+    border-color: Theme.key-edge;
+    if !root.has-icon: Text {
+        text: root.text;
+        color: Theme.text;
+        font-size: 17px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if root.has-icon: Image {
+        width: 18px;
+        height: 18px;
+        source: root.icon;
+        colorize: Theme.text;
+    }
+    touch := TouchArea {
+        clicked => { root.hit(); }
+    }
+}
+
+export component Keyboard inherits VerticalLayout {
+    in property <string> space-label: "Space";
+    callback typed(string);
+    callback erase();
+
+    property <bool> shift;
+    property <bool> signs;
+    property <[[string]]> letters: [
+        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
+        ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+        ["a", "s", "d", "f", "g", "h", "j", "k", "l", "-"],
+        ["z", "x", "c", "v", "b", "n", "m", ".", "_", "@"],
+    ];
+    property <[[string]]> symbols: [
+        ["!", "#", "$", "%", "&", "*", "(", ")", "=", "+"],
+        ["[", "]", "{", "}", "<", ">", "/", "\\", "|", "^"],
+        [";", ":", "'", "\"", ",", "?", "`", "~", "€", "£"],
+        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
+    ];
+
+    spacing: 4px;
+    for row in root.signs ? root.symbols : root.letters: HorizontalLayout {
+        spacing: 4px;
+        for k in row: Key {
+            text: root.shift && !root.signs ? k.to-uppercase() : k;
+            hit => {
+                root.typed(self.text);
+                root.shift = false;
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 4px;
+        Key {
+            horizontal-stretch: 2;
+            text: root.signs ? "abc" : "?#1";
+            hit => { root.signs = !root.signs; }
+        }
+        Key {
+            horizontal-stretch: 2;
+            text: "ABC";
+            lit: root.shift;
+            hit => { root.shift = !root.shift; }
+        }
+        Key {
+            horizontal-stretch: 4;
+            text: root.space-label;
+            hit => { root.typed(" "); }
+        }
+        Key {
+            horizontal-stretch: 2;
+            has-icon: true;
+            icon: @image-url("../icons/ArrowBackIosOutlined.svg");
+            hit => { root.erase(); }
+        }
+    }
+}
+
+component Field inherits VerticalLayout {
+    in property <string> label;
+    in property <bool> secret;
+    in property <bool> shown;
+    in property <bool> active;
+    in property <bool> focused;
+    in property <bool> editing;
+    in-out property <string> text;
+    callback picked();
+    callback done();
+
+    spacing: 4px;
+    Text {
+        text: root.label;
+        color: Theme.text-secondary;
+        font-size: 13px;
+    }
+    Rectangle {
+        height: 44px;
+        border-radius: Theme.comand ? Theme.radius : 8px;
+        background: Theme.comand ? Theme.background.with-alpha(0.72) : transparent;
+        border-width: root.active || root.focused ? Theme.ring(2px) : 1px;
+        border-color: root.focused ? Theme.focus-color : root.active ? Theme.primary : Theme.rule;
+        input := TextInput {
+            x: 12px;
+            width: parent.width - 24px;
+            text <=> root.text;
+            color: Theme.text;
+            font-size: 18px;
+            vertical-alignment: center;
+            single-line: true;
+            input-type: root.secret && !root.shown ? InputType.password : InputType.text;
+            accepted => { root.done(); }
+        }
+        TouchArea {
+            clicked => {
+                root.picked();
+                input.focus();
+            }
+        }
+    }
+    changed editing => {
+        if (root.editing) {
+            root.picked();
+            input.focus();
+        } else {
+            input.clear-focus();
+        }
+    }
+}
+
+export component JoinBody inherits Rectangle {
+    background: transparent;
+    in property <int> base;
+    in property <bool> zone-main;
+    in property <int> focus-index;
+    in property <bool> editing;
+    in property <bool> ask-ssid;
+    in property <bool> ask-psk;
+    in property <bool> ask-security;
+    in property <string> security-label;
+    in property <[string]> security-options;
+    in property <int> security;
+    in property <bool> busy;
+    in property <string> ssid-label;
+    in property <string> psk-label;
+    in property <string> psk-hint;
+    in property <string> show-label;
+    in property <string> connect-label;
+    in property <string> space-label;
+    in property <string> status;
+    in property <string> error;
+    in-out property <string> ssid;
+    in-out property <string> psk;
+    in-out property <int> field;
+    in-out property <bool> show;
+    callback typed(string);
+    callback erase();
+    callback connect();
+    callback security-pick(int);
+    callback done();
+
+    property <int> security-at: root.base + (root.ask-ssid ? 1 : 0);
+    property <int> psk-at: root.security-at + (root.ask-security ? root.security-options.length : 0);
+    property <int> show-at: root.psk-at + (root.ask-psk ? 1 : 0);
+    property <int> connect-at: root.show-at + (root.ask-psk ? 1 : 0);
+    pure function at(i: int) -> bool {
+        return root.zone-main && root.focus-index == i;
+    }
+
+    property <bool> has-keyboard: root.ask-ssid || root.ask-psk;
+    property <bool> side-by-side: root.has-keyboard && root.width >= 900px;
+    preferred-height: root.side-by-side
+        ? max(fields.preferred-height, keys.height)
+        : fields.preferred-height + (root.has-keyboard ? 10px + keys.height : 0px);
+
+    fields := VerticalLayout {
+        x: 0px;
+        y: 0px;
+        width: root.side-by-side ? max(520px, root.width * 0.46) : root.width;
+        height: self.preferred-height;
+        alignment: start;
+        spacing: 10px;
+        if root.ask-ssid: Field {
+            label: root.ssid-label;
+            text <=> root.ssid;
+            active: root.field == 0;
+            focused: root.at(root.base);
+            editing: root.editing && root.at(root.base);
+            picked => { root.field = 0; }
+            done => { root.done(); }
+        }
+        if root.ask-security: VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: root.security-label;
+                color: Theme.text-secondary;
+                font-size: 13px;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                for option[i] in root.security-options: RowButton {
+                    text: option;
+                    outlined: i != root.security;
+                    focused: root.at(root.security-at + i);
+                    clicked => { root.security-pick(i); }
+                }
+            }
+        }
+        if root.ask-psk: HorizontalLayout {
+            spacing: 10px;
+            Field {
+                horizontal-stretch: 1;
+                label: root.psk-label;
+                secret: true;
+                shown: root.show;
+                text <=> root.psk;
+                active: root.field == 1;
+                focused: root.at(root.psk-at);
+                editing: root.editing && root.at(root.psk-at);
+                picked => { root.field = 1; }
+                done => { root.done(); }
+            }
+            VerticalLayout {
+                alignment: end;
+                RowButton {
+                    text: root.show-label;
+                    outlined: !root.show;
+                    focused: root.at(root.show-at);
+                    clicked => { root.show = !root.show; }
+                }
+            }
+        }
+        if root.psk-hint != "" && root.ask-psk: Text {
+            text: root.psk-hint;
+            color: Theme.text-secondary;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: start;
+            RowButton {
+                text: root.connect-label;
+                enabled: !root.busy;
+                focused: root.at(root.connect-at);
+                clicked => { root.connect(); }
+            }
+            Text {
+                text: root.error != "" ? root.error : root.status;
+                color: root.error != "" ? #f44336 : Theme.text-secondary;
+                font-size: 14px;
+                vertical-alignment: center;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+        }
+    }
+    keys := Rectangle {
+        background: transparent;
+        x: root.side-by-side ? fields.width + 12px : 0px;
+        y: root.side-by-side ? 0px : fields.height + 10px;
+        width: root.width - self.x;
+        height: root.has-keyboard ? keyboard.preferred-height : 0px;
+        visible: root.has-keyboard;
+        keyboard := Keyboard {
+            width: parent.width;
+            height: parent.height;
+            space-label: root.space-label;
+            typed(k) => { root.typed(k); }
+            erase => { root.erase(); }
+        }
+    }
+}

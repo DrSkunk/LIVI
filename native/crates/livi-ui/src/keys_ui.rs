@@ -16,8 +16,8 @@ use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
 use slint::{ComponentHandle, Model};
 
 use crate::{
-    AppWindow, DabState, Focus, FocusZone, MiniDspState, Page, PhoneState, RowKind, ScreenKind,
-    SettingsState,
+    AppWindow, ClockFace, DabState, Focus, FocusZone, MiniDspState, Page, PhoneState, RowKind,
+    ScreenKind, SettingsState,
 };
 
 const SEEK_STEP_MS: f32 = 15_000.0;
@@ -40,6 +40,11 @@ enum Target {
     ColorSlider(i32),
     PageSlider,
     CalSlider(i32),
+    JoinSsid,
+    JoinSecurity(usize),
+    JoinPsk,
+    JoinShow,
+    JoinConnect,
     Artwork,
     Prev,
     PlayPause,
@@ -49,6 +54,7 @@ enum Target {
     Favorite,
     Station(usize),
     Games(usize),
+    ClockStyle(ClockFace),
     DspRefresh,
     DspStep(bool, i32),
     DspSlider(bool),
@@ -106,6 +112,19 @@ fn settings_targets(s: &SettingsState) -> Vec<Target> {
         ScreenKind::Calibration => {
             out.extend((0..s.get_cal_knobs().row_count() as i32).map(Target::CalSlider))
         }
+        ScreenKind::Join => {
+            if s.get_join_ask_ssid() {
+                out.push(Target::JoinSsid);
+            }
+            if s.get_join_ask_security() {
+                let options = s.get_join_security_options().row_count();
+                out.extend((0..options).map(Target::JoinSecurity));
+            }
+            if s.get_join_ask_psk() {
+                out.extend([Target::JoinPsk, Target::JoinShow]);
+            }
+            out.push(Target::JoinConnect);
+        }
         ScreenKind::Pending => {}
     }
     out
@@ -147,6 +166,12 @@ fn targets(ui: &AppWindow) -> Vec<Target> {
         Page::Games => (0..crate::games_ui::targets(ui))
             .map(Target::Games)
             .collect(),
+        Page::Clock if ui.get_clock_wide() => {
+            [ClockFace::Classic, ClockFace::Amber, ClockFace::Digital]
+                .into_iter()
+                .map(Target::ClockStyle)
+                .collect()
+        }
         Page::Minidsp => {
             let mut out = vec![Target::DspRefresh];
             if crate::minidsp_ui::ready() {
@@ -177,7 +202,7 @@ fn kind(t: Target) -> Focused {
         | Target::DspSlider(_)
         | Target::Progress => Focused::Slider,
         Target::Number => Focused::Number,
-        Target::Text | Target::ColorHex => Focused::Text,
+        Target::Text | Target::ColorHex | Target::JoinSsid | Target::JoinPsk => Focused::Text,
         _ => Focused::Plain,
     }
 }
@@ -283,6 +308,9 @@ fn activate(ui: &AppWindow, target: Target) {
             }
         }
         Target::ColorReset => s.invoke_color_reset(),
+        Target::JoinSecurity(i) => s.invoke_join_security_pick(i as i32),
+        Target::JoinShow => s.set_join_show(!s.get_join_show()),
+        Target::JoinConnect => s.invoke_join_connect(),
         Target::NumberMinus => adjust(ui, Target::Number, -1),
         Target::NumberPlus => adjust(ui, Target::Number, 1),
         Target::Artwork => {
@@ -297,6 +325,7 @@ fn activate(ui: &AppWindow, target: Target) {
         Target::Source(true) => d.invoke_resume(),
         Target::Favorite => d.invoke_toggle_favorite(),
         Target::Games(i) => crate::games_ui::activate(ui, i),
+        Target::ClockStyle(face) => ui.invoke_clock_style_picked(face),
         Target::Station(i) => {
             if let Some(st) = d.get_stations().row_data(i) {
                 d.invoke_pick(st.service_id);
@@ -375,7 +404,7 @@ fn open_tab(ui: &AppWindow, enter: bool) {
     ui.set_page(tab.page);
     ui.invoke_page_chosen(tab.page);
     TRAIL.with_borrow_mut(Vec::clear);
-    if enter && tab.page != Page::Projection {
+    if enter && tab.page != Page::Projection && (tab.page != Page::Clock || ui.get_clock_wide()) {
         enter_main(ui);
     }
 }
@@ -466,6 +495,7 @@ fn context(ui: &AppWindow, repeat: bool) -> Context {
         projection: page == Page::Projection,
         streaming: ui.get_phone() == PhoneState::Streaming,
         telemetry: page == Page::Telemetry,
+        nav_only: page == Page::Clock && list.is_empty(),
         settings_depth: if page == Page::Settings {
             crate::settings_ui::depth()
         } else {
@@ -557,6 +587,10 @@ pub fn wire(ui: &AppWindow, client: &Client) {
         }
     });
 }
+
+#[cfg(test)]
+#[path = "clock_ui_tests.rs"]
+mod clock_ui_tests;
 
 pub fn text_done(ui: &AppWindow) {
     ui.global::<Focus>().set_editing(false);

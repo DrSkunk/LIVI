@@ -80,6 +80,7 @@ impl Follow {
                 out.push(Update::MiniDsp(next));
             }
         }
+
         if hit("sessions") {
             let phone = if state["sessions"]["active"].is_null() {
                 PhoneState::None
@@ -194,5 +195,44 @@ impl Follow {
             out.push(Update::Open(start.to_string()));
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use livi_core_proto::config::ClockStyle;
+    use serde_json::json;
+
+    #[test]
+    fn clock_style_changes_are_forwarded_without_restarting() {
+        let mut follow = Follow::default();
+        let keys = BTreeSet::from(["config".to_string()]);
+        let mut state = json!({ "config": { "clockStyle": "classic" } });
+
+        assert!(
+            follow.changed(Some(&keys), &state).iter().any(
+                |u| matches!(u, Update::Look(look) if look.clock_style == ClockStyle::Classic)
+            )
+        );
+        assert!(
+            !follow
+                .changed(Some(&keys), &state)
+                .iter()
+                .any(|u| matches!(u, Update::Look(_)))
+        );
+        state["config"]["clockStyle"] = json!("amber");
+        assert!(
+            follow
+                .changed(Some(&keys), &state)
+                .iter()
+                .any(|u| matches!(u, Update::Look(look) if look.clock_style == ClockStyle::Amber))
+        );
+        state["config"]["clockStyle"] = json!("digital");
+        assert!(
+            follow.changed(Some(&keys), &state).iter().any(
+                |u| matches!(u, Update::Look(look) if look.clock_style == ClockStyle::Digital)
+            )
+        );
     }
 }

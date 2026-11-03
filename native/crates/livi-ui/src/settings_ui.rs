@@ -14,6 +14,7 @@ use livi_ui_model::settings::calibration::{Pattern, set as calibrate, value_at};
 use livi_ui_model::settings::color::{Hsl, from_hsl, hex, rgb, to_hsl};
 use livi_ui_model::settings::custom::files::Wanted;
 use livi_ui_model::settings::custom::icon::icons as icon_patch;
+use livi_ui_model::settings::custom::network::{Join, JoinView};
 use livi_ui_model::settings::custom::{Watch, set_binding};
 use livi_ui_model::settings::node::{CustomPage, Radio};
 use livi_ui_model::settings::restart::{pending, sessions_open};
@@ -56,6 +57,7 @@ struct Controller {
     watching: Vec<Watch>,
     capturing: Option<&'static str>,
     browser: Option<Browser>,
+    join: Option<Join>,
 }
 
 thread_local! {
@@ -84,7 +86,10 @@ fn refill<T: Clone + PartialEq + 'static>(now: &ModelRc<T>, next: Vec<T>) -> Opt
 }
 
 pub fn depth() -> usize {
-    with(|c| c.stack.len() + c.browser.as_ref().map_or(0, Browser::depth)).unwrap_or(0)
+    with(|c| {
+        c.stack.len() + c.browser.as_ref().map_or(0, Browser::depth) + usize::from(c.join.is_some())
+    })
+    .unwrap_or(0)
 }
 
 pub fn tr(key: &str, text: &str) -> String {
@@ -200,6 +205,7 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
             watching: Vec::new(),
             capturing: None,
             browser: None,
+            join: None,
         });
     });
     let s = ui.global::<SettingsState>();
@@ -210,6 +216,10 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
         let (weak, client) = (weak.clone(), client.clone());
         move || {
             act(&weak, &client, |c, _| match c.browser.as_mut() {
+                _ if c.join.is_some() => {
+                    c.join = None;
+                    (Vec::new(), false)
+                }
                 Some(b) => {
                     if !b.up() {
                         c.browser = None;
@@ -238,6 +248,12 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
                         (Vec::new(), false)
                     });
                 }
+                Some(Local::JoinNetwork(n)) => {
+                    if let Some(join) = Join::scanned(&client.state(), n) {
+                        open_join(&weak, &client, join);
+                    }
+                }
+                Some(Local::JoinHidden) => open_join(&weak, &client, Join::hidden()),
                 Some(Local::CalibrateTouch(n)) => {
                     if let Some(ui) = weak.upgrade() {
                         calibrate_touch::start(&ui, &client, n);
@@ -589,6 +605,71 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
             })
         }
     });
+    s.on_join_key({
+        let weak = weak.clone();
+        move |k: SharedString| {
+            let Some(ui) = weak.upgrade() else { return };
+            let s = ui.global::<SettingsState>();
+            if s.get_join_field() == 0 {
+                s.set_join_ssid(format!("{}{k}", s.get_join_ssid()).into());
+            } else {
+                s.set_join_psk(format!("{}{k}", s.get_join_psk()).into());
+            }
+        }
+    });
+    s.on_join_erase({
+        let weak = weak.clone();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let s = ui.global::<SettingsState>();
+            let erase = |text: SharedString| {
+                let mut text = text.to_string();
+                text.pop();
+                SharedString::from(text)
+            };
+            if s.get_join_field() == 0 {
+                s.set_join_ssid(erase(s.get_join_ssid()));
+            } else {
+                s.set_join_psk(erase(s.get_join_psk()));
+            }
+        }
+    });
+    s.on_join_connect({
+        let (weak, client) = (weak.clone(), client.clone());
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let s = ui.global::<SettingsState>();
+            let (ssid, psk) = (s.get_join_ssid(), s.get_join_psk());
+            act(&weak, &client, |c, state| {
+                let strings = &c.strings;
+                let ask = c
+                    .join
+                    .as_mut()
+                    .and_then(|j| j.request(state, &ssid, &psk, strings));
+                (ask.map(Change::Act).into_iter().collect(), false)
+            });
+            crate::keys_ui::text_done(&ui);
+        }
+    });
+    s.on_join_security_pick({
+        let (weak, client) = (weak.clone(), client.clone());
+        move |i| {
+            act(&weak, &client, |c, _| {
+                if let Some(join) = c.join.as_mut() {
+                    join.choose(i as usize);
+                }
+                (Vec::new(), false)
+            })
+        }
+    });
+    s.on_join_done({
+        let weak = weak.clone();
+        move || {
+            if let Some(ui) = weak.upgrade() {
+                crate::keys_ui::text_done(&ui);
+            }
+        }
+    });
     s.on_color_reset({
         let (weak, client) = (weak.clone(), client.clone());
         move || {
@@ -597,6 +678,21 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
                 (c.model.color_reset(&c.stack).into_iter().collect(), false)
             })
         }
+    });
+}
+
+// Opens the Wi-Fi join form with empty drafts, on the password field
+// unless the network name is still to be typed.
+fn open_join(weak: &Weak<AppWindow>, client: &Client, join: Join) {
+    let Some(ui) = weak.upgrade() else { return };
+    let s = ui.global::<SettingsState>();
+    s.set_join_ssid(SharedString::new());
+    s.set_join_psk(SharedString::new());
+    s.set_join_show(false);
+    s.set_join_field(if join.hidden { 0 } else { 1 });
+    act(weak, client, |c, _| {
+        c.join = Some(join);
+        (Vec::new(), false)
     });
 }
 
@@ -620,6 +716,7 @@ fn facts() -> Facts {
 fn set_watch(client: &Client, w: &Watch, on: bool) {
     match w {
         Watch::LinkSpeed => client.send(&ToCore::LinkSpeed { on }),
+        Watch::Network => client.act(Action::NetworkWatch { on }),
         Watch::Act(a) if on => client.act(a.clone()),
         Watch::Act(_) => {}
     }
@@ -643,6 +740,103 @@ pub fn render(ui: &AppWindow, client: &Client) {
 }
 
 pub fn leave(client: &Client) {
-    with(|c| c.browser = None);
+    with(|c| {
+        c.browser = None;
+        c.join = None;
+    });
     follow_watches(client, Vec::new());
+}
+
+#[cfg(test)]
+mod network_layout_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
+    use slint::platform::{
+        Platform, PlatformError, PointerEventButton, WindowAdapter, WindowEvent,
+    };
+    use slint::{LogicalPosition, PhysicalSize, Rgb8Pixel};
+
+    struct Headless(Rc<MinimalSoftwareWindow>);
+
+    impl Platform for Headless {
+        fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, PlatformError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    #[test]
+    fn hidden_network_form_is_accessible_on_the_target_display() {
+        let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
+        window.set_size(PhysicalSize::new(1280, 400));
+        slint::platform::set_platform(Box::new(Headless(window.clone()))).unwrap();
+        let ui = AppWindow::new().unwrap();
+        ui.set_page(Page::Settings);
+        let state = ui.global::<SettingsState>();
+        state.set_kind(ScreenKind::Join);
+        state.set_title("Hidden network".into());
+        state.set_can_back(true);
+        state.set_join_ask_ssid(true);
+        state.set_join_ask_psk(true);
+        state.set_join_ask_security(true);
+        state.set_join_security_options(ModelRc::from(Rc::new(VecModel::from(vec![
+            "Automatic".into(),
+            "Open".into(),
+            "WPA2".into(),
+            "WPA3".into(),
+        ]))));
+        state.set_join_ssid("Home network".into());
+        state.set_join_psk("password".into());
+        state.set_join_psk_hint("Leave empty for an open network or saved password".into());
+        let backs = Rc::new(Cell::new(0));
+        state.on_back({
+            let backs = backs.clone();
+            move || backs.set(backs.get() + 1)
+        });
+        let typed = Rc::new(RefCell::new(Vec::new()));
+        state.on_join_key({
+            let typed = typed.clone();
+            move |key| typed.borrow_mut().push(key.to_string())
+        });
+        let connects = Rc::new(Cell::new(0));
+        state.on_join_connect({
+            let connects = connects.clone();
+            move || connects.set(connects.get() + 1)
+        });
+        ui.show().unwrap();
+        let mut pixels = vec![Rgb8Pixel::default(); 1280 * 400];
+        assert!(window.draw_if_needed(|renderer| {
+            renderer.render(&mut pixels, 1280);
+        }));
+        assert!(
+            (10..40).any(|y| (600..740).any(|x| {
+                let p = pixels[y * 1280 + x];
+                p.r > 200 && p.g > 200 && p.b > 200
+            })),
+            "the page heading must not be obscured"
+        );
+        let click = |x, y| {
+            let position = LogicalPosition::new(x, y);
+            ui.window().dispatch_event(WindowEvent::PointerPressed {
+                position,
+                button: PointerEventButton::Left,
+            });
+            ui.window().dispatch_event(WindowEvent::PointerReleased {
+                position,
+                button: PointerEventButton::Left,
+            });
+        };
+        click(100.0, 24.0);
+        assert_eq!(backs.get(), 1);
+        click(200.0, 235.0);
+        assert_eq!(state.get_join_field(), 1);
+        click(200.0, 95.0);
+        assert_eq!(state.get_join_field(), 0);
+        click(658.0, 69.0);
+        click(1000.0, 213.0);
+        assert_eq!(&*typed.borrow(), &["1", " "]);
+        click(130.0, 310.0);
+        assert_eq!(connects.get(), 1);
+    }
 }

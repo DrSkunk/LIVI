@@ -1,0 +1,35 @@
+Description: v4l2codecs: preserve a compatible kernel capture format
+ The legacy single-buffer NC12 and split-buffer Nc12 formats both map to
+ NV12 with the Broadcom SAND128 modifier. Reverse lookup alone selects
+ whichever alias occurs first in the format table, even when the kernel
+ selected and enumerated the other layout for the active stream.
+ Keep the current capture format when its DRM representation already
+ matches the negotiated caps instead of switching buffer layouts.
+Author: LIVI contributors
+Forwarded: no
+---
+--- a/sys/v4l2codecs/gstv4l2decoder.c
++++ b/sys/v4l2codecs/gstv4l2decoder.c
+@@ -679,6 +679,7 @@
+   GstVideoFormat format;
+   guint32 pix_fmt;
+   GstVideoInfoDmaDrm tmp_vinfo_drm;
++  GstVideoInfoDmaDrm current_vinfo_drm;
+ 
+   if (gst_caps_is_empty (caps))
+     return FALSE;
+@@ -695,7 +696,13 @@
+   gst_caps_unref (caps);
+ 
+   format = tmp_vinfo_drm.vinfo.finfo->format;
+-  if (!gst_v4l2_format_from_drm_format (tmp_vinfo_drm.drm_fourcc,
++  if (tmp_vinfo_drm.drm_fourcc != DRM_FORMAT_INVALID &&
++      gst_v4l2_format_to_dma_drm_info (&fmt, &current_vinfo_drm) &&
++      current_vinfo_drm.drm_fourcc == tmp_vinfo_drm.drm_fourcc &&
++      current_vinfo_drm.drm_modifier == tmp_vinfo_drm.drm_modifier) {
++    /* A DRM format can represent multiple V4L2 buffer layouts. */
++    pix_fmt = fmt.fmt.pix_mp.pixelformat;
++  } else if (!gst_v4l2_format_from_drm_format (tmp_vinfo_drm.drm_fourcc,
+           tmp_vinfo_drm.drm_modifier, &pix_fmt) &&
+       !gst_v4l2_format_from_video_format (format, &pix_fmt)) {
+     GST_ERROR_OBJECT (self,

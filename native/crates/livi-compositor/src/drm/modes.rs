@@ -30,7 +30,34 @@ pub(super) fn pick_mode(modes: &[Mode], setting: Option<&str>) -> Option<Mode> {
             preferred: m.mode_type().contains(ModeTypeFlags::PREFERRED),
         })
         .collect();
-    choose(&offered, setting.and_then(size_of)).map(|i| modes[i])
+    let strict = std::env::var("LIVI_OS").as_deref() == Ok("1")
+        && std::env::var("LIVI_OS_API").as_deref() == Ok("2");
+    select_mode(&offered, setting, strict).map(|i| modes[i])
+}
+
+pub(super) fn select_mode(
+    offered: &[Offered],
+    setting: Option<&str>,
+    strict: bool,
+) -> Option<usize> {
+    match setting {
+        Some(setting) if setting.contains('@') => {
+            let (size, refresh) = setting.split_once('@')?;
+            let size = size_of(size)?;
+            let refresh: u32 = refresh.parse().ok()?;
+            offered
+                .iter()
+                .enumerate()
+                .filter(|(_, m)| m.size == size && m.refresh.abs_diff(refresh) <= 1)
+                .min_by_key(|(_, m)| m.refresh.abs_diff(refresh))
+                .map(|(i, _)| i)
+        }
+        Some(setting) if strict => {
+            let size = size_of(setting)?;
+            offered.iter().position(|m| m.size == size)
+        }
+        _ => choose(offered, setting.and_then(size_of)),
+    }
 }
 
 pub(super) fn size_of(mode: &str) -> Option<(u16, u16)> {

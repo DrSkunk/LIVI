@@ -15,6 +15,9 @@ const START: &str = r#"#!/bin/sh
 HERE="$(dirname "$(readlink -f "$0")")"
 [ "$1" = telemetry ] && exec "$HERE/resources/core/livi-core" "$@"
 export LIVI_RESOURCES="$HERE/resources"
+if [ "$LIVI_OS" = 1 ] && [ "$LIVI_OS_API" = 2 ]; then
+    export LIVI_GST_HEVC_LEGACY_SLICE=1
+fi
 exec "$HERE/resources/core/livi-core"
 "#;
 
@@ -29,7 +32,7 @@ Categories=Utility;
 StartupWMClass=LIVI
 ";
 
-const TEMPLATES: [&str; 7] = [
+const TEMPLATES: [&str; 8] = [
     "99-LIVI.rules.template",
     "99-LIVI-helper.sudoers.template",
     "livi-wifi-ap.service.template",
@@ -37,6 +40,7 @@ const TEMPLATES: [&str; 7] = [
     "livi-kiosk.service.template",
     "livi-touch-filter",
     "livi-os-helper-api",
+    "livi-os-display-api",
 ];
 
 fn copy(src: &Path, dest: &Path) -> Result<(), String> {
@@ -191,6 +195,18 @@ pub fn run(arch: Arch) -> Result<(), String> {
     fetch_gstreamer(&format!("linux-{}", arch.name()))?;
     let gst_dir = format!("gstreamer/linux-{}", arch.name());
     let gst_src = root.join("assets").join(&gst_dir);
+    if arch == Arch::Arm64 {
+        let plugin = gst_src.join("lib/gstreamer-1.0/libgstv4l2codecs.so");
+        let bytes = fs::read(&plugin).map_err(|e| format!("{}: {e}", plugin.display()))?;
+        let capability = b"LIVI_GST_HEVC_LEGACY_SLICE";
+        if !bytes.windows(capability.len()).any(|w| w == capability) {
+            return Err(
+                "ARM64 GStreamer bundle lacks LIVI OS HEVC slice compatibility; rebuild it \
+                 with scripts/gstreamer/patches before packaging"
+                    .into(),
+            );
+        }
+    }
     let skip = |p: &Path| {
         p.extension().is_some_and(|e| e == "a")
             || p.strip_prefix(&gst_src)
@@ -219,4 +235,37 @@ pub fn run(arch: Arch) -> Result<(), String> {
     )?;
     println!("[package-linux] {}", image.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn launcher_selects_legacy_hevc_slice_abi_only_for_the_os_appliance() {
+        let dir = std::env::temp_dir().join(format!("livi-launcher-test-{}", std::process::id()));
+        fs::create_dir_all(dir.join("resources/core")).unwrap();
+        write_exe(&dir.join("LIVI"), START).unwrap();
+        write_exe(
+            &dir.join("resources/core/livi-core"),
+            "#!/bin/sh\nprintf '%s' \"${LIVI_GST_HEVC_LEGACY_SLICE-unset}\"\n",
+        )
+        .unwrap();
+        for (os, api, expected) in [
+            ("1", "2", "1"),
+            ("0", "2", "unset"),
+            ("1", "1", "unset"),
+            ("", "", "unset"),
+        ] {
+            let output = Command::new(dir.join("LIVI"))
+                .env("LIVI_OS", os)
+                .env("LIVI_OS_API", api)
+                .env_remove("LIVI_GST_HEVC_LEGACY_SLICE")
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

@@ -1,0 +1,25 @@
+Description: wayland: use the buffer's video metadata for stride translation
+ DRM caps identify SAND128 but do not distinguish legacy column-height strides
+ from the packed tile strides of NV12_128C8. Use the actual buffer metadata
+ format when translating its strides instead of inferring it from caps.
+Author: LIVI contributors
+Forwarded: no
+---
+--- a/gst-libs/gst/wayland/gstwllinuxdmabuf.c
++++ b/gst-libs/gst/wayland/gstwllinuxdmabuf.c
+@@ -132,11 +132,14 @@
+ 
+   vmeta = gst_buffer_get_video_meta (buf);
+   if (vmeta) {
+-    finfo = drm_info->vinfo.finfo;
++    finfo = gst_video_format_get_info (vmeta->format);
+     width = vmeta->width;
+     height = vmeta->height;
+     nplanes = vmeta->n_planes;
+     offsets = vmeta->offset;
+     strides = vmeta->stride;
++    GST_DEBUG_OBJECT (display, "Buffer metadata format %s, strides %d/%d",
++        gst_video_format_to_string (vmeta->format),
++        strides[0], strides[1]);
+   } else if (gst_video_info_dma_drm_to_video_info (drm_info, &info)) {
+     finfo = info.finfo;

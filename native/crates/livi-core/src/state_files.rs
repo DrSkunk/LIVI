@@ -368,6 +368,7 @@ mod tests {
             cameras: Vec::new(),
             mfi: Default::default(),
             minidsp: Default::default(),
+            network: Default::default(),
             config: defaults(),
         }
     }

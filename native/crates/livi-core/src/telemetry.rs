@@ -13,6 +13,7 @@ use socketioxide::SocketIo;
 use socketioxide::extract::{Data, SocketRef};
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, watch};
+use tokio::time::{Duration, Instant};
 use tower_http::cors::CorsLayer;
 
 use crate::server::Core;
@@ -33,6 +34,63 @@ const FROM_LAST_RUN: &str = "saved";
 const RENAMED: [(&str, &str); 1] = [("turn", "turnSignal")];
 const NESTED: [&str; 5] = ["gps", "can", CLIMATE, "tirePressure", NOTIFICATION];
 const VOLUME_STEP: f64 = 0.005;
+const GPS_SPEED_STALE: Duration = Duration::from_secs(3);
+
+#[derive(Default)]
+struct VehicleSpeed {
+    selected: bool,
+    gps: Option<(f64, Instant)>,
+    vehicle: Option<Value>,
+}
+
+impl VehicleSpeed {
+    fn deadline(&self) -> Option<Instant> {
+        self.gps
+            .filter(|_| self.selected)
+            .map(|(_, at)| at + GPS_SPEED_STALE)
+    }
+
+    fn resolve(&mut self, patch: &Value, cfg: &Config, now: Instant) -> Value {
+        let Some(mut patch) = patch.as_object().cloned() else {
+            return patch.clone();
+        };
+        let switched = self.selected != cfg.gps_speed_enabled;
+        self.selected = cfg.gps_speed_enabled;
+        if let Some(speed) = patch.get("speedKph") {
+            self.vehicle = Some(speed.clone());
+        }
+        let speed = patch.get("gps").and_then(|gps| gps.get("speedMs"));
+        let mut changed = speed.is_some();
+        if let Some(speed) = speed {
+            self.gps = speed
+                .as_f64()
+                .filter(|v| v.is_finite() && *v >= 0.0 && (*v * 3.6).is_finite())
+                .map(|v| (v * 3.6, now));
+        }
+        if !cfg.gps_enabled
+            || patch
+                .get("gnss")
+                .and_then(|info| info.get("connected"))
+                .and_then(Value::as_bool)
+                == Some(false)
+            || self.gps.is_some_and(|(_, at)| now >= at + GPS_SPEED_STALE)
+        {
+            changed |= self.gps.take().is_some();
+        }
+        if self.selected && (switched || changed || patch.contains_key("speedKph")) {
+            patch.insert(
+                "speedKph".into(),
+                self.gps.map_or(Value::Null, |(kph, _)| json!(kph)),
+            );
+        } else if switched {
+            patch.insert(
+                "speedKph".into(),
+                self.vehicle.clone().unwrap_or(Value::Null),
+            );
+        }
+        Value::Object(patch)
+    }
+}
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -119,6 +177,7 @@ struct Telemetry {
     appearance: AppearanceMode,
     dark: bool,
     volume: Option<f64>,
+    speed: VehicleSpeed,
 }
 
 impl Telemetry {
@@ -131,6 +190,7 @@ impl Telemetry {
             appearance: cfg.appearance_mode,
             dark: cfg.dark_mode,
             volume: None,
+            speed: VehicleSpeed::default(),
         };
         t.seed(&cfg, saved);
         t
@@ -163,6 +223,8 @@ impl Telemetry {
         climate.insert(SOURCE.into(), source.into());
         patch.insert(CLIMATE.into(), climate.into());
         merge(&mut self.snap, &Value::Object(patch));
+        let speed = self.speed.resolve(&json!({}), cfg, Instant::now());
+        merge(&mut self.snap, &speed);
     }
 
     async fn publish(&self) {
@@ -172,6 +234,9 @@ impl Telemetry {
     }
 
     async fn push(&mut self, patch: &Value) {
+        let patch = self
+            .speed
+            .resolve(patch, &self.core.hub.config(), Instant::now());
         if let Some(page) = patch.get("path").and_then(Value::as_str)
             && let Some(app) = projection_app(page)
         {
@@ -181,7 +246,7 @@ impl Telemetry {
             }
         }
         let path = self.snap.get("path").cloned();
-        let Some(changed) = merge(&mut self.snap, patch) else {
+        let Some(changed) = merge(&mut self.snap, &patch) else {
             return;
         };
         self.publish().await;
@@ -357,9 +422,16 @@ pub async fn run(core: Arc<Core>, mut inside: mpsc::UnboundedReceiver<Value>, sa
     t.publish().await;
     let mut state = core.hub.watch();
     loop {
+        let speed_deadline = t.speed.deadline();
         tokio::select! {
             Some(patch) = pushed.recv() => t.push(&patch).await,
             Some(patch) = inside.recv() => t.push(&patch).await,
+            _ = async {
+                match speed_deadline {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending().await,
+                }
+            } => t.push(&json!({})).await,
             changed = state.changed() => {
                 if changed.is_err() {
                     return;
@@ -370,6 +442,7 @@ pub async fn run(core: Arc<Core>, mut inside: mpsc::UnboundedReceiver<Value>, sa
                 };
                 t.appearance(mode).await;
                 t.dark_mode(dark).await;
+                t.push(&json!({})).await;
             }
         }
     }
@@ -411,6 +484,7 @@ mod tests {
             cameras: Vec::new(),
             mfi: Default::default(),
             minidsp: Default::default(),
+            network: Default::default(),
             config,
         }
     }
@@ -429,6 +503,142 @@ mod tests {
 
     fn obj(v: Value) -> Snapshot {
         v.as_object().cloned().unwrap_or_default()
+    }
+
+    fn gps_speed_config() -> Config {
+        Config {
+            gps_enabled: true,
+            gps_speed_enabled: true,
+            ..defaults()
+        }
+    }
+
+    #[test]
+    fn gps_speed_is_opt_in_and_overrides_even_a_zero_ecu_speed() {
+        let now = Instant::now();
+        let mut speed = VehicleSpeed::default();
+        let patch = json!({ "gps": { "speedMs": 10.0 }, "speedKph": 0, "rpm": 2500 });
+        assert_eq!(speed.resolve(&patch, &defaults(), now), patch);
+        let cfg = gps_speed_config();
+        let resolved = speed.resolve(&patch, &cfg, now);
+        assert_eq!(resolved["speedKph"], 36.0);
+        assert_eq!(resolved["rpm"], 2500);
+        assert_eq!(resolved["gps"], patch["gps"]);
+        assert_eq!(
+            speed.resolve(&json!({ "speedKph": null }), &cfg, now)["speedKph"],
+            36.0
+        );
+        assert_eq!(
+            speed.resolve(&json!({ "speedKph": 0 }), &cfg, now)["speedKph"],
+            36.0
+        );
+        assert_eq!(
+            speed.resolve(&json!({ "gps": { "speedMs": 0 } }), &cfg, now)["speedKph"],
+            0.0
+        );
+    }
+
+    #[test]
+    fn gps_speed_expires_at_three_seconds_and_position_updates_do_not_refresh_it() {
+        let now = Instant::now();
+        let cfg = gps_speed_config();
+        let mut speed = VehicleSpeed::default();
+        speed.resolve(&json!({ "gps": { "speedMs": 10 } }), &cfg, now);
+        assert_eq!(speed.deadline(), Some(now + GPS_SPEED_STALE));
+        let before = now + GPS_SPEED_STALE - Duration::from_millis(1);
+        let position = json!({ "gps": { "lat": 51.0, "lng": 4.0 }, "rpm": 2000 });
+        assert_eq!(speed.resolve(&position, &cfg, before), position);
+        assert_eq!(
+            speed.resolve(&json!({}), &cfg, now + GPS_SPEED_STALE),
+            json!({ "speedKph": null })
+        );
+        assert_eq!(speed.deadline(), None);
+        assert_eq!(
+            speed.resolve(&json!({ "speedKph": 0 }), &cfg, now + GPS_SPEED_STALE),
+            json!({ "speedKph": null })
+        );
+        assert_eq!(
+            speed.resolve(
+                &json!({ "gps": { "speedMs": 10 } }),
+                &cfg,
+                now + GPS_SPEED_STALE
+            )["speedKph"],
+            36.0
+        );
+    }
+
+    #[test]
+    fn gps_speed_clears_on_disconnect_disable_and_invalid_speed() {
+        let now = Instant::now();
+        for invalid in [
+            json!({ "gnss": { "connected": false } }),
+            json!({ "gps": { "speedMs": null } }),
+            json!({ "gps": { "speedMs": -1 } }),
+            json!({ "gps": { "speedMs": "fast" } }),
+            json!({ "gps": { "speedMs": f64::MAX } }),
+        ] {
+            let cfg = gps_speed_config();
+            let mut speed = VehicleSpeed::default();
+            speed.resolve(&json!({ "gps": { "speedMs": 10 } }), &cfg, now);
+            assert_eq!(speed.resolve(&invalid, &cfg, now)["speedKph"], Value::Null);
+            assert_eq!(speed.deadline(), None);
+        }
+        let mut cfg = gps_speed_config();
+        let mut speed = VehicleSpeed::default();
+        assert_eq!(
+            speed.resolve(&json!({}), &cfg, now),
+            json!({ "speedKph": null }),
+            "selecting GPS without a fresh fix must not retain vehicle speed"
+        );
+        speed.resolve(&json!({ "gps": { "speedMs": 10 } }), &cfg, now);
+        cfg.gps_enabled = false;
+        assert_eq!(
+            speed.resolve(&json!({}), &cfg, now),
+            json!({ "speedKph": null })
+        );
+        assert_eq!(speed.deadline(), None);
+        assert_eq!(
+            speed.resolve(&json!({ "gps": { "speedMs": 10 } }), &cfg, now)["speedKph"],
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn switching_back_restores_the_latest_vehicle_speed_including_expiry() {
+        let now = Instant::now();
+        for vehicle in [json!(42), Value::Null] {
+            let mut cfg = gps_speed_config();
+            let mut speed = VehicleSpeed::default();
+            speed.resolve(&json!({ "gps": { "speedMs": 10 } }), &cfg, now);
+            speed.resolve(&json!({ "speedKph": vehicle }), &cfg, now);
+            cfg.gps_speed_enabled = false;
+            assert_eq!(
+                speed.resolve(&json!({}), &cfg, now),
+                json!({ "speedKph": vehicle })
+            );
+            assert_eq!(speed.deadline(), None);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn selected_gps_speed_reaches_the_published_snapshot_and_clears_when_stale() {
+        let dir = TempDir::new();
+        let core = core(&dir, gps_speed_config());
+        let (_, io, _) = socket(core.hub.watch());
+        let mut t = Telemetry::new(core.clone(), io, &Saved::default());
+        assert_eq!(t.snap["speedKph"], Value::Null);
+        t.push(&json!({ "gps": { "speedMs": 20 }, "speedKph": 0, "rpm": 2500 }))
+            .await;
+        assert_eq!(core.hub.watch().borrow().telemetry["speedKph"], 72.0);
+        assert_eq!(core.hub.watch().borrow().telemetry["rpm"], 2500);
+        tokio::time::advance(GPS_SPEED_STALE).await;
+        t.push(&json!({})).await;
+        assert_eq!(core.hub.watch().borrow().telemetry["speedKph"], Value::Null);
+        t.push(&json!({ "gps": { "speedMs": 20 } })).await;
+        assert_eq!(core.hub.watch().borrow().telemetry["speedKph"], 72.0);
+        core.hub.update(|s| s.config.gps_speed_enabled = false);
+        t.push(&json!({})).await;
+        assert_eq!(core.hub.watch().borrow().telemetry["speedKph"], 0);
     }
 
     #[test]

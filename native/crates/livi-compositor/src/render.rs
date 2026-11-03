@@ -4,13 +4,13 @@
 
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::damage::OutputDamageTracker;
-use smithay::backend::renderer::element::Id;
 use smithay::backend::renderer::element::Kind as ElementKind;
 use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
 use smithay::backend::renderer::element::surface::{
     WaylandSurfaceRenderElement, render_elements_from_surface_tree,
 };
 use smithay::backend::renderer::element::texture::TextureRenderElement;
+use smithay::backend::renderer::element::{Id, RenderElementStates};
 use smithay::backend::renderer::gles::element::TextureShaderElement;
 use smithay::backend::renderer::gles::{
     GlesRenderer, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType,
@@ -395,13 +395,15 @@ pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
     }
 }
 
+pub type CalibratedElements = (Vec<LiviElement>, Option<RenderElementStates>);
+
 pub fn calibrated(
     renderer: &mut GlesRenderer,
     parts: FrameParts,
     size: (i32, i32),
-) -> Result<Vec<LiviElement>, Box<dyn std::error::Error>> {
+) -> Result<CalibratedElements, Box<dyn std::error::Error>> {
     let Some(program) = parts.cal else {
-        return Ok(parts.elements);
+        return Ok((parts.elements, None));
     };
     let (w, h) = size;
     let mut tex: GlesTexture = Offscreen::<GlesTexture>::create_buffer(
@@ -409,17 +411,18 @@ pub fn calibrated(
         Fourcc::Abgr8888,
         smithay::utils::Size::from((w, h)),
     )?;
-    {
+    let states = {
         let mut tracker = OutputDamageTracker::new((w, h), 1.0, Transform::Normal);
         let mut fb = Bind::<GlesTexture>::bind(renderer, &mut tex)?;
-        tracker.render_output::<LiviElement, _>(
+        let rendered = tracker.render_output::<LiviElement, _>(
             renderer,
             &mut fb,
             0,
             &parts.elements,
             parts.clear,
         )?;
-    }
+        rendered.states
+    };
     let texture = TextureRenderElement::from_static_texture(
         Id::new(),
         renderer.context_id(),
@@ -433,11 +436,14 @@ pub fn calibrated(
         None,
         ElementKind::Unspecified,
     );
-    Ok(vec![LiviElement::Calibrated(TextureShaderElement::new(
-        texture,
-        program,
-        parts.uniforms,
-    ))])
+    Ok((
+        vec![LiviElement::Calibrated(TextureShaderElement::new(
+            texture,
+            program,
+            parts.uniforms,
+        ))],
+        Some(states),
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]

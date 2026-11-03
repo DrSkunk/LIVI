@@ -149,6 +149,7 @@ mod tests {
             cameras,
             mfi: Default::default(),
             minidsp: Default::default(),
+            network: Default::default(),
             config,
         }
     }

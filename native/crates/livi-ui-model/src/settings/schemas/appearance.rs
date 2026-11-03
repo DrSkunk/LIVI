@@ -59,6 +59,27 @@ pub fn schema() -> Node {
             .icon("uiStyle")
             .display_value()
             .page(Label::new("settings.uiStyle", "UI Style")),
+            Node::select(
+                Label::new("settings.clockStyle", "Clock Style"),
+                "clockStyle",
+                vec![
+                    choice(
+                        Label::new("settings.clockStyleClassic", "Classic"),
+                        OptionValue::Text("classic"),
+                    ),
+                    choice(
+                        Label::new("settings.clockStyleAmber", "Amber"),
+                        OptionValue::Text("amber"),
+                    ),
+                    choice(
+                        Label::new("settings.clockStyleDigital", "Digital"),
+                        OptionValue::Text("digital"),
+                    ),
+                ],
+            )
+            .icon("clock")
+            .display_value()
+            .page(Label::new("settings.clockStyle", "Clock Style")),
             Node::checkbox(
                 Label::new("settings.overlayMessages", "Overlay Messages"),
                 "overlayMessages",

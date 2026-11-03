@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
-use crate::settings::node::{CustomPage, Label, Node};
+use crate::settings::node::{Condition, CustomPage, Label, Node};
 
 fn page(
     route: &'static str,
@@ -31,6 +31,14 @@ pub fn schema() -> Node {
                 "about",
                 CustomPage::About,
             ),
+            page(
+                "network",
+                "settings.network",
+                "Network",
+                "network",
+                CustomPage::Network,
+            )
+            .hidden(Condition::NoNetwork),
             Node::route(
                 "logs",
                 Label::new("settings.logs", "Logs"),

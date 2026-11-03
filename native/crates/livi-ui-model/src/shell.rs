@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
+use livi_core_proto::config::ClockStyle;
 use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9,6 +10,7 @@ pub enum Tab {
     Projection,
     Telemetry,
     Media,
+    Clock,
     Camera,
     Games,
     MiniDsp,
@@ -28,6 +30,8 @@ pub struct Look {
     pub stream: (i32, i32),
     pub language: String,
     pub style: Style,
+    pub clock_style: ClockStyle,
+    pub clock_auto_hide: bool,
 }
 
 /// Which visual style the UI draws with (`uiStyle` in the config).
@@ -48,6 +52,10 @@ fn on_main(config: &Value, key: &str, default: bool) -> bool {
     config[key]["main"].as_bool().unwrap_or(default)
 }
 
+fn on_sidebar(config: &Value, key: &str) -> bool {
+    config["sidebarTabs"][key].as_bool().unwrap_or(true)
+}
+
 pub fn hex_color(text: &str) -> Option<[u8; 3]> {
     let hex = text.trim().trim_start_matches('#');
     if hex.len() != 6 {
@@ -59,20 +67,26 @@ pub fn hex_color(text: &str) -> Option<[u8; 3]> {
 
 pub fn tabs(config: &Value) -> Vec<Tab> {
     let camera_ready = config["cameraId"].as_str().is_some_and(|id| !id.is_empty());
-    let mut tabs = vec![Tab::Projection];
-    if on_main(config, "dashboard", false) {
+    let mut tabs = Vec::new();
+    if on_sidebar(config, "projection") {
+        tabs.push(Tab::Projection);
+    }
+    if on_main(config, "dashboard", false) && on_sidebar(config, "telemetry") {
         tabs.push(Tab::Telemetry);
     }
-    if on_main(config, "media", true) {
+    if on_main(config, "media", true) && on_sidebar(config, "media") {
         tabs.push(Tab::Media);
     }
-    if on_main(config, "camera", true) && camera_ready {
+    if on_sidebar(config, "clock") {
+        tabs.push(Tab::Clock);
+    }
+    if on_main(config, "camera", true) && camera_ready && on_sidebar(config, "camera") {
         tabs.push(Tab::Camera);
     }
-    if config["games"]["enabled"].as_bool().unwrap_or(false) {
+    if config["games"]["enabled"].as_bool().unwrap_or(false) && on_sidebar(config, "games") {
         tabs.push(Tab::Games);
     }
-    if config["minidsp"]["enabled"].as_bool().unwrap_or(false) {
+    if config["minidsp"]["enabled"].as_bool().unwrap_or(false) && on_sidebar(config, "minidsp") {
         tabs.push(Tab::MiniDsp);
     }
     tabs.push(Tab::Settings);
@@ -137,6 +151,14 @@ pub fn look_at(config: &Value, telemetry: &Value) -> Look {
         stream: (w, h),
         language: config["language"].as_str().unwrap_or("en").to_string(),
         style: style(config),
+        clock_style: match &config["clockStyle"] {
+            Value::Null => ClockStyle::default(),
+            value => serde_json::from_value(value.clone()).unwrap_or_else(|e| {
+                eprintln!("[ui] invalid clock style: {e}");
+                ClockStyle::default()
+            }),
+        },
+        clock_auto_hide: config["clockAutoHide"].as_bool().unwrap_or(false),
     }
 }
 
@@ -150,7 +172,7 @@ mod tests {
     fn tabs_follow_the_config() {
         assert_eq!(
             tabs(&json!({})),
-            vec![Tab::Projection, Tab::Media, Tab::Settings]
+            vec![Tab::Projection, Tab::Media, Tab::Clock, Tab::Settings]
         );
         assert_eq!(
             tabs(&json!({ "dashboard": { "main": true }, "cameraId": "cam0" })),
@@ -158,21 +180,51 @@ mod tests {
                 Tab::Projection,
                 Tab::Telemetry,
                 Tab::Media,
+                Tab::Clock,
                 Tab::Camera,
                 Tab::Settings
             ]
         );
         assert_eq!(
             tabs(&json!({ "games": { "enabled": true } })),
-            vec![Tab::Projection, Tab::Media, Tab::Games, Tab::Settings]
+            vec![
+                Tab::Projection,
+                Tab::Media,
+                Tab::Clock,
+                Tab::Games,
+                Tab::Settings
+            ]
         );
         assert_eq!(
             tabs(&json!({ "minidsp": { "enabled": true } })),
-            vec![Tab::Projection, Tab::Media, Tab::MiniDsp, Tab::Settings]
+            vec![
+                Tab::Projection,
+                Tab::Media,
+                Tab::Clock,
+                Tab::MiniDsp,
+                Tab::Settings
+            ]
         );
         assert_eq!(
             tabs(&json!({ "minidsp": { "enabled": false } })),
-            vec![Tab::Projection, Tab::Media, Tab::Settings]
+            vec![Tab::Projection, Tab::Media, Tab::Clock, Tab::Settings]
+        );
+    }
+
+    #[test]
+    fn sidebar_tabs_can_be_hidden_without_disabling_their_features() {
+        assert_eq!(
+            tabs(&json!({
+                "dashboard": { "main": true },
+                "media": { "main": true },
+                "sidebarTabs": {
+                    "projection": false,
+                    "telemetry": false,
+                    "media": false,
+                    "clock": false
+                }
+            })),
+            vec![Tab::Settings]
         );
     }
 
@@ -218,5 +270,29 @@ mod tests {
             Style::Standard
         );
         assert_eq!(look(&json!({ "uiStyle": "bogus" })).style, Style::Comand);
+    }
+
+    #[test]
+    fn clock_style_follows_the_config_and_defaults_to_classic() {
+        assert_eq!(look(&json!({})).clock_style, ClockStyle::Classic);
+        assert_eq!(
+            look(&json!({ "clockStyle": "amber" })).clock_style,
+            ClockStyle::Amber
+        );
+        assert_eq!(
+            look(&json!({ "clockStyle": "digital" })).clock_style,
+            ClockStyle::Digital
+        );
+        assert_eq!(
+            look(&json!({ "clockStyle": "unknown" })).clock_style,
+            ClockStyle::Classic
+        );
+    }
+
+    #[test]
+    fn clock_auto_hide_defaults_off_and_follows_the_config() {
+        assert!(!look(&json!({})).clock_auto_hide);
+        assert!(look(&json!({ "clockAutoHide": true })).clock_auto_hide);
+        assert!(!look(&json!({ "clockAutoHide": false })).clock_auto_hide);
     }
 }

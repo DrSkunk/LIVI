@@ -15,10 +15,11 @@ const MAX_HEIGHT: f64 = 2160.0;
 const WIFI_PASSWORD_MIN: usize = 8;
 const WIFI_PASSWORD_MAX: usize = 63;
 
-const PAGES: [(&str, &str, &str); 8] = [
+const PAGES: [(&str, &str, &str); 9] = [
     ("/", "Home", "settings.startPageHome"),
     ("/telemetry", "Telemetry", "settings.startPageTelemetry"),
     ("/media", "Media", "settings.startPageMedia"),
+    ("/clock", "Clock", "settings.startPageClock"),
     ("/camera", "Camera", "settings.startPageCamera"),
     ("/games", "Games", "settings.startPageGames"),
     ("/minidsp", "MiniDSP", "settings.startPageMinidsp"),
@@ -437,6 +438,56 @@ fn tab_settings() -> Node {
         Label::new("settings.tabSettings", "Tab Settings"),
         vec![
             Node::route(
+                "sidebar",
+                Label::new("settings.sidebar", "Sidebar"),
+                vec![
+                    Node::checkbox(
+                        Label::new("settings.showProjectionTab", "Show Projection"),
+                        "sidebarTabs.projection",
+                    )
+                    .icon("projection"),
+                    Node::checkbox(
+                        Label::new("settings.showDashboardTab", "Show Dashboard"),
+                        "sidebarTabs.telemetry",
+                    )
+                    .icon("dashboards"),
+                    Node::checkbox(
+                        Label::new("settings.showMediaTab", "Show Media"),
+                        "sidebarTabs.media",
+                    )
+                    .icon("media"),
+                    Node::checkbox(
+                        Label::new("settings.showClockTab", "Show Clock"),
+                        "sidebarTabs.clock",
+                    )
+                    .icon("clock"),
+                    Node::checkbox(
+                        Label::new(
+                            "settings.autoHideClockSidebar",
+                            "Auto-hide sidebar on Clock",
+                        ),
+                        "clockAutoHide",
+                    )
+                    .icon("clock"),
+                    Node::checkbox(
+                        Label::new("settings.showCameraTab", "Show Camera"),
+                        "sidebarTabs.camera",
+                    )
+                    .icon("camera"),
+                    Node::checkbox(
+                        Label::new("settings.showGamesTab", "Show Games"),
+                        "sidebarTabs.games",
+                    )
+                    .icon("games"),
+                    Node::checkbox(
+                        Label::new("settings.showMiniDspTab", "Show MiniDSP"),
+                        "sidebarTabs.minidsp",
+                    )
+                    .icon("minidsp"),
+                ],
+            )
+            .icon("tabSettings"),
+            Node::route(
                 "dashboard",
                 Label::new("settings.dashboard", "Dashboard"),
                 [
@@ -613,6 +664,11 @@ fn gps() -> Node {
         vec![
             Node::checkbox(Label::new("settings.gpsEnabled", "Enable"), "gpsEnabled")
                 .icon("gpsEnabled"),
+            Node::checkbox(
+                Label::new("settings.gpsSpeedEnabled", "Use GPS for vehicle speed"),
+                "gpsSpeedEnabled",
+            )
+            .icon("gpsEnabled"),
             Node::text(Label::new("settings.gpsDevice", "Device"), "gpsDevice")
                 .icon("gpsDevice")
                 .page(Label::new("settings.gpsDevice", "Device")),

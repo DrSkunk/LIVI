@@ -1,0 +1,302 @@
+// SPDX-FileCopyrightText: 2025-2026 Lasse Heitgres
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Additional terms: see NOTICE
+
+import { Theme } from "theme.slint";
+import { Focus } from "focus.slint";
+
+export enum ClockFace { classic, amber, digital }
+
+export global ClockText {
+    in property <string> classic: "Classic";
+    in property <string> amber: "Amber";
+    in property <string> digital: "Digital";
+}
+
+component ClockMark inherits Path {
+    in property <angle> angle;
+    in property <bool> major;
+    in property <color> tint;
+
+    property <float> dx: sin(root.angle);
+    property <float> dy: -cos(root.angle);
+    property <float> tx: cos(root.angle);
+    property <float> ty: sin(root.angle);
+    property <float> inner: root.major ? 173 : 180;
+    property <float> half-width: root.major ? 2.3 : 0.8;
+
+    viewbox-width: 400;
+    viewbox-height: 400;
+    fill: root.tint;
+    MoveTo {
+        x: 200 + 190 * root.dx - root.half-width * root.tx;
+        y: 200 + 190 * root.dy - root.half-width * root.ty;
+    }
+    LineTo {
+        x: 200 + 190 * root.dx + root.half-width * root.tx;
+        y: 200 + 190 * root.dy + root.half-width * root.ty;
+    }
+    LineTo {
+        x: 200 + root.inner * root.dx + root.half-width * root.tx;
+        y: 200 + root.inner * root.dy + root.half-width * root.ty;
+    }
+    LineTo {
+        x: 200 + root.inner * root.dx - root.half-width * root.tx;
+        y: 200 + root.inner * root.dy - root.half-width * root.ty;
+    }
+    Close {}
+}
+
+component ClockHand inherits Path {
+    in property <angle> angle;
+    in property <float> reach;
+    in property <float> tail;
+    in property <float> half-width;
+    in property <color> tint;
+
+    property <float> dx: sin(root.angle);
+    property <float> dy: -cos(root.angle);
+    property <float> tx: cos(root.angle);
+    property <float> ty: sin(root.angle);
+
+    viewbox-width: 400;
+    viewbox-height: 400;
+    fill: root.tint;
+    MoveTo {
+        x: 200 + root.reach * root.dx;
+        y: 200 + root.reach * root.dy;
+    }
+    LineTo {
+        x: 200 + root.reach * 0.8 * root.dx + root.half-width * root.tx;
+        y: 200 + root.reach * 0.8 * root.dy + root.half-width * root.ty;
+    }
+    LineTo {
+        x: 200 - root.tail * root.dx + root.half-width * root.tx;
+        y: 200 - root.tail * root.dy + root.half-width * root.ty;
+    }
+    LineTo {
+        x: 200 - root.tail * root.dx - root.half-width * root.tx;
+        y: 200 - root.tail * root.dy - root.half-width * root.ty;
+    }
+    LineTo {
+        x: 200 + root.reach * 0.8 * root.dx - root.half-width * root.tx;
+        y: 200 + root.reach * 0.8 * root.dy - root.half-width * root.ty;
+    }
+    Close {}
+}
+
+component ClockStyleButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> focused;
+    in property <color> accent;
+    callback clicked();
+
+    background: root.selected ? #33281c : #171715;
+    border-radius: 2px;
+    border-width: root.focused ? 2px : 1px;
+    border-color: root.focused || touch.has-hover ? root.accent : root.selected ? #8c6b43 : #504a3f;
+
+    Text {
+        width: parent.width - 8px;
+        height: parent.height;
+        x: 4px;
+        text: root.label;
+        font-family: "D-DIN";
+        font-size: min(16px, parent.height * 0.38);
+        font-weight: root.selected ? 700 : 400;
+        color: root.selected || root.focused ? root.accent : #c1bbb0;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component ClockPage inherits Rectangle {
+    in property <ClockFace> style: ClockFace.classic;
+    in property <string> time: "--:--";
+    in property <bool> valid;
+    in property <bool> wide-layout;
+    in property <bool> right-hand;
+    in property <float> hour-angle;
+    in property <float> minute-angle;
+    in property <float> second-angle;
+    callback style-picked(ClockFace);
+
+    property <bool> amber: root.style == ClockFace.amber;
+    property <color> markings: root.amber ? #f1b35e : #e4e0d4;
+    property <color> minor-markings: root.amber ? #a87540 : #85847d;
+    property <color> hands: root.amber ? #ffd394 : #ef9047;
+
+    background: Theme.backdrop;
+
+    if root.style != ClockFace.digital: Rectangle {
+        width: max(0px, min(min((root.wide-layout ? root.width / 2 : root.width) - 24px, root.height - 24px), 650px));
+        height: self.width;
+        x: root.wide-layout
+            ? (root.right-hand ? root.width / 2 : 0px) + (root.width / 2 - self.width) / 2
+            : (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: self.width / 2;
+        border-width: max(1px, self.width * 0.004);
+        border-color: #514d46;
+        background: @linear-gradient(135deg, #3a3834 0%, #101010 45%, #272522 100%);
+        drop-shadow-blur: 20px;
+        drop-shadow-color: #000000a0;
+
+        face := Rectangle {
+            width: parent.width * 0.94;
+            height: self.width;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: self.width / 2;
+            border-width: max(1px, self.width * 0.003);
+            border-color: #24231f;
+            background: @linear-gradient(135deg, #111211 0%, #070808 60%, #11100e 100%);
+
+            for i in 60: ClockMark {
+                width: parent.width;
+                height: parent.height;
+                angle: i * 6deg;
+                major: mod(i, 5) == 0;
+                tint: self.major ? root.markings : root.minor-markings;
+            }
+            for i in 4: Text {
+                property <angle> angle: i * 90deg;
+                property <length> radius: parent.width * 0.335;
+                x: parent.width / 2 + sin(self.angle) * self.radius - self.width / 2;
+                y: parent.height / 2 - cos(self.angle) * self.radius - self.height / 2;
+                text: i == 0 ? "12" : i == 1 ? "3" : i == 2 ? "6" : "9";
+                font-family: "D-DIN";
+                font-size: parent.width * 0.095;
+                font-weight: 700;
+                color: root.markings;
+            }
+            if root.valid: ClockHand {
+                width: parent.width;
+                height: parent.height;
+                angle: root.hour-angle * 1deg;
+                reach: 104;
+                tail: 15;
+                half-width: 5.2;
+                tint: root.hands;
+            }
+            if root.valid: ClockHand {
+                width: parent.width;
+                height: parent.height;
+                angle: root.minute-angle * 1deg;
+                reach: 150;
+                tail: 19;
+                half-width: 3.8;
+                tint: root.hands;
+            }
+            if root.valid: ClockHand {
+                width: parent.width;
+                height: parent.height;
+                angle: root.second-angle * 1deg;
+                reach: 161;
+                tail: 29;
+                half-width: 1;
+                tint: root.amber ? #ffe1aa : #f8c58a;
+            }
+            if root.valid: Rectangle {
+                width: parent.width * 0.04;
+                height: self.width;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                border-radius: self.width / 2;
+                border-width: max(1px, self.width * 0.09);
+                border-color: #161512;
+                background: root.hands;
+            }
+            if !root.valid: Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.time;
+                color: root.markings;
+                font-family: "D-DIN";
+                font-size: parent.width * 0.12;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    if root.wide-layout && root.style != ClockFace.digital: Rectangle {
+        x: (root.right-hand ? 0px : root.width / 2) + 16px;
+        y: 16px;
+        width: root.width / 2 - 32px;
+        height: root.height - 100px;
+        border-radius: 2px;
+        border-width: 1px;
+        border-color: #514b40;
+        background: @linear-gradient(180deg, #1a1610 0%, #090908 100%);
+        Text {
+            width: parent.width;
+            height: parent.height;
+            text: root.time;
+            font-family: "D-DIN";
+            font-size: min(parent.width * 0.19, parent.height * 0.36);
+            color: root.markings;
+            letter-spacing: 2px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    if root.style == ClockFace.digital: Rectangle {
+        width: max(0px, min(min(root.width - 24px, (root.height - (root.wide-layout ? 104px : 24px)) * 2.35), 900px));
+        height: self.width / 2.35;
+        x: (parent.width - self.width) / 2;
+        y: root.wide-layout ? (parent.height - 72px - self.height) / 2 : (parent.height - self.height) / 2;
+        border-width: max(1px, self.width * 0.004);
+        border-color: #514b40;
+        border-radius: self.width * 0.015;
+        background: @linear-gradient(180deg, #34312b 0%, #141411 48%, #292722 100%);
+        drop-shadow-blur: 20px;
+        drop-shadow-color: #000000a0;
+
+        Rectangle {
+            x: parent.width * 0.035;
+            y: parent.height * 0.08;
+            width: parent.width * 0.93;
+            height: parent.height * 0.84;
+            border-width: max(1px, parent.width * 0.003);
+            border-color: #17130e;
+            background: @linear-gradient(180deg, #1a1008 0%, #0c0907 100%);
+            Text {
+                text: root.time;
+                font-family: "D-DIN";
+                font-size: parent.width * 0.24;
+                font-weight: 700;
+                letter-spacing: parent.width * 0.015;
+                color: #f3aa4d;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    if root.wide-layout: Rectangle {
+        width: root.style == ClockFace.digital ? min(root.width - 32px, 620px) : root.width / 2 - 64px;
+        height: 48px;
+        x: root.style == ClockFace.digital
+            ? (root.width - self.width) / 2
+            : (root.right-hand ? 0px : root.width / 2) + (root.width / 2 - self.width) / 2;
+        y: root.height - self.height - 14px;
+        HorizontalLayout {
+            spacing: 8px;
+            for i in 3: ClockStyleButton {
+                property <ClockFace> face: i == 0 ? ClockFace.classic : i == 1 ? ClockFace.amber : ClockFace.digital;
+                label: i == 0 ? ClockText.classic : i == 1 ? ClockText.amber : ClockText.digital;
+                selected: self.face == root.style;
+                focused: Focus.main(i);
+                accent: root.amber ? #ffd394 : #efb16e;
+                clicked => { root.style-picked(self.face); }
+            }
+        }
+    }
+}

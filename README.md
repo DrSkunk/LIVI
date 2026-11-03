@@ -257,12 +257,31 @@ Any receiver speaking **NMEA-0183** works. On **u-blox** modules LIVI additional
 UBX for the module identity and the RF front end. Development and testing were done with
 a **NEO-M9N**. Configuration (`config.json`):
 
-| Key           | Default        | Description                                    |
-| ------------- | -------------- | ---------------------------------------------- |
-| `gpsEnabled`  | `false`        | Read the receiver                              |
-| `gpsDevice`   | `/dev/ttyAMA0` | Serial device                                  |
-| `gpsBaudRate` | `38400`        | NEO-M9N default; older modules use `9600`      |
-| `timezone`    | `""`           | Last zone derived from a fix, applied at start |
+| Key               | Default        | Description                                    |
+| ----------------- | -------------- | ---------------------------------------------- |
+| `gpsEnabled`      | `false`        | Read the receiver                              |
+| `gpsSpeedEnabled` | `false`        | Use GPS instead of ECU/external vehicle speed  |
+| `gpsDevice`       | `/dev/ttyAMA0` | Serial device                                  |
+| `gpsBaudRate`     | `38400`        | NEO-M9N default; older modules use `9600`      |
+| `timezone`        | `""`           | Last zone derived from a fix, applied at start |
+
+For a USB NMEA receiver, enable GPS and select its serial device (usually
+`/dev/ttyACM0` or `/dev/ttyUSB0`) and baud rate under Settings → General → GPS.
+Prefer a stable `/dev/serial/by-id/` path where available. No u-blox-specific
+configuration is required if the receiver already emits NMEA RMC sentences.
+
+Enable **Use GPS for vehicle speed** in the same page to drive the Dashboard and
+Android Auto vehicle-speed telemetry from GPS. This is useful when a Haltech ECU
+has no speed sensor but still broadcasts zero speed. Haltech RPM and other
+telemetry continue working; ECU/external `speedKph` updates are ignored while
+GPS speed is selected. Turning the option off restores the latest vehicle-speed
+reading.
+
+GPS speed requires GPS reception to be enabled and a valid speed reading. The
+gauge clears on receiver disconnect, disabling GPS, or after three seconds
+without a valid speed update; it does not fall back to ECU speed. Position-only
+updates do not extend that timeout. GPS can lag, drift at rest, and lose reception
+in tunnels; this is not a replacement for a safety-critical vehicle speedometer.
 
 The receiver also serves as a **time source**. Its satellite clock sets the system time, ahead of the time a phone offers at CarPlay session start, and the fix position selects the system timezone, so daylight saving follows the tz database instead of a manual switch.
 
@@ -330,6 +349,12 @@ The bass control sets the gain of the outputs in `minidsp.bassOutputChannels` (z
 
 On apt hosts the installer installs the latest minidsp-rs Debian package and enables `minidsp.service` (skip with `LIVI_SKIP_MINIDSP=1`); elsewhere install minidsp-rs by hand.
 
+## Clock
+
+The Clock tab shows the local system time in a 1990s Mercedes-inspired instrument. Choose a Classic or Amber analogue dial, or a Digital display, under Settings → Appearance → Clock Style. On wide displays, including the 1280×400 Waveshare, the clock also has touch and D-pad style buttons. The choice is saved and takes effect immediately.
+
+The tab can be hidden under Settings → General → Tab Settings → Sidebar. The same Sidebar settings include an optional auto-hide for the Clock page; the menu reappears on touch, pointer movement, or D-pad input and hides again after three seconds of inactivity. Clock can also be selected as the start page under Settings → General → Start Page.
+
 ## Multi-Display
 
 LIVI can run as multiple windows at once, each placeable on its own physical display.
@@ -338,6 +363,8 @@ The Dash and Aux windows are freely assignable and can show the Dashes, the reve
 Configure each window under Settings → General → Screen Settings
 (Main Screen / Cluster Screen / Aux Screen), and assign features under
 Settings → General → Tab Settings.
+Use Tab Settings → Sidebar to choose which page tabs appear in the main window's sidebar.
+Settings remains available, and feature availability (such as an active camera) still applies.
 
 <p align="center">
   <img src="docs/media/multi-display/cluster.png" alt="Dash Screen" width="70%" />

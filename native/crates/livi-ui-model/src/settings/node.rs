@@ -48,6 +48,8 @@ pub enum Condition {
     NotLinux,
     DisplaysSettable,
     DisplaysNotSettable,
+    /// LIVI OS without its network helper, or not LIVI OS at all.
+    NoNetwork,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,6 +116,7 @@ pub enum CustomPage {
     GpsInfo,
     IconUploader,
     MfiCertificate,
+    Network,
     PowerOff,
     Restart,
     SoftwareUpdate,
@@ -167,6 +170,7 @@ pub struct Node {
     pub display_value: bool,
     pub shown: Shown,
     pub disabled: Option<Condition>,
+    pub hidden: Option<Condition>,
 }
 
 impl Node {
@@ -180,6 +184,7 @@ impl Node {
             display_value: false,
             shown: Shown::Plain,
             disabled: None,
+            hidden: None,
         }
     }
 
@@ -277,6 +282,11 @@ impl Node {
 
     pub fn disabled(mut self, when: Condition) -> Self {
         self.disabled = Some(when);
+        self
+    }
+
+    pub fn hidden(mut self, when: Condition) -> Self {
+        self.hidden = Some(when);
         self
     }
 

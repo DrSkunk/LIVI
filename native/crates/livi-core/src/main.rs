@@ -49,8 +49,11 @@ mod log_file;
 mod mfi;
 mod minidsp;
 mod nav_text;
+mod network;
 mod nmea;
 mod obd2;
+mod os_readiness;
+mod os_update;
 mod paths;
 mod power;
 mod privileged;
@@ -103,14 +106,6 @@ fn main() -> ExitCode {
     runtime.shutdown_timeout(Duration::from_secs(2));
     let code = match outcome {
         Ok(Exit::Quit) => ExitCode::SUCCESS,
-        Ok(Exit::PowerOff) => {
-            power::run(power::Power::Off);
-            ExitCode::SUCCESS
-        }
-        Ok(Exit::Restart(_)) if power::owns_host() => {
-            power::run(power::Power::Reboot);
-            ExitCode::SUCCESS
-        }
         Ok(Exit::Restart(_)) if cfg!(target_os = "macos") => {
             println!("[core] the app starts again");
             ExitCode::from(RELAUNCH_THE_APP)
@@ -129,7 +124,6 @@ const RELAUNCH_THE_APP: u8 = 75;
 
 enum Exit {
     Quit,
-    PowerOff,
     Restart(Option<PathBuf>),
 }
 
@@ -205,6 +199,7 @@ async fn run() -> Result<Exit, String> {
         cameras: Vec::new(),
         mfi: Default::default(),
         minidsp: Default::default(),
+        network: Default::default(),
         config,
     });
     let (asks_tx, asks, dongle_asks, update_asks) = projection::ui_channels(wants);
@@ -231,8 +226,16 @@ async fn run() -> Result<Exit, String> {
     tokio::spawn(can_telemetry::run(core.clone(), inside.clone()));
     tokio::spawn(system_volume::follow(core.clone()));
     tokio::spawn(update::run(core.clone(), update_asks));
+    if let Some(asks) = core.take_os_update_asks() {
+        tokio::spawn(os_update::run(core.clone(), asks));
+    }
     if let Some(asks) = core.take_minidsp_asks() {
         tokio::spawn(minidsp::run(core.clone(), asks));
+    }
+    if network::Helper::available()
+        && let Some(asks) = core.take_network_asks()
+    {
+        tokio::spawn(network::run(core.clone(), asks));
     }
     tokio::spawn(fonts::follow(core.clone(), user_data.join("fonts")));
     state_files::start(&core, core.activity(), &user_data);
@@ -313,8 +316,6 @@ async fn run() -> Result<Exit, String> {
                 .unwrap_or_else(|e| e.into_inner())
                 .take(),
         )
-    } else if core.quit_asked.load(Ordering::SeqCst) && power::owns_host() {
-        Exit::PowerOff
     } else {
         Exit::Quit
     })

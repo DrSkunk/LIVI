@@ -10,6 +10,7 @@ use std::time::Duration;
 use livi_core_proto::config::{Config, TouchCalibration};
 use livi_core_proto::input::{Input, Phase, Point};
 use livi_core_proto::state::{Display, Screen};
+use livi_host_proto::readiness::PresentedOutput;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
@@ -20,6 +21,10 @@ const RECONNECT_EVERY: Duration = Duration::from_millis(500);
 const TOUCH_BACKLOG: usize = 64;
 
 pub fn env(cfg: &Config, ctrl: &Path) -> Vec<(String, String)> {
+    env_in(cfg, ctrl, |key| std::env::var_os(key).is_some())
+}
+
+fn env_in(cfg: &Config, ctrl: &Path, overridden: impl Fn(&str) -> bool) -> Vec<(String, String)> {
     let mut env = vec![
         (
             "LIVI_OUTPUT_APP_ID".to_string(),
@@ -50,16 +55,21 @@ pub fn env(cfg: &Config, ctrl: &Path) -> Vec<(String, String)> {
         ("AUX", &cfg.display_mode.aux, &cfg.display_connector.aux),
     ];
     for (role, mode, connector) in screens {
-        if !mode.is_empty() {
-            let key = if role == "MAIN" {
-                "LIVI_DISPLAY_MODE".to_string()
-            } else {
-                format!("LIVI_{role}_DISPLAY_MODE")
-            };
+        let key = if role == "MAIN" {
+            "LIVI_DISPLAY_MODE".to_string()
+        } else {
+            format!("LIVI_{role}_DISPLAY_MODE")
+        };
+        if overridden(&key) {
+            env.push((format!("LIVI_{role}_MODE_PINNED"), "1".into()));
+        } else if !mode.is_empty() {
             env.push((key, mode.clone()));
         }
         if !connector.is_empty() {
-            env.push((format!("LIVI_{role}_CONNECTOR"), connector.clone()));
+            let key = format!("LIVI_{role}_CONNECTOR");
+            if !overridden(&key) {
+                env.push((key, connector.clone()));
+            }
         }
     }
     env
@@ -210,6 +220,7 @@ pub struct Ui {
 }
 
 enum Cmd {
+    Health,
     Claim(String, oneshot::Sender<()>),
     Release(String),
     State(String, String),
@@ -224,6 +235,7 @@ pub struct CompositorControl {
     tx: mpsc::UnboundedSender<Cmd>,
     panels: watch::Receiver<HashMap<String, Panel>>,
     ui: watch::Receiver<Option<Ui>>,
+    presented: watch::Receiver<Option<(std::time::Instant, PresentedOutput)>>,
     displays: watch::Receiver<Option<Vec<Display>>>,
     touches: broadcast::Sender<Input>,
     fullscreen: broadcast::Sender<(Screen, bool)>,
@@ -234,6 +246,7 @@ impl CompositorControl {
         let (tx, rx) = mpsc::unbounded_channel();
         let (panels_tx, panels) = watch::channel(HashMap::new());
         let (ui_tx, ui) = watch::channel(None);
+        let (presented_tx, presented) = watch::channel(None);
         let (displays_tx, displays) = watch::channel(None);
         let (touches, _) = broadcast::channel(TOUCH_BACKLOG);
         let (fullscreen, _) = broadcast::channel(TOUCH_BACKLOG);
@@ -245,6 +258,7 @@ impl CompositorControl {
                 displays_tx,
                 touches.clone(),
                 fullscreen.clone(),
+                presented_tx,
             )
             .run(rx),
         );
@@ -252,6 +266,7 @@ impl CompositorControl {
             tx,
             panels,
             ui,
+            presented,
             displays,
             touches,
             fullscreen,
@@ -260,6 +275,14 @@ impl CompositorControl {
 
     pub fn displays(&self) -> watch::Receiver<Option<Vec<Display>>> {
         self.displays.clone()
+    }
+
+    pub fn health(&self) -> watch::Receiver<Option<(std::time::Instant, PresentedOutput)>> {
+        self.presented.clone()
+    }
+
+    pub fn poll_health(&self) {
+        let _ = self.tx.send(Cmd::Health);
     }
 
     pub fn touches(&self) -> broadcast::Receiver<Input> {
@@ -404,6 +427,7 @@ struct Actor {
     claim_deadline: Option<tokio::time::Instant>,
     panels: watch::Sender<HashMap<String, Panel>>,
     ui: watch::Sender<Option<Ui>>,
+    presented: watch::Sender<Option<(std::time::Instant, PresentedOutput)>>,
     displays: watch::Sender<Option<Vec<Display>>>,
     incoming: Option<Incoming>,
     touches: broadcast::Sender<Input>,
@@ -418,6 +442,7 @@ struct Incoming {
 }
 
 impl Actor {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         path: PathBuf,
         panels: watch::Sender<HashMap<String, Panel>>,
@@ -425,6 +450,7 @@ impl Actor {
         displays: watch::Sender<Option<Vec<Display>>>,
         touches: broadcast::Sender<Input>,
         fullscreen: broadcast::Sender<(Screen, bool)>,
+        presented: watch::Sender<Option<(std::time::Instant, PresentedOutput)>>,
     ) -> Self {
         Self {
             path,
@@ -436,6 +462,7 @@ impl Actor {
             claim_deadline: None,
             panels,
             ui,
+            presented,
             displays,
             incoming: None,
             touches,
@@ -455,7 +482,12 @@ impl Actor {
                 },
                 line = lines.recv() => match line.flatten() {
                     Some(line) => self.on_line(&line).await,
-                    None => self.writer = None,
+                    None => {
+                        self.writer = None;
+                        self.presented.send_replace(None);
+                        self.ui.send_replace(None);
+                        self.displays.send_replace(None);
+                    }
                 },
                 _ = async { tokio::time::sleep_until(deadline.unwrap()).await }, if deadline.is_some() => {
                     self.abort_in_flight().await;
@@ -486,6 +518,12 @@ impl Actor {
 
     async fn on_cmd(&mut self, cmd: Cmd) {
         match cmd {
+            Cmd::Health => {
+                if self.writer.is_some() {
+                    self.outbox.push("health\n".to_string());
+                    self.flush().await;
+                }
+            }
             Cmd::Claim(tag, done) => {
                 self.queue.push((tag, done));
                 self.pump().await;
@@ -535,6 +573,11 @@ impl Actor {
     async fn on_line(&mut self, line: &str) {
         let mut words = line.split(' ');
         match words.next() {
+            Some("presented") => {
+                self.presented.send_replace(
+                    PresentedOutput::parse(line).map(|p| (std::time::Instant::now(), p)),
+                );
+            }
             Some("touch") => {
                 if let Some(input) = touch_of(line) {
                     let _ = self.touches.send(input);
@@ -666,6 +709,7 @@ impl Actor {
             self.outbox.clear();
         } else {
             self.writer = None;
+            self.presented.send_replace(None);
         }
     }
 }
@@ -726,6 +770,82 @@ mod tests {
             FakeCompositor { listener },
             CompositorControl::connect(path),
         )
+    }
+
+    #[test]
+    fn launcher_display_overrides_are_not_replaced_by_saved_settings() {
+        let mut cfg = defaults();
+        cfg.display_mode.main = "1920x1080".into();
+        cfg.display_connector.main = "HDMI-A-2".into();
+        cfg.display_mode.cluster = "800x480".into();
+        let generated = env_in(&cfg, Path::new("/run/ctrl"), |key| {
+            matches!(key, "LIVI_DISPLAY_MODE" | "LIVI_MAIN_CONNECTOR")
+        });
+        assert!(
+            !generated.iter().any(|(key, _)| matches!(
+                key.as_str(),
+                "LIVI_DISPLAY_MODE" | "LIVI_MAIN_CONNECTOR"
+            ))
+        );
+        assert!(generated.contains(&("LIVI_CLUSTER_DISPLAY_MODE".into(), "800x480".into())));
+        assert!(generated.contains(&("LIVI_MAIN_MODE_PINNED".into(), "1".into())));
+        assert!(
+            !generated
+                .iter()
+                .any(|(key, _)| key == "LIVI_CLUSTER_MODE_PINNED")
+        );
+    }
+
+    #[tokio::test]
+    async fn presentation_is_fresh_evidence_and_is_cleared_on_loss_and_reconnect() {
+        let dir = TempDir::new();
+        let (comp, ctrl) = setup(&dir);
+        let (mut rd, mut wr) = comp.accept().await;
+        let mut health = ctrl.health();
+        assert!(health.borrow().is_none());
+        ctrl.poll_health();
+        assert_eq!(line(&mut rd).await, "health\n");
+        wr.write_all(b"presented 12 13 HDMI-A-1 400 1280 90 1\n")
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), health.wait_for(Option::is_some))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(health.borrow().as_ref().unwrap().1.transform, "90");
+        wr.write_all(b"presented -\n").await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), health.wait_for(Option::is_none))
+            .await
+            .unwrap()
+            .unwrap();
+        wr.write_all(b"presented 12 13 HDMI-A-1 400 1280 90 1\n")
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), health.wait_for(Option::is_some))
+            .await
+            .unwrap()
+            .unwrap();
+        drop((rd, wr));
+        tokio::time::timeout(Duration::from_secs(5), health.wait_for(Option::is_none))
+            .await
+            .unwrap()
+            .unwrap();
+        let (mut rd, mut wr) = comp.accept().await;
+        assert!(health.borrow().is_none());
+        ctrl.poll_health();
+        assert_eq!(
+            line(&mut rd).await,
+            "health\n",
+            "health evidence is never replayed"
+        );
+        wr.write_all(b"presented 22 23 HDMI-A-1 400 1280 90 1\n")
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), health.wait_for(Option::is_some))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(health.borrow().as_ref().unwrap().1.ui, 23);
     }
 
     #[tokio::test]

@@ -4,11 +4,198 @@ LIVI OS is an immutable, read-only Linux image built from
 [livi-os-buildroot](https://github.com/DrSkunk/livi-os-buildroot). It cannot accept the
 system files LIVI normally installs on its first start (udev rule, sudoers drop-ins,
 systemd units, a root copy of `livi-helperd`). Instead the image ships them and tells LIVI
-so with `LIVI_OS=1`. This page is the exact interface the image has to provide.
+so with `LIVI_OS=1`.
+
+## System power controls
+
+Opening Settings -> System -> Restart System or Power Off only opens a
+confirmation page. The user must press **Restart now** or **Power off now**;
+Back cancels. About and Logs remain informational/configuration pages.
+Software Update keeps separate app-install and signed OS-trial reboot controls.
+
+On LIVI OS (or a desktop explicitly configured as `LIVI_KIOSK=1`), these power
+buttons request host reboot/shutdown. Otherwise they restart/close only LIVI.
+Core sends OS power requests to the immutable `/usr/libexec/livi-power-helper`
+using `sudo -n`, a cleared environment, and exactly `poweroff` or `reboot`.
+The image grants only these two command lines with `NOSETENV`. The helper queues
+an orderly `systemctl --no-block` request, never a forced reset, and refuses while
+the OS-update lock is held. Desktop kiosk installs retain their separate
+`/usr/local/lib/livi/livi-power.sh` helper.
+
+Core waits for the helper's exit status **before** considering the request
+accepted. On missing helper, permission denial, timeout or command failure, it
+keeps running and shows a retryable error on the power page. Repeated power
+requests and power changes during app/OS staging/install are blocked. The UI
+warns that a previously staged OS update is tried at the next boot. Internal
+application-update relaunches restart the app, not the whole host.
+
+Older images without the OS power helper require an updated OS image; installing
+desktop helpers into the immutable image or granting arbitrary systemctl/sudo
+access is not a workaround. A real Pi shutdown test is still required: orderly
+Linux shutdown alone cannot remove USB-C power; a correctly configured CarPiHAT
+uses the kernel-managed power latch to cut its supply at final poweroff.
+
+## What Wi-Fi settings configure
+
+Settings -> Connections -> Wi-Fi configures LIVI's **access point for wireless
+Android Auto/CarPlay**, not a Wi-Fi client/network chooser. Car Name is the AP
+SSID; the page selects its password, radio interface, band, channel, channel
+width and regulatory country. Wireless projection claims the selected radio;
+Dedicated Interface keeps the AP enabled independently of a connected phone.
+Choosing a LIVI Link radio delegates that wireless path to the dongle.
+
+On a normal Linux installation LIVI manages a `livi-wifi-ap.service` using
+hostapd and dnsmasq (DHCP, not a DNS server), temporarily taking the interface
+away from NetworkManager when needed. Apply restarts/reconciles the AP.
+It does not join a home/hotspot SSID, supply Internet connectivity, or turn the
+projection AP into an Internet router. OS/app OTA downloads need a separately
+configured Internet connection, such as Ethernet or another client Wi-Fi radio.
+
+The companion Buildroot image must install the factory AP unit at the native
+service name, render its immutable helper path and username, and grant only the
+specific AP actions and helper commands in its contract. The settings alone are
+not proof that native wireless setup works on an image; wireless projection
+still requires on-device acceptance testing. Do not broaden sudo permissions
+to make arbitrary desktop commands run.
+
+## Signed OS updates in Settings
+
+Settings -> System -> Software Update retains the application updater and adds
+an independent **Operating system** section on LIVI OS. It shows the installed
+OS, board/active slot, trial/pending state, signing-key availability, and the
+verified stable or nightly release. The OS channel is independent of the app's
+nightly preference and defaults to stable for each core session.
+
+The Buildroot image must ship the root-owned, immutable
+`/usr/libexec/livi-os-update-helper` from the companion OS repository, with its
+`NOSETENV` sudoers grant. Core calls only `sudo -n` on that fixed helper, with a
+cleared environment, no shell and these validated positional arguments:
+
+| Arguments                        | Operation                                                                                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`                         | JSON installed version/serial, board, slot, trial, pending, staged version and `update_key`                                                           |
+| `check stable` / `check nightly` | Fetch and verify the signed manifest; return JSON `channel`, `installed`, `available`, `update`                                                       |
+| `stage stable` / `stage nightly` | Run `livi-os-update update --channel CHANNEL --progress`; download, verify, write/read back inactive boot/root slots and stage, **without rebooting** |
+| `apply`                          | Run the slot manager's guarded trial reboot                                                                                                           |
+
+Staging stdout is bounded newline-delimited JSON with `phase` (`downloading` or
+`staging`), `message`, `received` and `total`. Download progress counts whole
+images after their size and signed hash have been verified; writing/readback
+uses phase messages, not an invented percentage. Nonzero exits and malformed
+responses are errors. Status is refreshed at startup, every ten seconds and
+around operations, so staged USB updates and trials survive app/core restarts.
+Status/check have bounded waits; staging has no user cancellation or timeout
+that could interrupt slot writes. Errors remain visible until another user
+operation. No paths, repository overrides, downgrade/retry flags, health
+confirmation or arbitrary commands are accepted through the helper.
+
+After staging, **Reboot...** opens an explicit **Later / Reboot now** dialog.
+Confirming re-reads status and rejects a changed staged image. Only **Reboot now**
+calls `apply`. Later leaves the update staged; the OS's existing next-power-on
+trial policy still applies. The embedded trust key, board/serial restrictions,
+failed-trial refusal, signed hashes, inactive-slot readback, tryboot and OS-owned
+health confirmation/rollback remain authoritative. The app never marks an OS
+trial good itself.
+
+An older image without this helper/permission reports an error; LIVI does not
+install privileged files or fall back to unrestricted sudo. Deploy a new signed
+OS image to bootstrap that interface. This is an optional OTA extension, not a
+change to the API-2 marker or a claim that the projection-helper ABI below is
+implemented. Desktop/non-OS app updates are unchanged.
+
+## Buildroot API 2: display and readiness
+
+The Buildroot fork's [Rust AppImage contract](https://github.com/DrSkunk/livi-os-buildroot/blob/main/docs/rust-appimage-contract.md)
+is authoritative for that image. **The API marker alone does not mean this
+AppImage passes the complete Buildroot contract.** The current native helper
+launcher targets `/usr/libexec/livi-helperd` with environment settings and
+stale-process cleanup. The companion image must provide that immutable helper
+and its command-scoped environment/cleanup grants. The obsolete five-argument
+projection wrapper is not compatible with this native launcher.
+
+The DRM compositor honors inherited `LIVI_MAIN_CONNECTOR`, `LIVI_DISPLAY_MODE`,
+`LIVI_MAIN_TRANSFORM` and `LIVI_MAIN_SCALE` ahead of saved settings, including
+control replay/reconnect. For the native 400x1280 Waveshare panel:
+
+```sh
+LIVI_MAIN_CONNECTOR=HDMI-A-1
+LIVI_DISPLAY_MODE=400x1280@60
+LIVI_MAIN_TRANSFORM=90
+LIVI_MAIN_SCALE=1
+```
+
+The API-2 AppImage launcher also sets `LIVI_GST_HEVC_LEGACY_SLICE=1`, including
+on older images. The pinned 6.12 `rpi-hevc-dec` driver interprets HEVC `bit_size`
+as an end offset and subtracts `data_byte_offset`; the bundled GStreamer
+backport otherwise sends the newer payload-length convention. Mixing these
+conventions produced green video. The compatibility flag makes the bundled
+V4L2 plugin send the legacy end offset, including preceding slices, while
+retaining modern behavior by default outside this appliance. Reassess this
+flag when upgrading the kernel driver to the newer slice ABI.
+
+The bundle must include the compatibility patch and the capture-format and
+Wayland metadata fixes in `scripts/gstreamer/patches/gst-plugins-bad/series`.
+ARM64 AppImage packaging rejects older V4L2 plugins without the compatibility
+flag; rebuild the media bundle before packaging or publishing the app.
+This fork fetches checksum-pinned media and firmware from the
+[`DrSkunk/LIVI` assets release](https://github.com/DrSkunk/LIVI/releases/tag/assets).
+`LIVI_ASSETS_URL` can override that location for a local build.
+Hardware H.265 decoding to SAND DMA-buffers was verified on the Pi with smooth
+Android Auto video. The format/stride fixes alone did not resolve the green
+picture; matching the slice ABI did. `LIVI_GST_SWDEC=1` remains an explicit
+software-decoding override, honored by both codec probing and playback.
+The companion Waveshare image initializes fresh configurations with 140
+projection DPI. Settings > Video > Main Video > DPI overrides it; 0 selects
+automatic density. Saved configurations are not overwritten by image defaults.
+
+`90` is **counterclockwise content scanout**: Smithay 0.7's `DrmCompositor`
+inverts `Transform::_90` for scanout. Logical size is 1280x400, while KMS keeps
+the advertised 400x1280 mode. The existing native-touch path applies `_90`
+once, `(x, y) -> (1280-y, x)`, the inverse of scanout. No extra libinput
+rotation/calibration should be added for output orientation. `normal`/`0`,
+`180`, and `270` are also accepted; absent overrides preserve connector
+orientation metadata. Only scale `1` is supported; other explicit scales and
+unknown transforms fail rather than silently using different settings.
+
+Explicit connectors do not fall back to another monitor. `WIDTHxHEIGHT@HZ`
+selects only an advertised timing of that size within 1 Hz of the requested
+refresh, preferring the closest. In `LIVI_OS=1 LIVI_OS_API=2` mode, explicit
+sizes cannot fall back either, and secondary outputs require explicit connector
+configuration. Ordinary unconfigured desktop mode selection is unchanged.
+
+For `LIVI_OS=1 LIVI_OS_API=2`, core uses `LIVI_OS_SESSION_FILE` (trimmed,
+nonempty, bounded to 1024 bytes) and atomically replaces `LIVI_OS_READY_FILE`
+every 500 ms while ready. Reports are bounded to 16 KiB, use Linux
+`CLOCK_MONOTONIC` seconds, and contain actual live core/UI/compositor PIDs and
+actual physical output geometry, transform and scale.
+
+Core polls its existing private compositor connection, not a second control
+client. The compositor records UI surface identity and client PID only after
+a visible UI buffer was rendered, queued, and acknowledged by a successful
+DRM page flip (`frame_submitted` returning `Some`). Shader calibration also
+requires UI visibility in the offscreen and final compositions. Static UI does
+not need continuous redraws. Readiness is invalidated on UI surface loss,
+display removal, session pause, rendering/flip failure, stalled flips,
+control disconnect, stale compositor evidence, child exit, and core shutdown.
+A replacement UI/output must present a new frame; old proof is not replayed.
+Missing proof never becomes a success report. Reports are removed on failure;
+after a hard core crash the OS must reject stale reports.
+
+Host-side protocol/supervision tests are not hardware acceptance. A Linux
+AArch64 build and real Pi validation of scanout, all touch corners, unplug/
+reconnect, deliberate child failures, and the remaining helper ABI are required.
+
+## Older upstream helper interface (not the Buildroot ABI)
 
 The AppImage declares the version of this contract it speaks in
 `resources/livi-os-helper-api` (one line). This is contract version `2`. The image should
 refuse, or at least warn about, an AppImage whose marker it does not know.
+
+Appliance builds also ship `resources/livi-os-display-api` containing `1`.
+It certifies support for explicit DRM connector/mode/transform/scale selection,
+rotated touch coordinates and presented-frame readiness reporting. The helper
+API marker alone does not establish display compatibility: older API-2
+AppImages ignored `LIVI_MAIN_TRANSFORM`.
 
 | Version | Change                                                                                  |
 | ------- | --------------------------------------------------------------------------------------- |
@@ -78,7 +265,8 @@ Cmnd_Alias LIVI_STALE = /usr/bin/pkill -TERM -f /usr/libexec/livi-helperd$, /usr
 Cmnd_Alias LIVI_WIFI_AP = /usr/bin/systemctl start livi-wifi-ap.service, /usr/bin/systemctl stop livi-wifi-ap.service, /usr/bin/systemctl restart livi-wifi-ap.service, /usr/bin/systemctl enable livi-wifi-ap.service, /usr/bin/systemctl disable livi-wifi-ap.service
 Cmnd_Alias LIVI_HOST = /usr/local/lib/livi/livi-power.sh *, /usr/local/lib/livi/livi-set-time.sh *, /usr/local/lib/livi/livi-video-mode.sh *
 Cmnd_Alias LIVI_CAN = /usr/libexec/livi-can-capture ""
-<user> ALL=(root) NOPASSWD: LIVI_HELPER, LIVI_STALE, LIVI_WIFI_AP, LIVI_HOST, LIVI_CAN
+Cmnd_Alias LIVI_NETWORK = /usr/libexec/livi-network status, /usr/libexec/livi-network scan, /usr/libexec/livi-network connect, /usr/libexec/livi-network forget *
+<user> ALL=(root) NOPASSWD: LIVI_HELPER, LIVI_STALE, LIVI_WIFI_AP, LIVI_HOST, LIVI_CAN, LIVI_NETWORK
 ```
 
 `""` allows the command only without arguments. Leave out `SETENV`, LIVI does not need it.
@@ -97,6 +285,7 @@ the rule has to name the path that exists on the image.
 | `/usr/local/lib/livi/livi-set-time.sh`     | as `livi_install_time_helper`                                                                                                                                                                                              | GPS does not set clock or timezone                        |
 | `/usr/local/lib/livi/livi-video-mode.sh`   | as `livi_install_video_mode_helper` (adapt `CMDLINE` to the image's boot partition)                                                                                                                                        | the display mode is not pinned                            |
 | `/usr/libexec/livi-can-capture`            | see [Haltech CAN capture](#haltech-can-capture)                                                                                                                                                                            | no Haltech CAN telemetry                                  |
+| `/usr/libexec/livi-network`                | see [Network settings](#network-settings)                                                                                                                                                                                  | _Settings → System → Network_ is hidden                   |
 | `/usr/local/lib/livi/gvfs-phone-guard.sh`  | optional, only for an image with gvfs; script and sudoers rule as in `native/crates/livi-core/src/gvfs_guard.rs`                                                                                                           | gvfs may grab phones                                      |
 
 ## Haltech CAN capture
@@ -166,6 +355,37 @@ OBD operation is conditional on independently verified ECU port assignment,
 diagnostic bitrate and addressing. Enabling OBD does not establish 500 kbit/s
 support on an Elite 2500. An 8 MHz MCP2515 cannot receive a 1 Mbit/s bus.
 Install both updated app and OS; an app-only update cannot install the helper.
+
+## Network settings
+
+_Settings → System → Network_ shows Ethernet, Wi-Fi, internet and clock status, scans for and
+joins Wi-Fi networks and forgets saved ones. LIVI runs, as `<user>`:
+
+```
+sudo -n /usr/libexec/livi-network status
+sudo -n /usr/libexec/livi-network scan
+sudo -n /usr/libexec/livi-network connect
+sudo -n /usr/libexec/livi-network forget <uuid>
+```
+
+Each prints one JSON object on stdout and exits 0; a failure exits 1 with
+`{"ok": false, "error": <code>, "message": <text>}`, a usage error exits 2. LIVI takes any
+nonzero exit as a failure, even after `"ok": true`. The codes are
+`invalid`, `not-found`, `projection-ap` (the wireless CarPlay / Android Auto access point holds
+the radio), `no-wifi`, `timeout`, `unavailable`, `nmcli` and `io`.
+
+- `connect` reads `{"ssid": <text>, "psk": <text or null>, "hidden": <bool>}` on stdin. The
+  password is never an argument and LIVI never logs it; `null` is an open network, or a saved
+  one joined with its stored password. For a hidden network the user may pick the security,
+  sent as `"security": "open" | "wpa2" | "wpa3"`; it is left out for scanned networks and for
+  _Automatic_, so the helper detects it as before. A helper without WPA3 support may reject it.
+- LIVI waits at most 15 s for `status`, 45 s for `scan`, 90 s for `connect` and 20 s for
+  `forget`, off the UI thread, then reports `timeout`. Unknown JSON fields are ignored.
+- `status` runs every 5 s while the page is open and after every `connect` and `forget`.
+
+The page only exists with `LIVI_OS=1` and a file at `/usr/libexec/livi-network`. Without
+the sudoers rule every call fails and the page shows the error instead of the status. The
+helper is optional, so it does not change the contract version.
 
 ## Notes
 

@@ -34,7 +34,9 @@ use std::time::Duration;
 
 use livi_core_client::{Client, Event, socket_path, wait_for_socket};
 use livi_core_proto::LIFELINE_ENV;
+use livi_core_proto::config::ClockStyle;
 use livi_core_proto::input::{Input, Phase, Point};
+use livi_core_proto::message::Action;
 use livi_core_proto::state::{Front, Screen};
 use serde_json::Value;
 use slint::platform::WindowEvent;
@@ -91,6 +93,7 @@ fn tab(t: Tab) -> TabData {
         Tab::Projection => (Page::Projection, "CropPortraitOutlined"),
         Tab::Telemetry => (Page::Telemetry, "SpeedOutlined"),
         Tab::Media => (Page::Media, "PlayCircleOutlined"),
+        Tab::Clock => (Page::Clock, "ScheduleOutlined"),
         Tab::Camera => (Page::Camera, "CameraOutlined"),
         Tab::Games => (Page::Games, "SportsEsportsOutlined"),
         Tab::MiniDsp => (Page::Minidsp, "GraphicEqOutlined"),
@@ -110,12 +113,18 @@ fn apply_look(ui: &AppWindow, look: Look) {
     theme.set_background_override(rgb(look.background));
     theme.set_text_override(rgb(look.text));
     theme.set_comand(look.style == Style::Comand);
+    ui.set_clock_face(match look.clock_style {
+        ClockStyle::Classic => ClockFace::Classic,
+        ClockStyle::Amber => ClockFace::Amber,
+        ClockStyle::Digital => ClockFace::Digital,
+    });
+    ui.set_clock_auto_hide(look.clock_auto_hide);
     ui.set_right_hand(look.right_hand);
     ui.set_stream_width(look.stream.0);
     ui.set_stream_height(look.stream.1);
     let tabs: Vec<TabData> = look.tabs.iter().copied().map(tab).collect();
     if !tabs.iter().any(|t| t.page == ui.get_page()) {
-        choose(ui, Page::Media);
+        choose(ui, tabs.first().map_or(Page::Settings, |t| t.page));
     }
     ui.set_tabs(ModelRc::from(Rc::new(VecModel::from(tabs))));
     ui.set_projection_icon(tab(Tab::Projection).icon);
@@ -129,12 +138,38 @@ fn apply_look(ui: &AppWindow, look: Look) {
 
 fn apply_language(ui: &AppWindow, lang: &str) {
     settings_ui::set_language(lang);
+    let clock_text = ui.global::<ClockText>();
+    clock_text.set_classic(settings_ui::tr("settings.clockStyleClassic", "Classic").into());
+    clock_text.set_amber(settings_ui::tr("settings.clockStyleAmber", "Amber").into());
+    clock_text.set_digital(settings_ui::tr("settings.clockStyleDigital", "Digital").into());
     secondary::set_texts();
     media_ui::set_texts(ui, settings_ui::tr);
     minidsp_ui::set_texts(ui, settings_ui::tr);
     dashboard_ui::set_texts(&ui.global::<DashState>(), settings_ui::tr);
     ui.set_no_camera(settings_ui::tr("camera.noCamera", "No camera found").into());
     games_ui::set_texts(ui, settings_ui::tr);
+}
+
+fn update_clock(ui: &AppWindow) {
+    let (sidebar, time) = match clock::now() {
+        Ok(time) => {
+            let (hour, minute, second) = time.angles();
+            ui.set_clock_hour_angle(hour);
+            ui.set_clock_minute_angle(minute);
+            ui.set_clock_second_angle(second);
+            ui.set_clock_valid(true);
+            (time.blinking_text(), time.text())
+        }
+        Err(e) => {
+            eprintln!("[ui] cannot read local time: {e}");
+            ui.set_clock_valid(false);
+            ("--:--".to_string(), "--:--".to_string())
+        }
+    };
+    ui.set_clock_time(time.into());
+    ui.set_clock(sidebar.clone().into());
+    ui.global::<DashState>().set_clock(sidebar.clone().into());
+    secondary::tick_clock(&sidebar);
 }
 
 fn render_settings(ui: &AppWindow) {
@@ -225,6 +260,7 @@ fn open_path(ui: &AppWindow, path: &str) {
         None | Some("projection") => Page::Projection,
         Some("telemetry") => Page::Telemetry,
         Some("media") => Page::Media,
+        Some("clock") => Page::Clock,
         Some("camera") => Page::Camera,
         Some("games") => Page::Games,
         Some("minidsp") => Page::Minidsp,
@@ -264,6 +300,7 @@ fn reported(ui: &AppWindow, client: &Client, page: Page) {
         Page::Telemetry if dashboard_ui::map_shown(ui) => (Front::Cluster, "/telemetry"),
         Page::Telemetry => (Front::Livi, "/telemetry"),
         Page::Media => (Front::Livi, media_ui::path(ui)),
+        Page::Clock => (Front::Livi, "/clock"),
         Page::Camera => (Front::Camera, "/camera"),
         Page::Games => (Front::Livi, "/games"),
         Page::Minidsp => (Front::Livi, "/minidsp"),
@@ -425,6 +462,19 @@ fn wire(ui: &AppWindow, client: &Client) {
         let c = client.clone();
         move |on| c.spectrum(on)
     });
+    ui.on_clock_style_picked({
+        let c = client.clone();
+        move |face| {
+            let style = match face {
+                ClockFace::Classic => ClockStyle::Classic,
+                ClockFace::Amber => ClockStyle::Amber,
+                ClockFace::Digital => ClockStyle::Digital,
+            };
+            c.act(Action::SetConfig {
+                patch: serde_json::json!({ "clockStyle": style }),
+            });
+        }
+    });
     dashboard_ui::wire(&ui.global::<DashState>(), client);
     games_ui::wire(ui, client);
 }
@@ -451,8 +501,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::var("LIVI_OUTPUT_APP_ID").unwrap_or_else(|_| "dev.f-io.livi".into()),
     )?;
     ui.set_bands(ModelRc::from(Rc::new(VecModel::from(vec![0.0f32; BANDS]))));
-    ui.set_clock(clock::now_text().into());
-    ui.global::<DashState>().set_clock(clock::now_text().into());
+    update_clock(&ui);
 
     let quit_code = Arc::new(AtomicI32::new(0));
     let mut core = None;
@@ -489,9 +538,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let weak = weak.clone();
         move || {
             if let Some(ui) = weak.upgrade() {
-                ui.set_clock(clock::now_text().into());
-                ui.global::<DashState>().set_clock(clock::now_text().into());
-                secondary::tick_clock(&clock::now_text());
+                update_clock(&ui);
             }
         }
     });
@@ -546,6 +593,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "projection" => Page::Projection,
             "settings" => Page::Settings,
             "telemetry" => Page::Telemetry,
+            "clock" => Page::Clock,
             "games" => Page::Games,
             "minidsp" => Page::Minidsp,
             _ => Page::Media,

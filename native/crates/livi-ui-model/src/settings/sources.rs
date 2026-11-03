@@ -27,11 +27,13 @@ pub struct Unit {
     pub max: Option<f64>,
 }
 
-pub fn holds(when: Condition, system: &Value) -> bool {
+pub fn holds(when: Condition, state: &Value) -> bool {
+    let system = &state["system"];
     match when {
         Condition::NotLinux => cfg!(not(target_os = "linux")),
         Condition::DisplaysSettable => system["displaysSettable"].as_bool() == Some(true),
         Condition::DisplaysNotSettable => system["displaysSettable"].as_bool() != Some(true),
+        Condition::NoNetwork => !crate::settings::custom::network::available(state),
     }
 }
 
