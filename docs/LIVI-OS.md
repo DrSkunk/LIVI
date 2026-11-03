@@ -51,11 +51,12 @@ It does not join a home/hotspot SSID, supply Internet connectivity, or turn the
 projection AP into an Internet router. OS/app OTA downloads need a separately
 configured Internet connection, such as Ethernet or another client Wi-Fi radio.
 
-The current native Wi-Fi service/launcher path is **not yet compatible with the
-Buildroot API-2 projection/configuration ABI** below: it still expects the
-desktop AP service and helper status switches that the image does not expose.
-The settings should not be taken as proof that native wireless setup works on
-this image. Do not broaden sudo permissions to make those desktop commands run.
+The companion Buildroot image must install the factory AP unit at the native
+service name, render its immutable helper path and username, and grant only the
+specific AP actions and helper commands in its contract. The settings alone are
+not proof that native wireless setup works on an image; wireless projection
+still requires on-device acceptance testing. Do not broaden sudo permissions
+to make arbitrary desktop commands run.
 
 ## Signed OS updates in Settings
 
@@ -105,14 +106,12 @@ implemented. Desktop/non-OS app updates are unchanged.
 ## Buildroot API 2: display and readiness
 
 The Buildroot fork's [Rust AppImage contract](https://github.com/DrSkunk/livi-os-buildroot/blob/main/docs/rust-appimage-contract.md)
-is authoritative for that image. Its privileged-helper ABI differs from the older
-upstream interface documented further below. **The API marker alone does not mean
-this AppImage passes the complete Buildroot contract.** In particular, the current
-helper launcher still targets `/usr/libexec/livi-helperd` with environment settings
-and stale-process cleanup, whereas Buildroot requires the immutable
-`/usr/libexec/livi-projection-helper` wrapper, five validated positional arguments,
-and validated fixed-path configuration. That helper integration is not implemented
-by the display/readiness changes; do not broaden sudo permissions to accommodate it.
+is authoritative for that image. **The API marker alone does not mean this
+AppImage passes the complete Buildroot contract.** The current native helper
+launcher targets `/usr/libexec/livi-helperd` with environment settings and
+stale-process cleanup. The companion image must provide that immutable helper
+and its command-scoped environment/cleanup grants. The obsolete five-argument
+projection wrapper is not compatible with this native launcher.
 
 The DRM compositor honors inherited `LIVI_MAIN_CONNECTOR`, `LIVI_DISPLAY_MODE`,
 `LIVI_MAIN_TRANSFORM` and `LIVI_MAIN_SCALE` ahead of saved settings, including
@@ -124,6 +123,30 @@ LIVI_DISPLAY_MODE=400x1280@60
 LIVI_MAIN_TRANSFORM=90
 LIVI_MAIN_SCALE=1
 ```
+
+The API-2 AppImage launcher also sets `LIVI_GST_HEVC_LEGACY_SLICE=1`, including
+on older images. The pinned 6.12 `rpi-hevc-dec` driver interprets HEVC `bit_size`
+as an end offset and subtracts `data_byte_offset`; the bundled GStreamer
+backport otherwise sends the newer payload-length convention. Mixing these
+conventions produced green video. The compatibility flag makes the bundled
+V4L2 plugin send the legacy end offset, including preceding slices, while
+retaining modern behavior by default outside this appliance. Reassess this
+flag when upgrading the kernel driver to the newer slice ABI.
+
+The bundle must include the compatibility patch and the capture-format and
+Wayland metadata fixes in `scripts/gstreamer/patches/gst-plugins-bad/series`.
+ARM64 AppImage packaging rejects older V4L2 plugins without the compatibility
+flag; rebuild the media bundle before packaging or publishing the app.
+This fork fetches checksum-pinned media and firmware from the
+[`DrSkunk/LIVI` assets release](https://github.com/DrSkunk/LIVI/releases/tag/assets).
+`LIVI_ASSETS_URL` can override that location for a local build.
+Hardware H.265 decoding to SAND DMA-buffers was verified on the Pi with smooth
+Android Auto video. The format/stride fixes alone did not resolve the green
+picture; matching the slice ABI did. `LIVI_GST_SWDEC=1` remains an explicit
+software-decoding override, honored by both codec probing and playback.
+The companion Waveshare image initializes fresh configurations with 140
+projection DPI. Settings > Video > Main Video > DPI overrides it; 0 selects
+automatic density. Saved configurations are not overwritten by image defaults.
 
 `90` is **counterclockwise content scanout**: Smithay 0.7's `DrmCompositor`
 inverts `Transform::_90` for scanout. Logical size is 1280x400, while KMS keeps
@@ -167,6 +190,12 @@ reconnect, deliberate child failures, and the remaining helper ABI are required.
 The AppImage declares the version of this contract it speaks in
 `resources/livi-os-helper-api` (one line). This is contract version `2`. The image should
 refuse, or at least warn about, an AppImage whose marker it does not know.
+
+Appliance builds also ship `resources/livi-os-display-api` containing `1`.
+It certifies support for explicit DRM connector/mode/transform/scale selection,
+rotated touch coordinates and presented-frame readiness reporting. The helper
+API marker alone does not establish display compatibility: older API-2
+AppImages ignored `LIVI_MAIN_TRANSFORM`.
 
 | Version | Change                                                                                  |
 | ------- | --------------------------------------------------------------------------------------- |

@@ -5,3 +5,6 @@
 0005-v4l2codecs-Add-support-for-GST_VIDEO_FORMAT_NV12_10L32_128C8.patch
 0006-wayland-dmabuf-translate-column-mode-tile-strides.patch
 0007-wayland-dont-crash-on-output-property-updates.patch
+0008-v4l2codecs-preserve-compatible-capture-format.patch
+0009-wayland-respect-buffer-video-meta-layout.patch
+0010-v4l2codecs-opt-in-legacy-hevc-slice-lengths.patch

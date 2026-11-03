@@ -9,6 +9,10 @@ use smithay::utils::{Logical, Point, Size, Transform};
 
 #[test]
 fn waveshare_90_scans_out_counterclockwise_and_touch_is_its_inverse() {
+    assert_eq!(
+        include_str!("../../../../../assets/linux/livi-os-display-api").trim(),
+        "1"
+    );
     let transform = super::output_transform(Some("90"), Transform::Normal).unwrap();
     assert_eq!(transform, Transform::_90);
     let native: Size<f64, Logical> = (400.0, 1280.0).into();
@@ -181,8 +185,8 @@ fn screens_take_their_connector_or_the_next_free_one() {
     let main_gone = [(0, Some("DSI-1".to_string())), (1, None)];
     assert_eq!(
         assign(&main_gone, &names(&["HDMI-A-1"])),
-        [(0, "HDMI-A-1".into())],
-        "main never stays dark while a display is connected"
+        [(1, "HDMI-A-1".into())],
+        "a pinned main connector never silently moves to another display"
     );
     let cluster_on_first = [(0, None), (1, Some("HDMI-A-1".to_string()))];
     assert_eq!(

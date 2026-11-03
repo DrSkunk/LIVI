@@ -8,7 +8,7 @@
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TAG=assets
-URL=${LIVI_ASSETS_URL:-https://github.com/f-io/LIVI/releases/download/$TAG}
+URL=${LIVI_ASSETS_URL:-https://github.com/DrSkunk/LIVI/releases/download/$TAG}
 
 sha() {
   if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1

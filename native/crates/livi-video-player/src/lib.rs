@@ -556,7 +556,7 @@ pub fn probe(codec: &str) -> (bool, bool) {
     ensure_init();
     let exists = |name: &str| gst::ElementFactory::find(name).is_some();
 
-    let best = candidates(codec, false)
+    let best = candidates(codec, std::env::var_os("LIVI_GST_SWDEC").is_some())
         .into_iter()
         .find(|name| usable(name));
 
