@@ -10,6 +10,7 @@ pub mod files;
 mod gps;
 pub mod icon;
 mod mfi;
+pub mod network;
 mod os_update;
 mod system;
 pub mod touch;
@@ -31,6 +32,8 @@ pub(crate) const DASH: &str = "—";
 #[derive(Debug, Clone, PartialEq)]
 pub enum Watch {
     LinkSpeed,
+    /// Keeps `state.network` fresh while shown.
+    Network,
     Act(Action),
 }
 
@@ -49,6 +52,7 @@ pub fn rows(page: CustomPage, state: &Value, t: &Strings, facts: &Facts) -> Opti
         CustomPage::GpsHwInfo => gps::hardware(state, t),
         CustomPage::IconUploader => icon::rows(state, t),
         CustomPage::MfiCertificate => mfi::rows(state, t),
+        CustomPage::Network => network::rows(state, t),
         CustomPage::Touch(screen) => touch::rows(screen, state, t),
         _ => return None,
     })
@@ -64,6 +68,7 @@ pub fn dialog(page: CustomPage, state: &Value, t: &Strings, facts: &Facts) -> Op
 pub fn watch(page: CustomPage) -> Option<Watch> {
     match page {
         CustomPage::WifiLinkInfo => Some(Watch::LinkSpeed),
+        CustomPage::Network => Some(Watch::Network),
         CustomPage::SoftwareUpdate => Some(Watch::Act(Action::CheckUpdate)),
         _ => None,
     }

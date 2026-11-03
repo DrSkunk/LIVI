@@ -29,7 +29,111 @@ pub struct State {
     pub games: Games,
     #[serde(default)]
     pub minidsp: MiniDsp,
+    #[serde(default)]
+    pub network: Network,
     pub config: Config,
+}
+
+/// Wired and wireless networking under LIVI OS, as `/usr/libexec/livi-network` reports it.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Network {
+    /// The image ships the helper, so there is something to show.
+    pub available: bool,
+    pub status: Option<NetworkStatus>,
+    /// The last scan, strongest first.
+    pub networks: Vec<WifiNetwork>,
+    pub scanned: bool,
+    pub scanning: bool,
+    /// The SSID being joined.
+    pub connecting: Option<String>,
+    /// The UUID of the profile being forgotten.
+    pub forgetting: Option<String>,
+    pub error: Option<NetworkError>,
+    /// Counts the joins the core started; the latest one is `joins`.
+    pub joins: u64,
+    /// How the latest finished join ended. Stays until the next one ends, so
+    /// a join over before anyone saw `connecting` is not missed.
+    pub joined: Option<JoinOutcome>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct JoinOutcome {
+    /// The `joins` count of this join.
+    pub id: u64,
+    pub ssid: String,
+    pub connected: bool,
+    pub error: Option<NetworkError>,
+}
+
+/// `livi-network status`. The aliases take the helper's snake_case names.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NetworkStatus {
+    pub state: String,
+    pub connectivity: String,
+    pub devices: Vec<NetDevice>,
+    #[serde(alias = "projection_ap")]
+    pub projection_ap: bool,
+    #[serde(alias = "wifi_profiles")]
+    pub wifi_profiles: Vec<WifiProfile>,
+    pub clock: NetClock,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NetDevice {
+    pub device: String,
+    /// `ethernet` or `wifi`.
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub state: String,
+    pub connection: Option<String>,
+    pub ipv4: Vec<String>,
+    pub gateway: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WifiProfile {
+    pub uuid: String,
+    pub name: String,
+    pub ssid: String,
+    pub autoconnect: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NetClock {
+    pub synchronized: bool,
+    pub rtc: bool,
+    pub utc: Option<String>,
+    pub server: Option<String>,
+    /// `utc` in the local time zone, filled in by the core.
+    pub local: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WifiNetwork {
+    pub ssid: String,
+    /// 0-100.
+    pub signal: u8,
+    /// Empty for an open network.
+    pub security: String,
+    #[serde(alias = "in_use")]
+    pub in_use: bool,
+    pub saved: bool,
+}
+
+/// One of the helper's codes (`invalid`, `not-found`, `projection-ap`, `no-wifi`, `timeout`,
+/// `unavailable`, `nmcli`, `activation-failed`) and its text.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NetworkError {
+    pub code: String,
+    pub message: String,
 }
 
 /// What the MiniDSP daemon last reported for the configured device.

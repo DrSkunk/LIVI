@@ -23,6 +23,7 @@ use crate::dongle::LinkSpeedViewer;
 use crate::games::GamesAsk;
 use crate::hub::{Frame, Hub};
 use crate::minidsp::MiniDspAsk;
+use crate::network::{Join, NetworkAsk};
 use crate::projection::{UiCommand, UiSenders};
 use crate::spectrum::Viewer;
 use crate::status_file::Activity;
@@ -44,6 +45,8 @@ pub struct Core {
     minidsp_asks: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<MiniDspAsk>>>,
     os_update: mpsc::Sender<OsUpdateCommand>,
     os_update_asks: std::sync::Mutex<Option<mpsc::Receiver<OsUpdateCommand>>>,
+    network: tokio::sync::mpsc::UnboundedSender<NetworkAsk>,
+    network_asks: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<NetworkAsk>>>,
 }
 
 impl Core {
@@ -56,6 +59,7 @@ impl Core {
     ) -> Self {
         let (minidsp, minidsp_asks) = tokio::sync::mpsc::unbounded_channel();
         let (os_update, os_update_asks) = mpsc::channel(1);
+        let (network, network_asks) = tokio::sync::mpsc::unbounded_channel();
         Self {
             hub: Arc::new(hub),
             config_file,
@@ -72,6 +76,8 @@ impl Core {
             minidsp_asks: std::sync::Mutex::new(Some(minidsp_asks)),
             os_update,
             os_update_asks: std::sync::Mutex::new(Some(os_update_asks)),
+            network,
+            network_asks: std::sync::Mutex::new(Some(network_asks)),
         }
     }
 
@@ -105,6 +111,20 @@ impl Core {
         self.minidsp
             .send(ask)
             .map_err(|_| "MiniDSP is not available".to_string())
+    }
+
+    /// The network asks, for the one task that serves them.
+    pub fn take_network_asks(&self) -> Option<tokio::sync::mpsc::UnboundedReceiver<NetworkAsk>> {
+        self.network_asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+    }
+
+    fn ask_network(&self, ask: NetworkAsk) -> Result<(), String> {
+        self.network
+            .send(ask)
+            .map_err(|_| "network settings are not available".to_string())
     }
 
     pub fn with_mfi(mut self, dir: PathBuf) -> Self {
@@ -364,6 +384,21 @@ impl Core {
                 self.ask_minidsp(MiniDspAsk::SetVolume(volume_db))
             }
             Action::MiniDspSetBass { gain_db } => self.ask_minidsp(MiniDspAsk::SetBass(gain_db)),
+            Action::NetworkWatch { on } => self.ask_network(NetworkAsk::Watch(on)),
+            Action::NetworkRefresh => self.ask_network(NetworkAsk::Refresh),
+            Action::NetworkScan => self.ask_network(NetworkAsk::Scan),
+            Action::NetworkConnect {
+                ssid,
+                psk,
+                hidden,
+                security,
+            } => self.ask_network(NetworkAsk::Connect(Join {
+                ssid,
+                psk,
+                hidden,
+                security,
+            })),
+            Action::NetworkForget { uuid } => self.ask_network(NetworkAsk::Forget(uuid)),
             Action::MiniDspSelectPreset { preset } => {
                 self.ask_minidsp(MiniDspAsk::SelectPreset(preset))
             }
@@ -596,6 +631,7 @@ mod tests {
             cameras: Vec::new(),
             mfi: Default::default(),
             minidsp: Default::default(),
+            network: Default::default(),
             config: defaults(),
         });
         let file = ConfigFile::new(dir.0.join("config.json"), dir.0.join("backup.json"));
@@ -859,6 +895,46 @@ mod tests {
                 4,
                 Action::MiniDspSelectPreset { preset: 1 },
                 MiniDspAsk::SelectPreset(1),
+            ),
+        ] {
+            ui.send(&ToCore::Action { id, action }).await;
+            assert_eq!(ui.recv().await, Some(FromCore::Reply { id, error: None }));
+            assert_eq!(asks.recv().await, Some(ask));
+        }
+    }
+
+    #[tokio::test]
+    async fn network_actions_reach_the_network_task() {
+        let dir = TempDir::new();
+        let (core, path) = start(&dir);
+        let mut asks = core.take_network_asks().unwrap();
+        let mut ui = Peer::hello(&path).await;
+        for (id, action, ask) in [
+            (
+                1,
+                Action::NetworkWatch { on: true },
+                NetworkAsk::Watch(true),
+            ),
+            (2, Action::NetworkScan, NetworkAsk::Scan),
+            (
+                3,
+                Action::NetworkConnect {
+                    ssid: "Garage".into(),
+                    psk: None,
+                    hidden: false,
+                    security: None,
+                },
+                NetworkAsk::Connect(Join {
+                    ssid: "Garage".into(),
+                    psk: None,
+                    hidden: false,
+                    security: None,
+                }),
+            ),
+            (
+                4,
+                Action::NetworkForget { uuid: "u-1".into() },
+                NetworkAsk::Forget("u-1".into()),
             ),
         ] {
             ui.send(&ToCore::Action { id, action }).await;

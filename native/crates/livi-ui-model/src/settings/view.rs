@@ -101,6 +101,9 @@ pub enum Local {
     Browse(crate::settings::custom::files::Wanted),
     PickEntry(usize),
     CalibrateTouch(usize),
+    /// Opens the join form for the scanned Wi-Fi network at this index.
+    JoinNetwork(usize),
+    JoinHidden,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -352,12 +355,12 @@ fn row(node: &Node, state: &Value, t: &Strings) -> Row {
         );
     }
     let raw = get(config, node.path);
-    let mut enabled = node.disabled.is_none_or(|c| !holds(c, &state["system"]));
+    let mut enabled = node.disabled.is_none_or(|c| !holds(c, state));
     if let Kind::Select {
         read_only: Some(c), ..
     } = &node.kind
     {
-        enabled &= !holds(*c, &state["system"]);
+        enabled &= !holds(*c, state);
     }
     let kind = match &node.kind {
         Kind::Route { .. } => RowKind::Route,
@@ -452,6 +455,7 @@ impl Settings {
                 rows: children
                     .iter()
                     .enumerate()
+                    .filter(|(_, c)| c.hidden.is_none_or(|h| !holds(h, state)))
                     .flat_map(|(i, c)| {
                         let inline = match c.kind {
                             Kind::Custom(page) => custom_rows(page, state, t, &self.facts),
@@ -479,7 +483,7 @@ impl Settings {
                         offline: o.offline,
                     })
                     .collect(),
-                read_only: read_only.is_some_and(|c| holds(c, &state["system"])),
+                read_only: read_only.is_some_and(|c| holds(c, state)),
             },
             Kind::Number {
                 min,
@@ -593,7 +597,7 @@ impl Settings {
         else {
             return Vec::new();
         };
-        if read_only.is_some_and(|c| holds(c, &state["system"])) {
+        if read_only.is_some_and(|c| holds(c, state)) {
             return Vec::new();
         }
         let Some(o) = choices(node, state, t).into_iter().nth(option) else {

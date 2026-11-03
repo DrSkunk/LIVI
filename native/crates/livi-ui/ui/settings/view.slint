@@ -10,10 +10,11 @@ import { RowButton } from "actions.slint";
 import { SelectBody, NumberBody, TextBody, ColorBody, SliderBody, PendingBody, PickData, CalibrationBody, KnobData } from "fields.slint";
 import { Focus, FocusZone } from "../focus.slint";
 import { SliderGrab } from "controls.slint";
+import { JoinBody } from "join.slint";
 
 export { RowData, RowKind, PickData, KnobData }
 
-export enum ScreenKind { list, select, number, text, color, slider, calibration, pending }
+export enum ScreenKind { list, select, number, text, color, slider, calibration, pending, join }
 
 export global SettingsState {
     in property <ScreenKind> kind;
@@ -60,6 +61,25 @@ export global SettingsState {
     in property <string> capture-hint;
     in property <string> dialog-title;
     in property <[RowData]> dialog-rows;
+    in-out property <string> join-ssid;
+    in-out property <string> join-psk;
+    in-out property <int> join-field;
+    in-out property <bool> join-show;
+    in property <bool> join-ask-ssid;
+    in property <bool> join-ask-psk;
+    in property <bool> join-ask-security;
+    in property <string> join-security-label: "Security";
+    in property <[string]> join-security-options;
+    in property <int> join-security;
+    in property <bool> join-busy;
+    in property <string> join-status;
+    in property <string> join-error;
+    in property <string> join-ssid-label: "Network name";
+    in property <string> join-psk-label: "Password";
+    in property <string> join-psk-hint;
+    in property <string> join-show-label: "Show";
+    in property <string> join-connect-text: "Connect";
+    in property <string> join-space: "Space";
     out property <int> focus-base: (can-back ? 1 : 0) + (show-apply ? 1 : 0);
 
     callback back();
@@ -86,6 +106,11 @@ export global SettingsState {
     callback dialog-press(int);
     callback capture(int);
     callback capture-cancel();
+    callback join-key(string);
+    callback join-erase();
+    callback join-connect();
+    callback join-security-pick(int);
+    callback join-done();
 }
 
 export component SettingsView inherits Rectangle {
@@ -257,6 +282,36 @@ export component SettingsView inherits Rectangle {
                         moved(i, v) => { SettingsState.cal-moved(i, v); }
                         released(i, v) => { SettingsState.cal-done(i, v); }
                         reset(i) => { SettingsState.cal-reset(i); }
+                    }
+                    if SettingsState.kind == ScreenKind.join: JoinBody {
+                        base: SettingsState.focus-base;
+                        zone-main: Focus.zone == FocusZone.main;
+                        focus-index: Focus.main-index;
+                        editing: Focus.editing;
+                        ask-ssid: SettingsState.join-ask-ssid;
+                        ask-psk: SettingsState.join-ask-psk;
+                        ask-security: SettingsState.join-ask-security;
+                        security-label: SettingsState.join-security-label;
+                        security-options: SettingsState.join-security-options;
+                        security: SettingsState.join-security;
+                        security-pick(i) => { SettingsState.join-security-pick(i); }
+                        busy: SettingsState.join-busy;
+                        ssid-label: SettingsState.join-ssid-label;
+                        psk-label: SettingsState.join-psk-label;
+                        psk-hint: SettingsState.join-psk-hint;
+                        show-label: SettingsState.join-show-label;
+                        connect-label: SettingsState.join-connect-text;
+                        space-label: SettingsState.join-space;
+                        status: SettingsState.join-status;
+                        error: SettingsState.join-error;
+                        ssid <=> SettingsState.join-ssid;
+                        psk <=> SettingsState.join-psk;
+                        field <=> SettingsState.join-field;
+                        show <=> SettingsState.join-show;
+                        typed(k) => { SettingsState.join-key(k); }
+                        erase => { SettingsState.join-erase(); }
+                        connect => { SettingsState.join-connect(); }
+                        done => { SettingsState.join-done(); }
                     }
                     if SettingsState.kind == ScreenKind.pending: PendingBody {
                         min-height: 120px;

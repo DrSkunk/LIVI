@@ -17,6 +17,7 @@ pub const ENV: &str = "LIVI_OS";
 pub const HELPER_ENV: &str = "LIVI_OS_HELPER";
 pub const DEFAULT_HELPER: &str = "/usr/libexec/livi-helperd";
 pub const CAN_CAPTURE: &str = "/usr/libexec/livi-can-capture";
+pub const NETWORK: &str = "/usr/libexec/livi-network";
 /// Written to `resources/livi-os-helper-api` in the AppImage, bumped with every change of
 /// docs/LIVI-OS.md the image has to follow.
 pub const CONTRACT: &str = "2";
@@ -175,6 +176,7 @@ mod tests {
         }
         assert!(doc.contains(DEFAULT_HELPER));
         assert!(doc.contains(CAN_CAPTURE));
+        assert!(doc.contains(NETWORK));
         assert!(doc.contains(&format!("contract version `{CONTRACT}`")));
     }
 

@@ -265,7 +265,8 @@ Cmnd_Alias LIVI_STALE = /usr/bin/pkill -TERM -f /usr/libexec/livi-helperd$, /usr
 Cmnd_Alias LIVI_WIFI_AP = /usr/bin/systemctl start livi-wifi-ap.service, /usr/bin/systemctl stop livi-wifi-ap.service, /usr/bin/systemctl restart livi-wifi-ap.service, /usr/bin/systemctl enable livi-wifi-ap.service, /usr/bin/systemctl disable livi-wifi-ap.service
 Cmnd_Alias LIVI_HOST = /usr/local/lib/livi/livi-power.sh *, /usr/local/lib/livi/livi-set-time.sh *, /usr/local/lib/livi/livi-video-mode.sh *
 Cmnd_Alias LIVI_CAN = /usr/libexec/livi-can-capture ""
-<user> ALL=(root) NOPASSWD: LIVI_HELPER, LIVI_STALE, LIVI_WIFI_AP, LIVI_HOST, LIVI_CAN
+Cmnd_Alias LIVI_NETWORK = /usr/libexec/livi-network status, /usr/libexec/livi-network scan, /usr/libexec/livi-network connect, /usr/libexec/livi-network forget *
+<user> ALL=(root) NOPASSWD: LIVI_HELPER, LIVI_STALE, LIVI_WIFI_AP, LIVI_HOST, LIVI_CAN, LIVI_NETWORK
 ```
 
 `""` allows the command only without arguments. Leave out `SETENV`, LIVI does not need it.
@@ -284,6 +285,7 @@ the rule has to name the path that exists on the image.
 | `/usr/local/lib/livi/livi-set-time.sh`     | as `livi_install_time_helper`                                                                                                                                                                                              | GPS does not set clock or timezone                        |
 | `/usr/local/lib/livi/livi-video-mode.sh`   | as `livi_install_video_mode_helper` (adapt `CMDLINE` to the image's boot partition)                                                                                                                                        | the display mode is not pinned                            |
 | `/usr/libexec/livi-can-capture`            | see [Haltech CAN capture](#haltech-can-capture)                                                                                                                                                                            | no Haltech CAN telemetry                                  |
+| `/usr/libexec/livi-network`                | see [Network settings](#network-settings)                                                                                                                                                                                  | _Settings → System → Network_ is hidden                   |
 | `/usr/local/lib/livi/gvfs-phone-guard.sh`  | optional, only for an image with gvfs; script and sudoers rule as in `native/crates/livi-core/src/gvfs_guard.rs`                                                                                                           | gvfs may grab phones                                      |
 
 ## Haltech CAN capture
@@ -304,6 +306,37 @@ instead of `candump`. The image provides it (root, mode `0755`, no arguments) an
 
 If it exits LIVI starts it again after 2 s, doubling up to 30 s. Wiring and bring-up:
 [HALTECH-CAN.md](https://github.com/DrSkunk/livi-os-buildroot/blob/main/docs/HALTECH-CAN.md).
+
+## Network settings
+
+_Settings → System → Network_ shows Ethernet, Wi-Fi, internet and clock status, scans for and
+joins Wi-Fi networks and forgets saved ones. LIVI runs, as `<user>`:
+
+```
+sudo -n /usr/libexec/livi-network status
+sudo -n /usr/libexec/livi-network scan
+sudo -n /usr/libexec/livi-network connect
+sudo -n /usr/libexec/livi-network forget <uuid>
+```
+
+Each prints one JSON object on stdout and exits 0; a failure exits 1 with
+`{"ok": false, "error": <code>, "message": <text>}`, a usage error exits 2. LIVI takes any
+nonzero exit as a failure, even after `"ok": true`. The codes are
+`invalid`, `not-found`, `projection-ap` (the wireless CarPlay / Android Auto access point holds
+the radio), `no-wifi`, `timeout`, `unavailable`, `nmcli` and `io`.
+
+- `connect` reads `{"ssid": <text>, "psk": <text or null>, "hidden": <bool>}` on stdin. The
+  password is never an argument and LIVI never logs it; `null` is an open network, or a saved
+  one joined with its stored password. For a hidden network the user may pick the security,
+  sent as `"security": "open" | "wpa2" | "wpa3"`; it is left out for scanned networks and for
+  _Automatic_, so the helper detects it as before. A helper without WPA3 support may reject it.
+- LIVI waits at most 15 s for `status`, 45 s for `scan`, 90 s for `connect` and 20 s for
+  `forget`, off the UI thread, then reports `timeout`. Unknown JSON fields are ignored.
+- `status` runs every 5 s while the page is open and after every `connect` and `forget`.
+
+The page only exists with `LIVI_OS=1` and a file at `/usr/libexec/livi-network`. Without
+the sudoers rule every call fails and the page shows the error instead of the status. The
+helper is optional, so it does not change the contract version.
 
 ## Notes
 

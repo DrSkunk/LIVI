@@ -40,6 +40,11 @@ enum Target {
     ColorSlider(i32),
     PageSlider,
     CalSlider(i32),
+    JoinSsid,
+    JoinSecurity(usize),
+    JoinPsk,
+    JoinShow,
+    JoinConnect,
     Artwork,
     Prev,
     PlayPause,
@@ -106,6 +111,19 @@ fn settings_targets(s: &SettingsState) -> Vec<Target> {
         ScreenKind::Slider => out.push(Target::PageSlider),
         ScreenKind::Calibration => {
             out.extend((0..s.get_cal_knobs().row_count() as i32).map(Target::CalSlider))
+        }
+        ScreenKind::Join => {
+            if s.get_join_ask_ssid() {
+                out.push(Target::JoinSsid);
+            }
+            if s.get_join_ask_security() {
+                let options = s.get_join_security_options().row_count();
+                out.extend((0..options).map(Target::JoinSecurity));
+            }
+            if s.get_join_ask_psk() {
+                out.extend([Target::JoinPsk, Target::JoinShow]);
+            }
+            out.push(Target::JoinConnect);
         }
         ScreenKind::Pending => {}
     }
@@ -184,7 +202,7 @@ fn kind(t: Target) -> Focused {
         | Target::DspSlider(_)
         | Target::Progress => Focused::Slider,
         Target::Number => Focused::Number,
-        Target::Text | Target::ColorHex => Focused::Text,
+        Target::Text | Target::ColorHex | Target::JoinSsid | Target::JoinPsk => Focused::Text,
         _ => Focused::Plain,
     }
 }
@@ -290,6 +308,9 @@ fn activate(ui: &AppWindow, target: Target) {
             }
         }
         Target::ColorReset => s.invoke_color_reset(),
+        Target::JoinSecurity(i) => s.invoke_join_security_pick(i as i32),
+        Target::JoinShow => s.set_join_show(!s.get_join_show()),
+        Target::JoinConnect => s.invoke_join_connect(),
         Target::NumberMinus => adjust(ui, Target::Number, -1),
         Target::NumberPlus => adjust(ui, Target::Number, 1),
         Target::Artwork => {
