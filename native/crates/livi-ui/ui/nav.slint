@@ -9,9 +9,22 @@ export enum Page { projection, telemetry, media, clock, camera, games, minidsp, 
 
 export enum PhoneState { none, connected, streaming }
 
+export struct SidebarClock {
+    hour: string,
+    minute: string,
+    colon-visible: bool,
+}
+
 export struct TabData {
     page: Page,
     icon: image,
+}
+
+component ClockPart inherits Text {
+    color: Theme.text;
+    font-size: Ui.xs-icons ? 16px : 24px;
+    letter-spacing: Theme.tracking;
+    accessible-role: none;
 }
 
 component Tab inherits Rectangle {
@@ -79,11 +92,13 @@ export component Nav inherits Rectangle {
     in property <[TabData]> tabs;
     in property <Page> active;
     in property <PhoneState> phone;
-    in property <string> clock;
+    in property <SidebarClock> clock;
     in property <bool> right-hand;
     in property <bool> asleep;
     callback select(Page);
 
+    property <length> clock-pair-width: root.clock.hour == "" && root.clock.minute == ""
+        ? 0px : max(clock-pair-probe.preferred-width, max(clock-hours.preferred-width, clock-minutes.preferred-width));
     width: Ui.xs-icons ? Ui.nav-width : max(Ui.icon-size, Ui.show-clock ? clock-text.preferred-width : 0) + 2 * Ui.nav-pad + 1px;
     background: Theme.nav-fill;
     drop-shadow-blur: Theme.comand ? 25px : 0;
@@ -96,13 +111,33 @@ export component Nav inherits Rectangle {
         Rectangle {
             visible: Ui.show-clock;
             height: Ui.show-clock ? clock-text.preferred-height + 16px : 0;
-            clock-text := Text {
+            accessible-role: text;
+            accessible-label: root.clock.hour == "" && root.clock.minute == ""
+                ? "" : root.clock.hour + ":" + root.clock.minute;
+            // 8 is among the widest digits in both bundled UI fonts.
+            clock-pair-probe := ClockPart {
+                text: "88";
+                opacity: 0;
+            }
+            clock-text := HorizontalLayout {
                 x: (parent.width - self.width) / 2;
                 y: 16px;
-                text: root.clock;
-                color: Theme.text;
-                font-size: Ui.xs-icons ? 16px : 24px;
-                letter-spacing: Theme.tracking;
+                width: self.preferred-width;
+                height: self.preferred-height;
+                clock-hours := ClockPart {
+                    width: root.clock-pair-width;
+                    text: root.clock.hour;
+                    horizontal-alignment: right;
+                }
+                ClockPart {
+                    text: ":";
+                    opacity: root.clock.colon-visible ? 1 : 0;
+                }
+                clock-minutes := ClockPart {
+                    width: root.clock-pair-width;
+                    text: root.clock.minute;
+                    horizontal-alignment: left;
+                }
             }
         }
         for tab[i] in root.tabs: Tab {

@@ -10,7 +10,7 @@ import "fonts/D-DIN-400.otf";
 import "fonts/D-DIN-700.otf";
 import { Theme, Ui } from "theme.slint";
 import { Focus, FocusZone } from "focus.slint";
-import { Nav, Page, PhoneState, TabData } from "nav.slint";
+import { Nav, Page, PhoneState, SidebarClock, TabData } from "nav.slint";
 import { MediaPage, MediaText, Press, DabState, StationData } from "media.slint";
 import { ProjectionPage, TouchPhase } from "projection.slint";
 import { SettingsView, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData } from "settings/view.slint";
@@ -22,7 +22,7 @@ import { GamesPage, GamesState, GamesText, GameData, ControllerData } from "game
 import { MiniDspPage, MiniDspState, DspPhase, DspPresetData, DspControlData } from "minidsp.slint";
 import { ClockFace, ClockPage, ClockText } from "clock.slint";
 
-export { Theme, Focus, FocusZone, Page, PhoneState, TabData, TouchPhase, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData, MediaText, Press, DabState, StationData, DashState, GaugeData, CapData, TrailData, LabelData, OverlayState, MaskData, TouchCalibrationState, MiniDspState, DspPhase, DspPresetData, DspControlData, GamesState, GamesText, GameData, ControllerData, ClockFace, ClockText }
+export { Theme, Focus, FocusZone, Page, PhoneState, SidebarClock, TabData, TouchPhase, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData, MediaText, Press, DabState, StationData, DashState, GaugeData, CapData, TrailData, LabelData, OverlayState, MaskData, TouchCalibrationState, MiniDspState, DspPhase, DspPresetData, DspControlData, GamesState, GamesText, GameData, ControllerData, ClockFace, ClockText }
 
 export component AppWindow inherits Window {
     in-out property <Page> page: Page.media;
@@ -30,6 +30,7 @@ export component AppWindow inherits Window {
     in property <image> projection-icon;
     in property <PhoneState> phone;
     in property <string> clock;
+    in property <SidebarClock> sidebar-clock;
     in property <ClockFace> clock-face: ClockFace.classic;
     in property <bool> clock-auto-hide;
     in property <string> clock-time: "--:--";
@@ -131,7 +132,7 @@ export component AppWindow inherits Window {
             tabs: root.tabs;
             active: root.page;
             phone: root.phone;
-            clock: root.clock;
+            clock: root.sidebar-clock;
             right-hand: false;
             asleep: root.nav-asleep;
             select(p) => {
@@ -218,7 +219,7 @@ export component AppWindow inherits Window {
             tabs: root.tabs;
             active: root.page;
             phone: root.phone;
-            clock: root.clock;
+            clock: root.sidebar-clock;
             right-hand: true;
             asleep: root.nav-asleep;
             select(p) => {

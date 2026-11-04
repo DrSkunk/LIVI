@@ -14,9 +14,18 @@ impl ClockTime {
         format!("{:02}:{:02}", self.hour, self.minute)
     }
 
+    pub fn sidebar_parts(self) -> (String, String, bool) {
+        (
+            format!("{:02}", self.hour),
+            format!("{:02}", self.minute),
+            self.second % 2 == 0,
+        )
+    }
+
     pub fn blinking_text(self) -> String {
-        let sep = if self.second % 2 == 0 { ':' } else { ' ' };
-        format!("{:02}{sep}{:02}", self.hour, self.minute)
+        let (hour, minute, visible) = self.sidebar_parts();
+        let sep = if visible { ':' } else { ' ' };
+        format!("{hour}{sep}{minute}")
     }
 
     pub fn angles(self) -> (f32, f32, f32) {
@@ -80,6 +89,8 @@ mod tests {
         assert_eq!(odd.text(), "03:05");
         assert_eq!(even.blinking_text(), "03:05");
         assert_eq!(odd.blinking_text(), "03 05");
+        assert_eq!(even.sidebar_parts(), ("03".into(), "05".into(), true));
+        assert_eq!(odd.sidebar_parts(), ("03".into(), "05".into(), false));
     }
 
     #[test]

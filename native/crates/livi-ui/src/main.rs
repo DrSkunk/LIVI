@@ -151,22 +151,40 @@ fn apply_language(ui: &AppWindow, lang: &str) {
 }
 
 fn update_clock(ui: &AppWindow) {
-    let (sidebar, time) = match clock::now() {
+    let (sidebar, time, sidebar_clock) = match clock::now() {
         Ok(time) => {
             let (hour, minute, second) = time.angles();
             ui.set_clock_hour_angle(hour);
             ui.set_clock_minute_angle(minute);
             ui.set_clock_second_angle(second);
             ui.set_clock_valid(true);
-            (time.blinking_text(), time.text())
+            let (hour, minute, colon_visible) = time.sidebar_parts();
+            (
+                time.blinking_text(),
+                time.text(),
+                SidebarClock {
+                    hour: hour.into(),
+                    minute: minute.into(),
+                    colon_visible,
+                },
+            )
         }
         Err(e) => {
             eprintln!("[ui] cannot read local time: {e}");
             ui.set_clock_valid(false);
-            ("--:--".to_string(), "--:--".to_string())
+            (
+                "--:--".to_string(),
+                "--:--".to_string(),
+                SidebarClock {
+                    hour: "--".into(),
+                    minute: "--".into(),
+                    colon_visible: true,
+                },
+            )
         }
     };
     ui.set_clock_time(time.into());
+    ui.set_sidebar_clock(sidebar_clock);
     ui.set_clock(sidebar.clone().into());
     ui.global::<DashState>().set_clock(sidebar.clone().into());
     secondary::tick_clock(&sidebar);
