@@ -101,7 +101,7 @@ fn watch_liveness(stream: &TcpStream) {
         );
     };
     set(libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1);
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     set(libc::IPPROTO_TCP, libc::TCP_KEEPIDLE, KEEPALIVE_IDLE);
     #[cfg(target_os = "macos")]
     set(libc::IPPROTO_TCP, libc::TCP_KEEPALIVE, KEEPALIVE_IDLE);
@@ -109,7 +109,7 @@ fn watch_liveness(stream: &TcpStream) {
     set(libc::IPPROTO_TCP, libc::TCP_KEEPCNT, KEEPALIVE_TRIES);
 }
 
-fn address(text: &str) -> Option<[u8; 6]> {
+pub fn address(text: &str) -> Option<[u8; 6]> {
     let mut out = [0u8; 6];
     let mut parts = text.trim().split(':');
     for byte in &mut out {

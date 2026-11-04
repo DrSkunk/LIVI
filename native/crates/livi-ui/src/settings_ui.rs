@@ -58,6 +58,7 @@ struct Controller {
     capturing: Option<&'static str>,
     browser: Option<Browser>,
     join: Option<Join>,
+    picking: Option<Wanted>,
 }
 
 thread_local! {
@@ -122,6 +123,13 @@ pub fn open_path(ui: &AppWindow, client: &Client, path: &str) {
 pub fn reset_to_root(ui: &AppWindow, client: &Client) {
     with(|c| c.stack.clear());
     render(ui, client);
+}
+
+pub fn file_picked(weak: &Weak<AppWindow>, client: &Client, path: &std::path::Path) {
+    act(weak, client, |c, _| match c.picking.take() {
+        Some(wanted) => (picked(wanted, path), false),
+        None => (Vec::new(), false),
+    });
 }
 
 fn picked(wanted: Wanted, path: &std::path::Path) -> Vec<Change> {
@@ -206,6 +214,7 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
             capturing: None,
             browser: None,
             join: None,
+            picking: None,
         });
     });
     let s = ui.global::<SettingsState>();
@@ -243,10 +252,14 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
             }
             match row.local {
                 Some(Local::Browse(wanted)) => {
-                    act(&weak, &client, |c, _| {
-                        c.browser = Some(Browser::open(wanted));
-                        (Vec::new(), false)
-                    });
+                    if crate::system_pick() {
+                        with(|c| c.picking = Some(wanted));
+                    } else {
+                        act(&weak, &client, |c, _| {
+                            c.browser = Some(Browser::open(wanted));
+                            (Vec::new(), false)
+                        });
+                    }
                 }
                 Some(Local::JoinNetwork(n)) => {
                     if let Some(join) = Join::scanned(&client.state(), n) {

@@ -49,7 +49,7 @@ impl ConfigFile {
             && file.get("projectionHeight").is_none()
             && let Some((w, h)) = host.panel_px
         {
-            let (w, h) = fit_720p(w, h);
+            let (w, h) = fit_720p(w.max(h), w.min(h));
             println!("[core] projection defaults from the panel: {w}x{h}");
             defaults.projection_width = w;
             defaults.projection_height = h;
@@ -135,9 +135,9 @@ fn current_names(file: &Value) -> Value {
     ] {
         rename(top, old, new);
     }
-    if let Some(Value::String(main)) = top.remove("displayMode") {
+    if let Some(Value::String(main)) = top.get("displayMode") {
         let screens = [
-            ("main", main),
+            ("main", main.clone()),
             ("cluster", String::new()),
             ("aux", String::new()),
         ]
@@ -384,6 +384,20 @@ pub mod tests {
     }
 
     #[test]
+    fn a_portrait_panel_gives_a_landscape_projection() {
+        let dir = TempDir::new();
+        let host = HostFacts {
+            car_name: None,
+            panel_px: Some((1080, 2400)),
+        };
+        let config = file_in(&dir).load(&host);
+        assert_eq!(
+            (config.projection_width, config.projection_height),
+            (1280, 576)
+        );
+    }
+
+    #[test]
     fn the_old_dash_names_come_over_and_are_written_under_the_new_ones() {
         let dir = TempDir::new();
         let bounds = json!({ "x": 8, "y": 31, "width": 1211, "height": 678 });
@@ -445,6 +459,13 @@ pub mod tests {
         }
         assert_eq!(live["clusterScreenWidth"], 1024);
         assert_eq!(live["dashboard"]["cluster"], true);
+    }
+
+    #[test]
+    fn a_display_mode_per_screen_survives_loading() {
+        let file = json!({ "displayMode": { "main": "1920x1080", "cluster": "", "aux": "" } });
+        let config = merge(&current_names(&file), &defaults());
+        assert_eq!(config.display_mode.main, "1920x1080");
     }
 
     #[test]

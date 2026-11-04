@@ -2,11 +2,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
+#[cfg(target_os = "android")]
+extern crate nusb_android as nusb;
+
 pub mod accessory;
 pub mod ap;
 #[cfg(target_os = "linux")]
 pub mod bt;
 pub mod link;
+#[cfg(any(target_os = "android", test))]
+mod net4;
+#[cfg(target_os = "android")]
+pub mod usb_net;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

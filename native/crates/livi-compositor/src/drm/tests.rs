@@ -3,7 +3,8 @@
 // Additional terms: see NOTICE
 
 use super::{
-    Offered, assign, calibrated, choose, panel_id, panel_name, size_of, touch_cal_of, wl_output_in,
+    Offered, assign, calibrated, choose, panel_id, panel_name, size_of, timing_mm, touch_cal_of,
+    wl_output_in,
 };
 use smithay::utils::{Logical, Point, Size, Transform};
 
@@ -215,6 +216,19 @@ fn the_panel_name_comes_from_the_edid_descriptor() {
     assert_eq!(panel_name(&edid).as_deref(), Some("Elecrow 8in"));
     assert_eq!(panel_name(&[0u8; 128]), None);
     assert_eq!(panel_name(&[0u8; 20]), None);
+}
+
+#[test]
+fn the_panel_size_falls_back_to_the_first_detailed_timing() {
+    let mut edid = vec![0u8; 128];
+    edid[54] = 0x04;
+    edid[54 + 12] = 0x61;
+    edid[54 + 13] = 0x63;
+    edid[54 + 14] = 0x21;
+    assert_eq!(timing_mm(&edid), Some((609, 355)));
+    edid[54] = 0;
+    assert_eq!(timing_mm(&edid), None);
+    assert_eq!(timing_mm(&[0u8; 60]), None);
 }
 
 #[test]

@@ -4,6 +4,7 @@
 
 use std::io;
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use std::sync::Arc;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -13,11 +14,11 @@ use zbus::OwnedVariant;
 
 use crate::livi_sock::Broadcaster;
 
-pub const SOCK_PATH: &str = "/tmp/livi-shared.sock";
-
 const WAKE_UUID: &str = "0000111f-0000-1000-8000-00805f9b34fb";
 
 type SetPlaybackStatus = Box<dyn Fn(&str) + Send + Sync>;
+
+pub type Bluetooth = Arc<dyn Fn(&str, &str) -> Result<(), String> + Send + Sync>;
 
 pub struct SharedSockDeps {
     pub adapter: String,
@@ -25,9 +26,10 @@ pub struct SharedSockDeps {
     pub events: Broadcaster,
     pub set_playback_status: SetPlaybackStatus,
     pub deauth_dongle: Option<fn() -> Option<usize>>,
+    pub bluetooth: Option<Bluetooth>,
 }
 
-pub async fn serve(path: &str, bus: Option<Connection>, deps: SharedSockDeps) -> io::Result<()> {
+pub async fn serve(path: &Path, bus: Option<Connection>, deps: SharedSockDeps) -> io::Result<()> {
     let listener = bind(path, "shared-sock")?;
     let deps = Arc::new(deps);
     loop {
@@ -42,11 +44,11 @@ pub async fn serve(path: &str, bus: Option<Connection>, deps: SharedSockDeps) ->
     }
 }
 
-pub(crate) fn bind(path: &str, name: &str) -> io::Result<UnixListener> {
+pub(crate) fn bind(path: &Path, name: &str) -> io::Result<UnixListener> {
     let _ = std::fs::remove_file(path);
     let listener = UnixListener::bind(path)?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o666))?;
-    println!("[{name}] listening on {path}");
+    println!("[{name}] listening on {}", path.display());
     Ok(listener)
 }
 
@@ -67,9 +69,15 @@ async fn handle(
 
     let json = match verb {
         "list_paired" | "connect" | "disconnect-profile" | "connect-full" | "disconnect"
-        | "remove" => match bus.as_ref() {
-            None => err_json("bluetooth unavailable on this platform"),
-            Some(bus) => bluez_verb(bus, verb, arg, &deps.adapter).await,
+        | "remove" => match (bus.as_ref(), deps.bluetooth.clone()) {
+            (Some(bus), _) => bluez_verb(bus, verb, arg, &deps.adapter).await,
+            (None, Some(bluetooth)) => {
+                let (verb, arg) = (verb.to_string(), arg.to_string());
+                tokio::task::spawn_blocking(move || action(bluetooth(&verb, &arg)))
+                    .await
+                    .unwrap_or_else(|e| err_json(&e.to_string()))
+            }
+            (None, None) => err_json("bluetooth unavailable on this platform"),
         },
         "playback-status" => match arg {
             "playing" | "paused" | "stopped" => {

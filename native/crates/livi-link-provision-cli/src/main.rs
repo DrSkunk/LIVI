@@ -10,14 +10,20 @@ use std::time::{Duration, Instant};
 
 use livi_link_provision::dongle::arm::ax520;
 use livi_link_provision::dongle::arm::imx6ul::shell::{self, DEFAULT_HOST, Shell};
-use livi_link_provision::dongle::arm::imx6ul::{self, boot, mtd};
+use livi_link_provision::dongle::arm::imx6ul::{self, boot, mtd, vendor};
 use livi_link_provision::dongle::hook;
 use livi_link_provision::dongle::link;
 use livi_link_provision::dongle::probe::{Family, Probe};
 use livi_link_provision::dongle::rescue;
 
 fn pick_host() -> String {
-    std::env::var("LIVI_LINK_HOST").unwrap_or_else(|_| DEFAULT_HOST.to_string())
+    if let Ok(host) = std::env::var("LIVI_LINK_HOST") {
+        return host;
+    }
+    if Shell::new(DEFAULT_HOST).reachable() {
+        return DEFAULT_HOST.to_string();
+    }
+    shell::on_vendor_ap().unwrap_or(DEFAULT_HOST).to_string()
 }
 
 fn main() -> std::process::ExitCode {
@@ -406,6 +412,9 @@ fn imx6ul_provision(lfwb: Option<&Path>) -> Result<(), String> {
         }
         wait_for_shell(&sh)?;
     }
+    if imx6ul::running(&sh)? == imx6ul::Running::Vendor && !boot::key_fits(&sh, &report)? {
+        imx6ul_vendor_again(&sh)?;
+    }
     if sh
         .sh(&format!(
             "[ -e {} ] && echo yes || echo no",
@@ -438,6 +447,70 @@ fn imx6ul_provision(lfwb: Option<&Path>) -> Result<(), String> {
         "\n== done, the dongle runs LIVI Link {} ({}) and is safe to unplug",
         now.version, now.build
     );
+    Ok(())
+}
+
+fn imx6ul_vendor_again(sh: &Shell) -> Result<(), String> {
+    println!("== this dongle's U-Boot block is still the factory one, LIVI Link cannot read it");
+    println!(
+        "== the vendor's own updater rewrites it for this dongle, so its firmware goes on first"
+    );
+    let unit = vendor::unit(sh)?;
+    println!(
+        "== {} {}, serial {}, made {}",
+        unit.model, unit.version, unit.serial, unit.mfd
+    );
+    let offer = vendor::find(&unit)?;
+    if offer.newer_than(&unit) {
+        println!("== the vendor's server has the newer {}", offer.version);
+    } else if offer.older_than(&unit) {
+        println!(
+            "== the vendor's server has only {}, older than the installed {}",
+            offer.version, unit.version
+        );
+        if !ask("install it anyway? [y/N]")?.eq_ignore_ascii_case("y") {
+            return Err("nothing was changed on the dongle".into());
+        }
+    } else {
+        println!("== installing {} again", offer.version);
+    }
+    let image = vendor::download(&unit, &offer, &ota_cache_dir(), &report)?;
+    let dir = mtd::backup(sh, &backup_dir(), &report)?;
+    println!(
+        "== current firmware saved in {}",
+        livi_link_provision::tilde(&dir)
+    );
+    vendor::reinstall(sh, &unit, &image, &report)?;
+
+    let gone = Instant::now();
+    while sh.reachable() && gone.elapsed() < Duration::from_secs(60) {
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    println!("== waiting for the dongle to come back with the vendor firmware");
+    let start = Instant::now();
+    let mut usb_since = None;
+    while start.elapsed() < Duration::from_secs(300) && !sh.reachable() {
+        if usb_since.is_none() && bootstrap::stock_dongle_once() {
+            usb_since = Some(Instant::now());
+        }
+        if usb_since.is_some_and(|t| t.elapsed() > Duration::from_secs(60)) {
+            break;
+        }
+        std::thread::sleep(Duration::from_secs(3));
+    }
+    if !sh.reachable() {
+        println!("== the update took the shell with it, writing the bootstrap again");
+        bootstrap::boot_hook()?;
+        ask("unplug the dongle, plug it back in, then press enter")?;
+        wait_for_shell(sh)?;
+    }
+    if !boot::key_fits(sh, &report)? {
+        return Err(
+            "the vendor firmware is on again, but its U-Boot block still does not unpack with this dongle's key"
+                .into(),
+        );
+    }
+    println!("== the U-Boot block now carries this dongle's key");
     Ok(())
 }
 
@@ -552,23 +625,48 @@ fn wait_for_livi_link(host: &str) -> Result<link::Status, String> {
     Err("the dongle did not come back as LIVI Link within four minutes".into())
 }
 
+/// Rounds of the wait for the shell with nothing on USB, before the dongle's Wi-Fi is asked for.
+const USB_SILENT: u32 = 15;
+
 fn wait_for_shell(sh: &Shell) -> Result<(), String> {
     let mut asked = false;
+    let mut unseen = 0;
     for _ in 0..60 {
         if sh.port_open(shell::TELNET_PORT) {
             println!("== shell is up");
             return Ok(());
         }
+        if let Some(host) = shell::on_vendor_ap() {
+            sh.move_to(host);
+            println!("== shell is up at {host}");
+            return Ok(());
+        }
         match bootstrap::livi_link_on_usb() {
-            Some(bootstrap::LinkOnUsb::NoNcm) => return shell_over_wifi(sh),
+            Some(bootstrap::LinkOnUsb::NoNcm) => {
+                return shell_over_wifi(
+                    sh,
+                    "the dongle's kernel has no network over USB (no NCM), its Wi-Fi is the way in",
+                );
+            }
             Some(bootstrap::LinkOnUsb::Ncm) => {
+                unseen = 0;
                 if let Some(host) = link_local_shell(&mut asked) {
                     sh.move_to(&host);
                     println!("== shell is up on {host}");
                     return Ok(());
                 }
             }
-            None => {}
+            None if bootstrap::stock_dongle_once() => unseen = 0,
+            None => {
+                unseen += 1;
+                if unseen == USB_SILENT {
+                    return shell_over_wifi(
+                        sh,
+                        "the dongle does not show up on USB, its kernel likely offers nothing \
+                         there, its Wi-Fi is the way in",
+                    );
+                }
+            }
         }
         std::thread::sleep(Duration::from_secs(2));
     }
@@ -601,14 +699,11 @@ fn link_local_shell(asked: &mut bool) -> Option<String> {
         .then_some(host)
 }
 
-fn shell_over_wifi(sh: &Shell) -> Result<(), String> {
-    println!("== the dongle's kernel has no network over USB (no NCM), its Wi-Fi is the way in");
+fn shell_over_wifi(sh: &Shell, why: &str) -> Result<(), String> {
+    println!("== {why}");
     ask("join the dongle's own Wi-Fi from this computer, then press enter")?;
     for _ in 0..30 {
-        let answering = bootstrap::VENDOR_AP_HOSTS
-            .into_iter()
-            .find(|host| Shell::new(host).port_open(shell::TELNET_PORT));
-        if let Some(host) = answering {
+        if let Some(host) = shell::on_vendor_ap() {
             sh.move_to(host);
             println!("== shell is up at {host}");
             return Ok(());

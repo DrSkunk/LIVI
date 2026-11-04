@@ -11,6 +11,7 @@ pub mod mask;
 pub mod media;
 pub mod minidsp;
 pub mod overlay;
+pub mod scancode;
 pub mod settings;
 pub mod shell;
 pub mod touch;

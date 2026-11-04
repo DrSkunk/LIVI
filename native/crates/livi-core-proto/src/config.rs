@@ -156,6 +156,9 @@ pub struct Config {
     pub display_mode: PerScreen<String>,
     pub display_connector: PerScreen<String>,
 
+    pub screen_width_mm: PerScreen<u32>,
+    pub screen_height_mm: PerScreen<u32>,
+
     pub display_gamma: f64,
     pub display_contrast: f64,
     pub display_color_r: f64,
@@ -669,6 +672,8 @@ pub fn defaults() -> Config {
         sidebar_tabs: SidebarTabs::default(),
         display_mode: PerScreen::default(),
         display_connector: PerScreen::default(),
+        screen_width_mm: PerScreen::default(),
+        screen_height_mm: PerScreen::default(),
         display_gamma: 1.0,
         display_contrast: 1.0,
         display_color_r: 1.0,

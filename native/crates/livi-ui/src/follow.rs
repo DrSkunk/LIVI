@@ -4,7 +4,7 @@
 
 use std::collections::BTreeSet;
 
-use livi_core_proto::state::Front;
+use livi_core_proto::state::{Front, VideoPlayback};
 use livi_ui_model::shell::{Look, look_at};
 use serde_json::Value;
 
@@ -29,13 +29,13 @@ pub enum Update {
     Kiosk(bool),
     Settings,
     Spectrum(Vec<f32>),
-    Status(String),
     Open(String),
     Volume(f64),
     PhoneName(String),
     Camera(bool),
     MainMask(Option<Mask>),
     Fonts(Vec<String>),
+    Video(Option<VideoPlayback>),
 }
 
 #[derive(Default)]
@@ -55,6 +55,7 @@ pub struct Follow {
     main_mask: Option<Option<Mask>>,
     fonts: Option<Vec<String>>,
     minidsp: Option<livi_ui_model::minidsp::View>,
+    video: Option<Option<VideoPlayback>>,
 }
 
 impl Follow {
@@ -113,6 +114,15 @@ impl Follow {
             if self.kiosk != Some(kiosk) {
                 self.kiosk = Some(kiosk);
                 out.push(Update::Kiosk(kiosk));
+            }
+        }
+        if hit("videoPlayback") {
+            let next = serde_json::from_value(state["videoPlayback"].clone())
+                .ok()
+                .flatten();
+            if self.video != Some(next) {
+                self.video = Some(next);
+                out.push(Update::Video(next));
             }
         }
         if hit("sessions") || hit("config") {
