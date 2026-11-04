@@ -4,13 +4,13 @@
 
 # LIVI – Linux In-Vehicle Infotainment
 
-LIVI is an open-source **Apple CarPlay and Android Auto head unit**.
+LIVI is an open-source Apple CarPlay and Android Auto head unit built in Rust with a Slint UI.
 
 > This is the [DrSkunk/LIVI](https://github.com/DrSkunk/LIVI) fork with extra features for a Raspberry Pi 5 install (Haltech CAN telemetry, MiniDSP, RetroArch games, sunrise/sunset night mode, LIVI OS integration).
 >
 > Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)
 
-It is a standalone cross-platform head unit with a native, zero-copy GStreamer video pipeline and hardware-accelerated decoding across Linux (from x86_64 and arm64 desktops to embedded boards like the Raspberry Pi) and macOS, with low-latency audio, multitouch + D-Pad navigation, and support for very small embedded/OEM displays.
+It runs on Linux desktops and embedded boards as well as on macOS and Android (experimental). A native zero-copy GStreamer pipeline handles hardware-decoded video and low-latency audio. Multitouch and D-Pad navigation are built in, and it works even on very small embedded and OEM displays.
 
 ## Project Status
 
@@ -21,12 +21,12 @@ It is a standalone cross-platform head unit with a native, zero-copy GStreamer v
 
 ## Native Connectivity
 
-- **Apple CarPlay** (wired & wireless) on Linux and Mac, requires [MFi Authentication](#mfi-authentication)
-- **Android Auto** (wired & wireless) on Linux and Mac, wireless on Mac requires a [LIVI Link](LIVI-LINK.md)
+- **Apple CarPlay** (wired & wireless) on Linux, Mac and Android
+- **Android Auto** (wired & wireless) on Linux, Mac and Android - wireless on Mac requires a LIVI Link
 
 ## Native Apple CarPlay Ultra
 
-LIVI implements the CarPlay accessory side natively, wired and wireless, on Linux and on macOS. Wireless sessions run over LIVI's own Wi-Fi access point with Bluetooth pairing, wired sessions run directly over the USB cable (no OTG required).
+LIVI implements the CarPlay accessory side natively, wired and wireless, on Linux, macOS and Android. Wireless sessions run over LIVI's own Wi-Fi access point with Bluetooth pairing, wired sessions run directly over the USB cable (no OTG required).
 
 - main and instrument cluster video (H.264 and H.265/HEVC, hardware decoded, zero-copy)
 - configurable cluster content: map or maneuver card, compass, ETA, speed limit
@@ -458,8 +458,21 @@ In that case:
 
 After this, the app will launch normally and future updates will work without additional steps.
 
+## Android (arm64) – Experimental
+
+> [!WARNING]
+> The Android port is experimental. It is tested on AOSP Android 17 and on a Pixel 8 with latest GrapheneOS.
+
+Install `LIVI-*-android-arm64.apk` on Android 10 or newer.
+
+- Wired and wireless CarPlay and Android Auto, wireless over the device's own Bluetooth and Wi-Fi or over a LIVI Link
+- LIVI asks once for a local VPN, it uses it to reach the iPhone and the LIVI Link over USB. Android runs one VPN at a time, so turn other VPNs off
+- The LIVI Link's web page is at http://10.10.10.1, Android does not resolve `livi-link.local` over a VPN
+
 ## Build Environment
 
+![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-rust.json)
+![slint](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-slint.json)
 ![gstreamer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-gstreamer.json)
 
 ### System Requirements (build)
@@ -524,6 +537,9 @@ cargo xtask package-linux
 # macOS
 cargo xtask package-mac
 cargo xtask package-mac --arch x64    # Intel on Apple Silicon
+
+# Android, needs cargo-ndk and the SDK and NDK named in android/gradle.properties
+cargo xtask package-android
 
 # Native binaries only
 cargo xtask build-native

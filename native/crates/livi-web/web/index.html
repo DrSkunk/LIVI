@@ -359,6 +359,7 @@ document.querySelectorAll('input[type=file]').forEach(inp => {
 
 // Firmware updates.
 const OTA_REPO = 'f-io/LIVI';
+const OTA_FIRMWARE = 'https://f-io.github.io/LIVI/firmware';
 const otaState = document.getElementById('ota-state');
 const otaNightly = document.getElementById('ota-nightly');
 const otaInstall = document.getElementById('ota-install');
@@ -391,13 +392,13 @@ function cmpVersion(a, b) {
 
 async function otaRelease() {
   const forced = new URLSearchParams(location.search).get('ref');
-  if (forced) return { name: forced, ref: forced, assets: null };
+  if (forced) return { name: forced, ref: forced };
   const feed = otaNightly.checked ? 'releases/tags/nightly' : 'releases/latest';
   const r = await fetch(`https://api.github.com/repos/${OTA_REPO}/${feed}`, { cache: 'no-store' });
   if (r.status === 404) throw new Error(otaNightly.checked ? 'there is no nightly' : 'there is no release');
   if (!r.ok) throw new Error(`release feed: ${r.status}`);
   const rel = await r.json();
-  return { name: rel.name || rel.tag_name, ref: otaNightly.checked ? rel.target_commitish : rel.tag_name, assets: rel.assets || [] };
+  return { name: rel.name || rel.tag_name, ref: rel.tag_name };
 }
 
 document.getElementById('ota-check').addEventListener('click', async () => {
@@ -406,23 +407,16 @@ document.getElementById('ota-check').addEventListener('click', async () => {
   try {
     if (!installed) throw new Error('the dongle has not reported its firmware yet');
     const rel = await otaRelease();
-    const base = `https://raw.githubusercontent.com/${OTA_REPO}/${rel.ref}/assets/livi-link/${installed.target}`;
+    const base = `${OTA_FIRMWARE}/${rel.ref}/${installed.target}`;
     const r = await fetch(`${base}/firmware.json`, { cache: 'no-store' });
     if (r.status === 404) throw new Error(`${rel.name} carries no firmware for this dongle`);
     if (!r.ok) throw new Error(`firmware.json: ${r.status}`);
     const fw = await r.json();
-    if (rel.assets) {
-      const asset = rel.assets.find(a => a.name === fw.file);
-      if (!asset) throw new Error(`${rel.name} carries no firmware for this dongle`);
-      if (asset.size !== fw.size || (asset.digest && asset.digest !== 'sha256:' + fw.sha256)) {
-        throw new Error(`${fw.file} is not the file ${rel.name} carries`);
-      }
-    }
     if (fw.build === installed.build) {
       otaState.textContent = `Up to date: ${fw.version} (${fw.build})`;
       return;
     }
-    const downgrade = !otaNightly.checked && cmpVersion(installed.version, fw.version) >= 0;
+    const downgrade = !otaNightly.checked && cmpVersion(installed.version, fw.version) > 0;
     offered = { base, downgrade, ...fw };
     otaState.textContent = `${downgrade ? 'Downgrade' : 'Update'} available: ${fw.version} (${fw.build}), ${fmtKB(fw.size)}`;
     otaInstall.textContent = downgrade ? 'Downgrade' : 'Update';

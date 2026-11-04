@@ -1,7 +1,7 @@
 {
-  "version": "10.2.0",
-  "build": "8d91d842",
+  "version": "10.4.0",
+  "build": "36488b08",
   "file": "livi-link-imx6ull-rtl8822bs.lfwb",
-  "size": 4606609,
-  "sha256": "15d5ce5d10a5ac65f61575af6d3b439d0be456df6f9512d974264ad64e5dadbf"
+  "size": 4610921,
+  "sha256": "3bc2df076994089db3bb442668d2a795d454bce5fafe0f0e420b5b7d8e5edd18"
 }

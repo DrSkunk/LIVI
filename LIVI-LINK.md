@@ -16,12 +16,12 @@ The provisioning tool probes for the required firmware.
 
 | Firmware                  | SoC             | Wi-Fi / Bluetooth | Wi-Fi                       | PHY rate   | Kernel |
 | ------------------------- | --------------- | ----------------- | --------------------------- | ---------- | ------ |
-| `imx6ul_iw416`            | NXP i.MX6UL     | NXP IW416         | Wi-Fi 4, 1x1, 5 GHz, 40 MHz | 150 Mbit/s | 7.3.0  |
-| `imx6ul_rtl8822cs`        | NXP i.MX6UL     | RTL8822CS         | Wi-Fi 5, 2x2, 5 GHz, 80 MHz | 867 Mbit/s | 7.3.0  |
-| `imx6ul_rtl8822bs`[^nobt] | NXP i.MX6UL     | RTL8822BS         | Wi-Fi 5, 2x2, 5 GHz, 80 MHz | 867 Mbit/s | 7.3.0  |
-| `imx6ul_bcm4354`[^nobt]   | NXP i.MX6UL     | BCM4354           | Wi-Fi 5, 2x2, 5 GHz, 80 MHz | 867 Mbit/s | 7.3.0  |
-| `v821b_aic8800d80`        | Allwinner V821B | AIC8800D80        | Wi-Fi 6, 1x1, 5 GHz, 80 MHz | 600 Mbit/s | 7.3.0  |
-| `ax520_aic8800d80`        | Axera AX520CE   | AIC8800D80        | Wi-Fi 6, 1x1, 5 GHz, 80 MHz | 600 Mbit/s | 7.3.0  |
+| `imx6ul_iw416`            | NXP i.MX6UL     | NXP IW416         | Wi-Fi 4, 1x1, 5 GHz, 40 MHz | 150 Mbit/s | 7.3.1  |
+| `imx6ul_rtl8822cs`        | NXP i.MX6UL     | RTL8822CS         | Wi-Fi 5, 2x2, 5 GHz, 80 MHz | 867 Mbit/s | 7.3.1  |
+| `imx6ul_rtl8822bs`[^nobt] | NXP i.MX6UL     | RTL8822BS         | Wi-Fi 5, 2x2, 5 GHz, 80 MHz | 867 Mbit/s | 7.3.1  |
+| `imx6ul_bcm4354`[^nobt]   | NXP i.MX6UL     | BCM4354           | Wi-Fi 5, 2x2, 5 GHz, 80 MHz | 867 Mbit/s | 7.3.1  |
+| `v821b_aic8800d80`        | Allwinner V821B | AIC8800D80        | Wi-Fi 6, 1x1, 5 GHz, 80 MHz | 600 Mbit/s | 7.3.1  |
+| `ax520_aic8800d80`        | Axera AX520CE   | AIC8800D80        | Wi-Fi 6, 1x1, 5 GHz, 80 MHz | 600 Mbit/s | 7.3.1  |
 
 [^nobt]: Wi-Fi only, the module's Bluetooth is not supported yet.
 
@@ -29,7 +29,7 @@ The provisioning tool probes for the required firmware.
 
 Flashing a dongle is at your own risk. If something goes wrong, open an [issue](https://github.com/f-io/LIVI/issues).
 
-Download `livi-link-provision` for your platform from the release page, then with the dongle plugged in (with some dongles you also need to be on their Wi-Fi):
+Download `livi-link-provision` for your platform from the [firmware page](https://f-io.github.io/LIVI/firmware/), then with the dongle plugged in (with some dongles you also need to be on their Wi-Fi):
 
 ```bash
 chmod +x livi-link-provision
@@ -60,7 +60,7 @@ Some i.MX6UL with older kernels offer no network over USB on their vendor firmwa
 
 Under **Firmware**, **Check** looks for a newer version and **Update** installs it. With **Nightly** on it checks the nightly builds instead of the latest release. Do not unplug the dongle while it writes. Some dongles restarts twice when an update brings a new kernel.
 
-Every release has the firmware files attached, so you can also upload one by hand.
+The [firmware page](https://f-io.github.io/LIVI/firmware/) has every firmware file, so you can also upload one by hand.
 
 ## LED
 

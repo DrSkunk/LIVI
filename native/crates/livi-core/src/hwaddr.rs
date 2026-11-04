@@ -11,6 +11,30 @@ const BT_SYSFS: &str = "/sys/class/bluetooth";
 const NET_SYSFS: &str = "/sys/class/net";
 pub const FALLBACK: &str = "AA:BB:CC:DD:EE:FF";
 
+#[cfg(target_os = "android")]
+static ANDROID_BT_MAC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "android")]
+pub fn set_bt_mac(mac: &str) {
+    let mac = mac.trim().to_uppercase();
+    if !is_mac(&mac) || mac.starts_with("02:00:00:00:00:") {
+        println!("[core] Android named no Bluetooth address");
+        return;
+    }
+    println!("[core] Bluetooth address {mac}");
+    let _ = ANDROID_BT_MAC.set(mac);
+}
+
+#[cfg(target_os = "android")]
+pub fn android_bt_mac() -> Option<String> {
+    ANDROID_BT_MAC.get().cloned()
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn android_bt_mac() -> Option<String> {
+    None
+}
+
 fn is_mac(s: &str) -> bool {
     let parts: Vec<&str> = s.split(':').collect();
     parts.len() == 6
@@ -89,8 +113,10 @@ pub fn bt_mac(adapter: &str) -> Option<String> {
     }
     match bt_mac_in(Path::new(BT_SYSFS), adapter) {
         Ok(Some(mac)) => Some(mac),
-        Ok(None) => busctl(if adapter.is_empty() { "hci0" } else { adapter }),
-        Err(()) => None,
+        Ok(None) if cfg!(target_os = "linux") => {
+            busctl(if adapter.is_empty() { "hci0" } else { adapter })
+        }
+        Ok(None) | Err(()) => None,
     }
 }
 

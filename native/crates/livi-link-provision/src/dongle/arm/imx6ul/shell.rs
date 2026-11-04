@@ -9,6 +9,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_HOST: &str = "10.10.10.1";
+pub const VENDOR_AP_HOSTS: [&str; 2] = ["192.168.50.2", "192.168.43.1"];
 pub const TELNET_PORT: u16 = 2323;
 pub const LIVI_TELNET_PORT: u16 = 23;
 pub const PUSH_PORT: u16 = 5610;
@@ -111,11 +112,7 @@ impl Shell {
     }
 
     pub fn md5(&self, path: &str) -> Option<String> {
-        let out = self
-            .sh(&format!("md5sum {path} 2>/dev/null | cut -d' ' -f1"))
-            .ok()?;
-        let out = out.trim();
-        (out.len() >= 32).then(|| out[out.len() - 32..].to_string())
+        md5_in(&self.sh(&format!("md5sum {path} 2>/dev/null")).ok()?)
     }
 
     pub fn reachable(&self) -> bool {
@@ -139,42 +136,44 @@ impl Shell {
 
     pub fn push(&self, data: &[u8], remote: &str, port: u16, want: &str) -> Result<(), String> {
         let tmp = format!("/tmp/livi-push.{port}");
+        self.land(data, &tmp, port, want)
+            .map_err(|e| format!("push to {remote} failed ({e})"))?;
+        self.run(
+            &format!("mkdir -p $(dirname {remote}) && cp {tmp} {remote}.tmp && sync"),
+            Duration::from_secs(90),
+        )?;
+        if self.md5(&format!("{remote}.tmp")).as_deref() != Some(want) {
+            return Err(format!("flash copy of {remote} failed md5"));
+        }
+        self.run(
+            &format!("mv {remote}.tmp {remote} && sync && rm -f {tmp}"),
+            Duration::from_secs(30),
+        )?;
+        Ok(())
+    }
+
+    pub fn land(&self, data: &[u8], path: &str, port: u16, want: &str) -> Result<(), String> {
         let mut last = String::new();
         for attempt in 1..=3 {
             self.sh(&format!(
-                "pkill -f 'nc -l -p {port}' 2>/dev/null; rm -f {tmp}; \
-                 setsid sh -c 'nc -l -p {port} > {tmp}' >/dev/null 2>&1 &"
+                "pkill -f 'nc -l -p {port}' 2>/dev/null; rm -f {path}; \
+                 setsid sh -c 'nc -l -p {port} > {path}' >/dev/null 2>&1 &"
             ))?;
             sleep(Duration::from_secs(1));
 
-            match self.send(data, port) {
-                Ok(()) => {}
-                Err(e) => {
-                    last = format!("attempt {attempt}: {e}");
-                    sleep(Duration::from_secs(2));
-                    continue;
-                }
-            }
-            sleep(Duration::from_millis(500) + Duration::from_secs_f64(data.len() as f64 / 4e6));
-            if self.md5(&tmp).as_deref() != Some(want) {
-                last = format!("attempt {attempt}: md5 mismatch in /tmp");
+            if let Err(e) = self.send(data, port) {
+                last = format!("attempt {attempt}: {e}");
+                sleep(Duration::from_secs(2));
                 continue;
             }
-
-            self.run(
-                &format!("mkdir -p $(dirname {remote}) && cp {tmp} {remote}.tmp && sync"),
-                Duration::from_secs(90),
-            )?;
-            if self.md5(&format!("{remote}.tmp")).as_deref() != Some(want) {
-                return Err(format!("flash copy of {remote} failed md5"));
+            sleep(Duration::from_millis(500) + Duration::from_secs_f64(data.len() as f64 / 4e6));
+            if self.md5(path).as_deref() == Some(want) {
+                return Ok(());
             }
-            self.run(
-                &format!("mv {remote}.tmp {remote} && sync && rm -f {tmp}"),
-                Duration::from_secs(30),
-            )?;
-            return Ok(());
+            last = format!("attempt {attempt}: md5 mismatch in {path}");
         }
-        Err(format!("push to {remote} failed after 3 attempts ({last})"))
+        let _ = self.sh(&format!("rm -f {path}"));
+        Err(format!("3 attempts, {last}"))
     }
 
     fn send(&self, data: &[u8], port: u16) -> Result<(), String> {
@@ -241,6 +240,18 @@ fn sysfs_ifindex(iface: &str) -> Option<u32> {
         .trim()
         .parse()
         .ok()
+}
+
+pub fn on_vendor_ap() -> Option<&'static str> {
+    VENDOR_AP_HOSTS
+        .into_iter()
+        .find(|host| Shell::new(host).port_open(TELNET_PORT))
+}
+
+fn md5_in(out: &str) -> Option<String> {
+    out.split_whitespace()
+        .find(|w| w.len() == 32 && w.bytes().all(|b| b.is_ascii_hexdigit()))
+        .map(str::to_ascii_lowercase)
 }
 
 pub fn md5_hex(data: &[u8]) -> String {
@@ -333,6 +344,27 @@ mod tests {
     #[test]
     fn hashes_like_md5sum() {
         assert_eq!(md5_hex(b"abc"), "900150983cd24fb0d6963f7d28e17f72");
+    }
+
+    #[test]
+    fn the_hash_is_found_among_other_output() {
+        let hash = "900150983cd24fb0d6963f7d28e17f72";
+        assert_eq!(
+            md5_in(&format!("{hash}  /tmp/a.img")).as_deref(),
+            Some(hash)
+        );
+        assert_eq!(
+            md5_in(&format!(
+                "{hash}  /tmp/a.img\n[1]+  Done  setsid sh -c 'nc -l -p 8000'"
+            ))
+            .as_deref(),
+            Some(hash)
+        );
+        assert_eq!(
+            md5_in("md5sum: /tmp/a.img: No such file or directory"),
+            None
+        );
+        assert_eq!(md5_in(""), None);
     }
 
     #[test]
