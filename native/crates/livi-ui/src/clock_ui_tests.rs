@@ -23,7 +23,7 @@ use slint::{
 
 use super::{Target, activate, context, open_tab, targets};
 use crate::follow::{Follow, Update};
-use crate::{AppWindow, ClockFace, Focus, FocusZone, Page, TabData, Theme};
+use crate::{AppWindow, ClockFace, Focus, FocusZone, Page, SidebarClock, TabData, Theme};
 
 struct TestPlatform(Rc<MinimalSoftwareWindow>);
 
@@ -62,6 +62,10 @@ fn orange(pixel: &PremultipliedRgbaColor) -> bool {
         && pixel.green > pixel.blue.saturating_add(15)
 }
 
+fn pixel_changed(a: &PremultipliedRgbaColor, b: &PremultipliedRgbaColor) -> bool {
+    (a.red, a.green, a.blue, a.alpha) != (b.red, b.green, b.blue, b.alpha)
+}
+
 fn click(window: &MinimalSoftwareWindow, x: f32, y: f32) {
     let position = LogicalPosition::new(x, y);
     window.dispatch_event(WindowEvent::PointerMoved { position });
@@ -83,6 +87,165 @@ fn message(stream: &mut UnixStream) -> ToCore {
     serde_json::from_slice(&body).unwrap()
 }
 
+fn sidebar_clock(hour: &str, minute: &str, colon_visible: bool) -> SidebarClock {
+    SidebarClock {
+        hour: hour.into(),
+        minute: minute.into(),
+        colon_visible,
+    }
+}
+
+#[test]
+fn sidebar_clock_blink_does_not_move_the_digits_or_layout() {
+    let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+    slint::platform::set_platform(Box::new(TestPlatform(window.clone()))).unwrap();
+    let ui = AppWindow::new().unwrap();
+    ui.set_page(Page::Camera);
+    ui.set_tabs(ModelRc::from(Rc::new(VecModel::from(vec![
+        TabData {
+            page: Page::Camera,
+            icon: crate::icons::icon("CameraOutlined").unwrap(),
+        },
+        TabData {
+            page: Page::Media,
+            icon: crate::icons::icon("PlayCircleOutlined").unwrap(),
+        },
+    ]))));
+    ui.window().set_size(PhysicalSize::new(1280, 400));
+    ui.show().unwrap();
+
+    crate::update_clock(&ui);
+    let current = ui.get_sidebar_clock();
+    assert_eq!(
+        ui.get_clock_time().to_string(),
+        format!("{}:{}", current.hour, current.minute)
+    );
+    assert_eq!(
+        ui.get_clock().to_string(),
+        format!(
+            "{}{}{}",
+            current.hour,
+            if current.colon_visible { ":" } else { " " },
+            current.minute
+        )
+    );
+    assert_eq!(ui.global::<crate::DashState>().get_clock(), ui.get_clock());
+
+    for (width, height, scale) in [(1280, 400, 1.0_f32), (800, 240, 1.0), (960, 600, 1.5)] {
+        window.dispatch_event(WindowEvent::ScaleFactorChanged {
+            scale_factor: scale,
+        });
+        ui.window().set_size(PhysicalSize::new(width, height));
+        window.dispatch_event(WindowEvent::Resized {
+            size: LogicalSize::new(width as f32 / scale, height as f32 / scale),
+        });
+        assert_eq!(window.size(), PhysicalSize::new(width, height));
+        let edge = (100.0 * scale).ceil() as usize;
+        let top = (16.0 * scale).floor() as usize;
+        let bottom = (48.0 * scale).ceil() as usize;
+        for right_hand in [false, true] {
+            ui.set_right_hand(right_hand);
+            let sidebar = if right_hand {
+                width as usize - edge..width as usize
+            } else {
+                0..edge
+            };
+            for (comand, dark) in [(false, true), (true, true), (false, false), (true, false)] {
+                let theme = ui.global::<Theme>();
+                theme.set_comand(comand);
+                theme.set_dark(dark);
+                ui.set_sidebar_clock(sidebar_clock("11", "11", true));
+                let baseline = render(&window);
+                for (hour, minute) in [
+                    ("00", "00"),
+                    ("08", "08"),
+                    ("12", "34"),
+                    ("23", "59"),
+                    ("11", "00"),
+                    ("00", "11"),
+                    ("--", "--"),
+                ] {
+                    ui.set_sidebar_clock(sidebar_clock(hour, minute, true));
+                    let on = render(&window);
+                    assert!(
+                        baseline.iter().zip(&on).enumerate().all(|(index, (a, b))| {
+                            !pixel_changed(a, b)
+                                || ((top..bottom).contains(&(index / width as usize))
+                                    && sidebar.contains(&(index % width as usize)))
+                        }),
+                        "changing the time must not move the sidebar or page at {width}x{height}, scale={scale}, right_hand={right_hand}, comand={comand}, dark={dark}, time={hour}:{minute}"
+                    );
+                    ui.set_sidebar_clock(sidebar_clock(hour, minute, false));
+                    let off = render(&window);
+                    let changed: Vec<_> = on
+                        .iter()
+                        .zip(&off)
+                        .enumerate()
+                        .filter(|(_, (a, b))| pixel_changed(a, b))
+                        .map(|(index, _)| (index % width as usize, index / width as usize))
+                        .collect();
+                    assert!(
+                        !changed.is_empty(),
+                        "the colon should blink at {width}x{height}, scale={scale}, right_hand={right_hand}, comand={comand}, dark={dark}"
+                    );
+                    let min_x = changed.iter().map(|(x, _)| *x).min().unwrap();
+                    let max_x = changed.iter().map(|(x, _)| *x).max().unwrap();
+                    assert!(
+                        max_x - min_x < (8.0 * scale).ceil() as usize
+                            && changed.iter().all(|&(x, y)| {
+                                (top..bottom).contains(&y) && sidebar.contains(&x)
+                            }),
+                        "only the colon should change at {width}x{height}, scale={scale}, right_hand={right_hand}, comand={comand}, dark={dark}, time={hour}:{minute}; changed x={min_x}..={max_x}"
+                    );
+                    let text_pixel = |p: &PremultipliedRgbaColor| {
+                        if dark {
+                            p.red > 160 && p.green > 160 && p.blue > 160
+                        } else {
+                            p.red < 80 && p.green < 80 && p.blue < 80
+                        }
+                    };
+                    assert!(
+                        count_pixels(
+                            &off,
+                            width as usize,
+                            sidebar.start..min_x,
+                            top..bottom,
+                            text_pixel
+                        ) > 5
+                            && count_pixels(
+                                &off,
+                                width as usize,
+                                max_x + 1..sidebar.end,
+                                top..bottom,
+                                text_pixel
+                            ) > 5,
+                        "both parts of the time should remain visible around the hidden colon"
+                    );
+                }
+            }
+        }
+    }
+
+    window.dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor: 1.0 });
+    ui.window().set_size(PhysicalSize::new(320, 220));
+    window.dispatch_event(WindowEvent::Resized {
+        size: LogicalSize::new(320.0, 220.0),
+    });
+    for right_hand in [false, true] {
+        ui.set_right_hand(right_hand);
+        ui.set_sidebar_clock(sidebar_clock("12", "34", true));
+        let on = render(&window);
+        ui.set_sidebar_clock(sidebar_clock("12", "34", false));
+        let off = render(&window);
+        assert!(
+            on.iter().zip(&off).all(|(a, b)| !pixel_changed(a, b)),
+            "the clock should stay hidden on short displays"
+        );
+    }
+
+    ui.hide().unwrap();
+}
+
 #[test]
 fn clock_resizes_and_style_controls_work_on_the_waveshare_layout() {
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
@@ -95,6 +258,7 @@ fn clock_resizes_and_style_controls_work_on_the_waveshare_layout() {
     }]))));
     ui.set_page(Page::Clock);
     ui.set_clock("12:34".into());
+    ui.set_sidebar_clock(sidebar_clock("12", "34", true));
     ui.set_clock_time("12:34".into());
     ui.set_clock_valid(true);
     ui.set_clock_hour_angle(100.0);
