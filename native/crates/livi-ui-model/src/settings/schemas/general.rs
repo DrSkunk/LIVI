@@ -888,6 +888,7 @@ pub fn schema() -> Node {
             .page(Label::new("settings.language", "Language")),
             mfi(),
             crate::settings::schemas::dab::schema(),
+            crate::settings::schemas::dab::fm_schema(),
             gps(),
         ],
     )

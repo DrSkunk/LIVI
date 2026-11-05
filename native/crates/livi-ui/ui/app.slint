@@ -11,7 +11,7 @@ import "fonts/D-DIN-700.otf";
 import { Theme, Ui } from "theme.slint";
 import { Focus, FocusZone } from "focus.slint";
 import { Nav, Page, PhoneState, SidebarClock, TabData } from "nav.slint";
-import { MediaPage, MediaText, Press, DabState, StationData } from "media.slint";
+import { MediaPage, MediaSource, MediaText, Press, DabState, StationData } from "media.slint";
 import { ProjectionPage, TouchPhase } from "projection.slint";
 import { SettingsView, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData } from "settings/view.slint";
 import { Dashboard, DashState, GaugeData, CapData, TrailData, LabelData } from "dashboard.slint";
@@ -22,7 +22,7 @@ import { GamesPage, GamesState, GamesText, GameData, ControllerData } from "game
 import { MiniDspPage, MiniDspState, DspPhase, DspPresetData, DspControlData } from "minidsp.slint";
 import { ClockFace, ClockPage, ClockText } from "clock.slint";
 
-export { Theme, Focus, FocusZone, Page, PhoneState, SidebarClock, TabData, TouchPhase, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData, MediaText, Press, DabState, StationData, DashState, GaugeData, CapData, TrailData, LabelData, OverlayState, MaskData, TouchCalibrationState, MiniDspState, DspPhase, DspPresetData, DspControlData, GamesState, GamesText, GameData, ControllerData, ClockFace, ClockText }
+export { Theme, Focus, FocusZone, Page, PhoneState, SidebarClock, TabData, TouchPhase, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData, MediaSource, MediaText, Press, DabState, StationData, DashState, GaugeData, CapData, TrailData, LabelData, OverlayState, MaskData, TouchCalibrationState, MiniDspState, DspPhase, DspPresetData, DspControlData, GamesState, GamesText, GameData, ControllerData, ClockFace, ClockText }
 
 export component AppWindow inherits Window {
     in-out property <Page> page: Page.media;

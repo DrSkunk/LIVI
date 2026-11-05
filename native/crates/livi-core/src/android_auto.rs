@@ -624,6 +624,7 @@ mod tests {
             cluster: Default::default(),
             dab: Default::default(),
             games: Default::default(),
+            fm: Default::default(),
             cameras: Vec::new(),
             mfi: Default::default(),
             minidsp: Default::default(),

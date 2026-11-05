@@ -10,16 +10,16 @@ use serde_json::Value;
 
 use crate::PhoneState;
 use crate::dashboard_ui::{DashReader, DashView};
-use crate::media::{DabView, MediaReader, MediaView};
+use crate::media::{MediaReader, MediaView, Radios};
 use livi_ui_model::dashboard::screens::secondary;
 use livi_ui_model::mask::{Mask, Stream, mask};
 use livi_ui_model::overlay;
 
 pub enum Update {
     Media(MediaView),
-    Dab(DabView),
     Games(crate::games_ui::GamesView),
     MiniDsp(livi_ui_model::minidsp::View),
+    Radio(Box<Radios>),
     Dash(Box<DashView>),
     DashOn(livi_core_proto::state::Screen, Box<DashView>),
     Secondary(Vec<livi_ui_model::dashboard::screens::Secondary>),
@@ -66,10 +66,10 @@ impl Follow {
         if hit("nowPlaying") || hit("sessions") {
             out.push(Update::Media(self.media.read(state)));
         }
-        if hit("dab")
-            && let Some(d) = self.media.read_dab(state)
+        if (hit("dab") || hit("fm"))
+            && let Some(r) = self.media.read_radio(state)
         {
-            out.push(Update::Dab(d));
+            out.push(Update::Radio(Box::new(r)));
         }
         if hit("games") {
             out.push(Update::Games(self.covers.read(state)));

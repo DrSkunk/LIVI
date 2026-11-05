@@ -344,6 +344,7 @@ pub(crate) mod tests {
             update: Default::default(),
             cluster: Default::default(),
             dab: Default::default(),
+            fm: Default::default(),
             games: Default::default(),
             minidsp: Default::default(),
             network: Default::default(),

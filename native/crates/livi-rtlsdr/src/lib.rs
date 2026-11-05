@@ -30,6 +30,13 @@ pub enum Error {
     ShortRead,
     UnknownTuner,
     Tuner(&'static str),
+    At(&'static str, Box<Error>),
+}
+
+impl Error {
+    fn at(step: &'static str) -> impl FnOnce(Error) -> Error {
+        move |e| Self::At(step, Box::new(e))
+    }
 }
 
 impl fmt::Display for Error {
@@ -40,6 +47,7 @@ impl fmt::Display for Error {
             Self::ShortRead => f.write_str("short control read"),
             Self::UnknownTuner => f.write_str("tuner is not an R820T/R820T2"),
             Self::Tuner(e) => write!(f, "tuner: {e}"),
+            Self::At(step, e) => write!(f, "{step}: {e}"),
         }
     }
 }
@@ -76,20 +84,29 @@ pub struct RtlSdr {
 
 impl RtlSdr {
     pub fn open(info: &DeviceInfo) -> Result<Self, Error> {
-        let dev = info.open().wait()?;
-        let iface = dev.detach_and_claim_interface(0).wait()?;
-        let regs = Regs::new(dev);
+        let dev = info
+            .open()
+            .wait()
+            .map_err(Error::from)
+            .map_err(Error::at("open"))?;
+        let iface = dev
+            .detach_and_claim_interface(0)
+            .wait()
+            .map_err(Error::from)
+            .map_err(Error::at("claim"))?;
         let mut sdr = Self {
-            regs,
+            regs: Regs::new(dev),
             iface,
             tuner: R820t::new(XTAL),
             rate: 0,
             freq: 0,
             ppm: 0,
         };
-        sdr.init_baseband()?;
+        sdr.init_baseband().map_err(Error::at("baseband"))?;
 
-        sdr.regs.i2c_repeater(true)?;
+        sdr.regs
+            .i2c_repeater(true)
+            .map_err(Error::at("i2c repeater"))?;
         let tuner = sdr.probe_tuner().and_then(|()| {
             sdr.regs.demod_write(1, 0xb1, 0x1a, 1)?;
             sdr.regs.demod_write(0, 0x08, 0x4d, 1)?;
@@ -97,10 +114,13 @@ impl RtlSdr {
             sdr.regs.demod_write(1, 0x15, 0x01, 1)?;
             sdr.tuner.init(&sdr.regs)
         });
-        sdr.regs.i2c_repeater(false)?;
-        tuner?;
+        sdr.regs
+            .i2c_repeater(false)
+            .map_err(Error::at("i2c repeater"))?;
+        tuner.map_err(Error::at("tuner"))?;
 
-        sdr.set_sample_rate(2_048_000)?;
+        sdr.set_sample_rate(2_048_000)
+            .map_err(Error::at("sample rate"))?;
         Ok(sdr)
     }
 
@@ -153,7 +173,7 @@ impl RtlSdr {
         self.regs.demod_write(1, 0x1b, (v & 0xff) as u16, 1)
     }
 
-    fn set_sample_rate(&mut self, rate: u32) -> Result<(), Error> {
+    pub fn set_sample_rate(&mut self, rate: u32) -> Result<(), Error> {
         let xtal = self.xtal() as u64;
         let ratio = ((xtal << 22) / rate as u64) as u32 & 0x0fff_fffc;
         let real_ratio = ratio | ((ratio & 0x0800_0000) << 1);
@@ -172,6 +192,10 @@ impl RtlSdr {
         self.write_ppm()?;
         self.regs.demod_write(1, 0x01, 0x14, 1)?;
         self.regs.demod_write(1, 0x01, 0x10, 1)
+    }
+
+    pub fn check(&self) -> Result<(), Error> {
+        self.regs.demod_read(0x0a, 0x01).map(|_| ())
     }
 
     pub fn set_center_freq(&mut self, freq: u32) -> Result<(), Error> {

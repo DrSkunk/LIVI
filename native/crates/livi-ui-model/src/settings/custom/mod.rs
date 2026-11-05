@@ -4,7 +4,6 @@
 
 mod bindings;
 mod car;
-mod dab;
 mod devices;
 pub mod files;
 mod gps;
@@ -12,6 +11,7 @@ pub mod icon;
 mod mfi;
 pub mod network;
 mod os_update;
+mod radio;
 mod system;
 pub mod touch;
 
@@ -39,8 +39,10 @@ pub enum Watch {
 
 pub fn rows(page: CustomPage, state: &Value, t: &Strings, facts: &Facts) -> Option<Vec<Row>> {
     Some(match page {
-        CustomPage::DabReceiver => dab::receiver(&dab::dab(state), t),
-        CustomPage::DabStations => dab::stations(&dab::dab(state), t),
+        CustomPage::DabReceiver => radio::receiver(&radio::dab(state), t),
+        CustomPage::DabStations => radio::stations(&radio::dab(state), t),
+        CustomPage::FmReceiver => radio::fm_receiver(&radio::dab(state), &radio::fm(state), t),
+        CustomPage::FmStations => radio::fm_stations(&radio::fm(state), t),
         CustomPage::About => system::about(t, facts),
         CustomPage::SoftwareUpdate => system::update(state, t, facts),
         CustomPage::Restart => system::power(state, t, true),

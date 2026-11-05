@@ -27,7 +27,6 @@ mod child;
 mod config_file;
 mod cp_radio;
 mod cp_telemetry;
-mod dab;
 mod devices;
 mod dongle;
 mod fonts;
@@ -58,6 +57,7 @@ pub mod paths;
 pub mod power;
 mod privileged;
 mod projection;
+mod radio;
 pub mod resources;
 mod server;
 mod services;
@@ -138,7 +138,7 @@ pub async fn run(
         .map(Path::to_path_buf)
         .unwrap_or_default();
     let saved = state_files::saved(&user_data);
-    let resume_dab = saved.dab;
+    let resume_radio = saved.radio;
     let start = projection::start_page(&config, saved.ui_path.as_deref());
     let wants = projection::first_wants(&start);
     let livi = PerScreen {
@@ -163,6 +163,7 @@ pub async fn run(
         cluster: Default::default(),
         dab: Default::default(),
         games: Default::default(),
+        fm: Default::default(),
         cameras: Vec::new(),
         mfi: Default::default(),
         minidsp: Default::default(),
@@ -271,7 +272,7 @@ pub async fn run(
         asks,
         inside,
         settings,
-        resume_dab,
+        resume_radio,
     );
 
     tokio::select! {

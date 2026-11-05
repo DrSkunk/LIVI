@@ -109,6 +109,8 @@ const SETTINGS: &[(&str, &str)] = &[
     ("gamesEnabled", "SportsEsportsOutlined"),
     ("retroArch", "Apps"),
     ("folder", "FolderOutlined"),
+    ("fm", "RadioOutlined"),
+    ("fmDeemphasis", "GraphicEqOutlined"),
     ("mainVideo", "MonitorOutlined"),
     ("clusterVideo", "SpeedOutlined"),
     ("clusterContent", "NavigationOutlined"),

@@ -373,7 +373,11 @@
     "playlistDirectory": "Playlist-Ordner",
     "thumbnailDirectory": "Vorschaubild-Ordner",
     "coresDirectory": "Core-Ordner",
-    "startPageGames": "Spiele"
+    "startPageGames": "Spiele",
+    "fm": "FM",
+    "fmDeemphasis": "Deemphasis",
+    "fmDeemphasis50": "50 µs (Europa)",
+    "fmDeemphasis75": "75 µs (Amerika, Korea)"
   },
   "softwareUpdate": {
     "channelNightly": "Nightly",
@@ -403,6 +407,8 @@
     "source": "Quelle",
     "phoneSource": "Telefon",
     "dabSource": "DAB+",
+    "fmSource": "FM",
+    "noFmStations": "Noch keine Sender, Suche unter Einstellungen > Allgemein > FM",
     "stationList": "Senderliste",
     "favorite": "Favorit",
     "noStations": "Noch keine Sender, Suche unter Einstellungen > Allgemein > DAB+",

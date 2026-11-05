@@ -14,12 +14,13 @@ pub mod view;
 
 use node::{Label, Node};
 
-pub const STATE_READ: [&str; 11] = [
+pub const STATE_READ: [&str; 12] = [
     "config",
     "system",
     "telemetry",
     "mfi",
     "dab",
+    "fm",
     "update",
     "sessions",
     "devices",
@@ -46,7 +47,7 @@ pub fn schema() -> Node {
 
 #[cfg(test)]
 mod tests {
-    use super::node::{Kind, Label, Node};
+    use super::node::{CustomPage, Kind, Label, Node};
     use super::*;
     use crate::i18n::Strings;
     use crate::icons::settings_icon;
@@ -132,11 +133,24 @@ mod tests {
         let mut all = Vec::new();
         walk(&root, &mut all);
         assert!(all.len() > 200);
-        assert!(
+        assert_eq!(
             all.iter()
                 .filter(|n| matches!(n.kind, Kind::Custom(_)))
-                .count()
-                == 20
+                .count(),
+            22
         );
+        for page in [
+            CustomPage::DabReceiver,
+            CustomPage::DabStations,
+            CustomPage::FmReceiver,
+            CustomPage::FmStations,
+            CustomPage::Network,
+        ] {
+            assert!(
+                all.iter()
+                    .any(|n| matches!(&n.kind, Kind::Custom(found) if *found == page)),
+                "missing custom settings page: {page:?}"
+            );
+        }
     }
 }

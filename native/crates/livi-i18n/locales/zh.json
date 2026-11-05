@@ -373,7 +373,11 @@
     "playlistDirectory": "播放列表目录",
     "thumbnailDirectory": "缩略图目录",
     "coresDirectory": "核心目录",
-    "startPageGames": "游戏"
+    "startPageGames": "游戏",
+    "fm": "FM",
+    "fmDeemphasis": "去加重",
+    "fmDeemphasis50": "50 µs（欧洲）",
+    "fmDeemphasis75": "75 µs（美洲、韩国）"
   },
   "softwareUpdate": {
     "channelNightly": "每日构建",
@@ -403,6 +407,8 @@
     "source": "来源",
     "phoneSource": "手机",
     "dabSource": "DAB+",
+    "fmSource": "FM",
+    "noFmStations": "暂无电台，请在 设置 > 通用 > FM 中扫描",
     "stationList": "电台列表",
     "favorite": "收藏",
     "noStations": "暂无电台，请在 设置 > 通用 > DAB+ 中扫描",
