@@ -87,7 +87,7 @@ jobs:
     name: Build ${{ matrix.artifact_ext }} (${{ matrix.os }}-${{ matrix.arch }}) on ${{ github.event.workflow_run.head_branch || github.ref_name }}
     needs: plan
     if: ${{ needs.plan.outputs.is_empty != 'true' }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.os == 'macos' && vars.MACOS_RUNNER || matrix.runner }}
     env:
       BUILD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
       BUILD_SHA: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}
@@ -140,11 +140,19 @@ jobs:
         id: gstver_mac
         if: matrix.os == 'macos'
         shell: bash
-        run: echo "version=$(tr -d '[:space:]' < assets/gstreamer/macos-arm64/version.txt)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < assets/gstreamer/macos-arm64/version.txt)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          framework=/Library/Frameworks/GStreamer.framework/Versions/1.0
+          installed=$(PKG_CONFIG_PATH="$framework/lib/pkgconfig" pkg-config --modversion gstreamer-1.0 2>/dev/null || true)
+          if [[ "$installed" == "$version" && -f "$framework/lib/pkgconfig/gstreamer-video-1.0.pc" ]]; then
+            echo "installed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Cache GStreamer pkgs [macos]
         id: gstcache_mac
-        if: matrix.os == 'macos'
+        if: matrix.os == 'macos' && steps.gstver_mac.outputs.installed != 'true'
         uses: actions/cache@v6
         with:
           path: |
@@ -153,7 +161,7 @@ jobs:
           key: gst-pkg-macos-universal-${{ steps.gstver_mac.outputs.version }}
 
       - name: Download GStreamer pkgs [macos]
-        if: matrix.os == 'macos' && steps.gstcache_mac.outputs.cache-hit != 'true'
+        if: matrix.os == 'macos' && steps.gstver_mac.outputs.installed != 'true' && steps.gstcache_mac.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -163,10 +171,14 @@ jobs:
           curl -fL -o gst-devel.pkg "$base/gstreamer-1.0-devel-$v-universal.pkg"
 
       - name: Install GStreamer (runtime + devel) [macos]
-        if: matrix.os == 'macos'
+        if: matrix.os == 'macos' && steps.gstver_mac.outputs.installed != 'true'
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$RUNNER_ENVIRONMENT" == self-hosted ]]; then
+            echo "::error::Install the pinned GStreamer runtime and development packages on the runner before retrying."
+            exit 1
+          fi
           sudo installer -pkg gst-runtime.pkg -target /
           sudo installer -pkg gst-devel.pkg -target /
 

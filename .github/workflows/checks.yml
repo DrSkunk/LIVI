@@ -75,7 +75,7 @@ jobs:
   macos:
     name: macOS (clippy, tests)
     if: ${{ github.actor != 'github-actions' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') }}
-    runs-on: macos-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.MACOS_RUNNER || 'macos-latest' }}
     timeout-minutes: 40
     env:
       PKG_CONFIG_PATH: /Library/Frameworks/GStreamer.framework/Versions/1.0/lib/pkgconfig
@@ -98,10 +98,19 @@ jobs:
 
       - name: GStreamer version
         id: gst
-        run: echo "version=$(tr -d '[:space:]' < assets/gstreamer/macos-arm64/version.txt)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < assets/gstreamer/macos-arm64/version.txt)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          framework=/Library/Frameworks/GStreamer.framework/Versions/1.0
+          installed=$(PKG_CONFIG_PATH="$framework/lib/pkgconfig" pkg-config --modversion gstreamer-1.0 2>/dev/null || true)
+          if [[ "$installed" == "$version" && -f "$framework/lib/pkgconfig/gstreamer-video-1.0.pc" ]]; then
+            echo "installed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Cache GStreamer pkgs
         id: gstcache
+        if: steps.gst.outputs.installed != 'true'
         uses: actions/cache@v6
         with:
           path: |
@@ -110,7 +119,7 @@ jobs:
           key: gst-pkg-macos-universal-${{ steps.gst.outputs.version }}
 
       - name: Download GStreamer pkgs
-        if: steps.gstcache.outputs.cache-hit != 'true'
+        if: steps.gst.outputs.installed != 'true' && steps.gstcache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           v='${{ steps.gst.outputs.version }}'
@@ -119,8 +128,13 @@ jobs:
           curl -fL -o gst-devel.pkg "$base/gstreamer-1.0-devel-$v-universal.pkg"
 
       - name: Install GStreamer (runtime + devel)
+        if: steps.gst.outputs.installed != 'true'
         run: |
           set -euo pipefail
+          if [[ "$RUNNER_ENVIRONMENT" == self-hosted ]]; then
+            echo "::error::Install the pinned GStreamer runtime and development packages on the runner before retrying."
+            exit 1
+          fi
           sudo installer -pkg gst-runtime.pkg -target /
           sudo installer -pkg gst-devel.pkg -target /
 
