@@ -186,6 +186,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           rustup toolchain install
           rustc --version
 
