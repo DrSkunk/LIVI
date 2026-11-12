@@ -833,6 +833,8 @@ mod tests {
     fn verification_depends_on_both_peer_fingerprints() {
         let first = format!("a=fingerprint:sha-256 {}", "11:".repeat(31) + "11");
         let second = format!("a=fingerprint:sha-256 {}", "22:".repeat(31) + "22");
+        // Pinned in livi-music web/test/verification.test.mjs too, so both sides agree.
+        assert_eq!(verification_code(&first, &second).unwrap(), "F010287B");
         assert_ne!(
             verification_code(&first, &second).unwrap(),
             verification_code(&second, &first).unwrap()
