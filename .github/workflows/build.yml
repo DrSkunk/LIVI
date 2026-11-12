@@ -167,8 +167,8 @@ jobs:
           set -euo pipefail
           v='${{ steps.gstver_mac.outputs.version }}'
           base="https://gstreamer.freedesktop.org/data/pkg/osx/$v"
-          curl -fL -o gst-runtime.pkg "$base/gstreamer-1.0-$v-universal.pkg"
-          curl -fL -o gst-devel.pkg "$base/gstreamer-1.0-devel-$v-universal.pkg"
+          curl -fL --http1.1 --retry 5 --retry-all-errors -C - -o gst-runtime.pkg "$base/gstreamer-1.0-$v-universal.pkg"
+          curl -fL --http1.1 --retry 5 --retry-all-errors -C - -o gst-devel.pkg "$base/gstreamer-1.0-devel-$v-universal.pkg"
 
       - name: Install GStreamer (runtime + devel) [macos]
         if: matrix.os == 'macos' && steps.gstver_mac.outputs.installed != 'true'
