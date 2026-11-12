@@ -24,6 +24,77 @@ It runs on Linux desktops and embedded boards as well as on macOS and Android (e
 - **Apple CarPlay** (wired & wireless) on Linux, Mac and Android
 - **Android Auto** (wired & wireless) on Linux, Mac and Android - wireless on Mac requires a LIVI Link
 
+## Local Music
+
+On LIVI OS, choose **Local Music** from the existing Media page to browse and play music alongside the normal CarPlay and Android Auto media controls. The library scans `/data/livi/music` and USB volumes mounted under `/run/livi-media`; USB music remains read-only. MP3, FLAC, WAV/WAVE, AAC/M4A, Ogg, Opus, and relative-path M3U/M3U8 playlists are supported when their codecs are available. Refresh after adding files.
+
+Open a USB source (or a folder inside it) and choose **Eject USB** before unplugging. This stops and joins local playback, deactivates and closes its host audio stream, and waits for serialized library scans before invoking `sudo -n /usr/libexec/livi-media-eject DEVICE`. `DEVICE` is the kernel basename, e.g. `sda1` (partition) or `sdb` (whole-device filesystem), not a `/dev/` path. Only currently mounted read-only USB sources are offered; internal music cannot be ejected. All local playback stops, even if a playlist spans sources. On failure, the library shows the helper error; do not unplug until eject succeeds. Eject requires the LIVI OS helper and its sudo policy.
+
+### Wireless music transfer
+
+The website and transfer client live in
+[DrSkunk/livi-music](https://github.com/DrSkunk/livi-music). The static client
+is deployed to GitHub Pages at <https://drskunk.github.io/livi-music/>. Both the
+browser and LIVI use the free, shared PeerJS Cloud service at `0.peerjs.com` to
+exchange WebRTC connection details; no signaling server needs to be hosted.
+PeerJS's public STUN/TURN defaults are used for network traversal. Music travels
+over an end-to-end-encrypted WebRTC data channel directly when possible, or
+through TURN when necessary. PeerJS Cloud and its public TURN service are
+best-effort and have no uptime guarantee.
+
+To set it up:
+
+1. Open **Media → Local Music → Wireless sync**. LIVI connects to PeerJS Cloud
+   and displays the website link with its random, temporary PeerJS ID.
+2. Open that full link on the phone or computer. Enter the six-digit pairing
+   code shown on LIVI; it confirms the browser is connecting to the intended
+   session. The random ID is carried in the URL fragment and is not sent to
+   GitHub Pages.
+3. Compare the eight-character verification code shown on both devices and
+   tap **Allow** on LIVI only if they match. The pairing window lasts five
+   minutes and permits one browser. Stop the session when finished.
+
+PeerJS Cloud is public infrastructure. LIVI's random 128-bit ID limits
+unsolicited connection attempts, but a person who obtains the link can still
+request a connection. Never approve a mismatched verification code.
+
+Optional configuration can be written to
+`/data/livi/config/LIVI/music-sync.json`:
+
+```json
+{
+  "webUrl": "https://drskunk.github.io/livi-music/",
+  "iceServers": []
+}
+```
+
+`webUrl` defaults to the URL above. Empty or omitted `iceServers` uses PeerJS's
+public STUN/TURN defaults. To override them, specify entries such as
+`{"urls":["turn:relay.example.net:3478"],"username":"...","credential":"..."}`.
+`LIVI_MUSIC_WEB_URL` and JSON `LIVI_MUSIC_ICE_SERVERS` environment variables
+override the file. A legacy `signalUrl` entry is ignored. The file must have
+no group/other permissions if it contains TURN credentials; use mode `0600`
+and ownership by `livi`.
+
+Choose files or a folder to preview titles, artists, albums and embedded
+artwork before upload; audio preview depends on browser codec support. Existing
+files are never overwritten, and uploads go only to internal storage, not USB.
+Folder selection retains relative paths and existing playlists can be uploaded
+alongside music. The browser does not delete, rename, or download library files.
+Each file is limited to 2 GiB and requires at least 128 MiB of free space after
+the transfer. Interrupted uploads can resume when the same file is selected
+again. Partials remain in `/data/livi/.livi-music-transfer` and consume space;
+after stopping sync, an administrator can remove unwanted `.part` files there.
+
+### First-release limitations
+
+- Local playback follows the projection media volume and duck requests. Incoming phone-music focus does **not** automatically pause local playback or guarantee exclusive output; select **Phone** to stop local audio before starting phone music. Call/navigation interruption is limited to the existing projection duck signals; there is no complete call-pause/resume policy.
+- Local playback uses embedded title, artist and album tags when available, with
+  filename fallback. Local now-playing album art, gapless playback and
+  persistent queues/positions are not implemented. Libraries are rescanned, not
+  continuously synchronized.
+- Linux AppImage startup configures core's bundled GStreamer loader and plugin paths before exec; macOS packaging relinks core against the bundle. Rebuild GStreamer bundles with the updated music plugin list before packaging; old bundles may lack decoders/demuxers.
+
 ## Native Apple CarPlay Ultra
 
 LIVI implements the CarPlay accessory side natively, wired and wireless, on Linux, macOS and Android. Wireless sessions run over LIVI's own Wi-Fi access point with Bluetooth pairing, wired sessions run directly over the USB cable (no OTG required).

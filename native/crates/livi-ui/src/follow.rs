@@ -16,7 +16,7 @@ use livi_ui_model::mask::{Mask, Stream, mask};
 use livi_ui_model::overlay;
 
 pub enum Update {
-    Media(MediaView),
+    Media(Box<MediaView>),
     Games(crate::games_ui::GamesView),
     MiniDsp(livi_ui_model::minidsp::View),
     Radio(Box<Radios>),
@@ -63,8 +63,8 @@ impl Follow {
         let all = keys.is_none_or(|k| k.contains(""));
         let hit = |key: &str| all || keys.is_some_and(|k| k.contains(key));
         let mut out = Vec::new();
-        if hit("nowPlaying") || hit("sessions") {
-            out.push(Update::Media(self.media.read(state)));
+        if hit("nowPlaying") || hit("sessions") || hit("localMusic") {
+            out.push(Update::Media(Box::new(self.media.read(state))));
         }
         if (hit("dab") || hit("fm"))
             && let Some(r) = self.media.read_radio(state)

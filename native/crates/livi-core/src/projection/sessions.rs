@@ -333,7 +333,11 @@ impl Projection {
             s.front.cluster = cluster;
             s.front.aux = aux;
             s.sessions = sessions;
-            s.now_playing = now_playing;
+            s.local_music.phone_now_playing = Some(now_playing.clone());
+            if !s.local_music.active {
+                s.now_playing = now_playing;
+            }
+            s.local_music.audio_level = self.level(AudioKind::Media);
             s.video_playback = video_playback;
             s.navigation = navigation;
             s.devices = list;

@@ -10,7 +10,9 @@ use std::time::Duration;
 
 use livi_core_proto::PROTOCOL;
 use livi_core_proto::frame::{Decoder, FrameError, encode};
-use livi_core_proto::message::{Action, FromCore, MediaControl, OsUpdateCommand, ToCore};
+use livi_core_proto::message::{
+    Action, FromCore, MediaControl, MusicSyncCommand, OsUpdateCommand, ToCore,
+};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::unix::OwnedWriteHalf;
@@ -48,6 +50,11 @@ pub struct Core {
     os_update_asks: std::sync::Mutex<Option<mpsc::Receiver<OsUpdateCommand>>>,
     network: tokio::sync::mpsc::UnboundedSender<NetworkAsk>,
     network_asks: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<NetworkAsk>>>,
+    local_music: tokio::sync::mpsc::UnboundedSender<crate::local_music::Ask>,
+    local_music_asks:
+        std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<crate::local_music::Ask>>>,
+    music_sync: mpsc::UnboundedSender<MusicSyncCommand>,
+    music_sync_asks: std::sync::Mutex<Option<mpsc::UnboundedReceiver<MusicSyncCommand>>>,
     pub shared: Shared,
 }
 
@@ -62,6 +69,8 @@ impl Core {
         let (minidsp, minidsp_asks) = tokio::sync::mpsc::unbounded_channel();
         let (os_update, os_update_asks) = mpsc::channel(1);
         let (network, network_asks) = tokio::sync::mpsc::unbounded_channel();
+        let (local_music, local_music_asks) = tokio::sync::mpsc::unbounded_channel();
+        let (music_sync, music_sync_asks) = mpsc::unbounded_channel();
         Self {
             hub: Arc::new(hub),
             config_file,
@@ -80,8 +89,34 @@ impl Core {
             os_update_asks: std::sync::Mutex::new(Some(os_update_asks)),
             network,
             network_asks: std::sync::Mutex::new(Some(network_asks)),
+            local_music,
+            local_music_asks: std::sync::Mutex::new(Some(local_music_asks)),
+            music_sync,
+            music_sync_asks: std::sync::Mutex::new(Some(music_sync_asks)),
             shared: Shared::new(PathBuf::new()),
         }
+    }
+
+    pub fn take_local_music_asks(
+        &self,
+    ) -> Option<tokio::sync::mpsc::UnboundedReceiver<crate::local_music::Ask>> {
+        self.local_music_asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+    }
+
+    pub(crate) fn ask_local_music(&self, ask: crate::local_music::Ask) -> Result<(), String> {
+        self.local_music
+            .send(ask)
+            .map_err(|_| "local music player is not available".to_string())
+    }
+
+    pub fn take_music_sync_asks(&self) -> Option<mpsc::UnboundedReceiver<MusicSyncCommand>> {
+        self.music_sync_asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
     }
 
     pub fn take_os_update_asks(&self) -> Option<mpsc::Receiver<OsUpdateCommand>> {
@@ -192,7 +227,9 @@ impl Core {
     }
 
     pub fn media(&self, control: MediaControl) {
-        if !self.radio_media(control) {
+        if self.hub.watch().borrow().local_music.active {
+            let _ = self.ask_local_music(crate::local_music::Ask::Control(control));
+        } else if !self.radio_media(control) {
             let _ = self.asks.commands.send(UiCommand::Media(control));
         }
     }
@@ -289,9 +326,20 @@ impl Core {
                 Ok(())
             }
             Action::Media { control } => {
-                self.media(control);
-                Ok(())
+                if self.hub.watch().borrow().local_music.active {
+                    self.ask_local_music(crate::local_music::Ask::Control(control))
+                } else {
+                    self.media(control);
+                    Ok(())
+                }
             }
+            Action::LocalMusic { command } => {
+                self.ask_local_music(crate::local_music::Ask::Command(command))
+            }
+            Action::MusicSync { command } => self
+                .music_sync
+                .send(command)
+                .map_err(|_| "Wireless music sync is not available".to_string()),
             Action::ImportMfi { file, path } => {
                 match crate::mfi::import(&self.mfi_dir, file, std::path::Path::new(&path)) {
                     Ok(()) => self.refresh_mfi().await,
@@ -345,8 +393,12 @@ impl Core {
                 by,
             }),
             Action::Seek { position_ms } => {
-                let _ = self.asks.commands.send(UiCommand::Seek(position_ms));
-                Ok(())
+                if self.hub.watch().borrow().local_music.active {
+                    self.ask_local_music(crate::local_music::Ask::Seek(position_ms))
+                } else {
+                    let _ = self.asks.commands.send(UiCommand::Seek(position_ms));
+                    Ok(())
+                }
             }
             Action::VideoPlay { playing } => {
                 let _ = self.asks.commands.send(UiCommand::VideoPlay(playing));
@@ -658,6 +710,7 @@ mod tests {
             front: livi,
             sessions: Default::default(),
             now_playing: Default::default(),
+            local_music: Default::default(),
             video_playback: None,
             telemetry: Default::default(),
             navigation: Default::default(),
@@ -708,6 +761,68 @@ mod tests {
         assert!(core.ask_update(UpdateAsk::Install).is_err());
         core.ask_update(UpdateAsk::Check).unwrap();
         assert_eq!(updates.recv().await, Some(UpdateAsk::Check));
+    }
+
+    #[tokio::test]
+    async fn media_and_seek_route_to_local_only_when_it_is_selected() {
+        let dir = TempDir::new();
+        let (core, _, mut asks, _, _) = start_with_asks(&dir);
+        let mut local = core.take_local_music_asks().unwrap();
+
+        core.media(MediaControl::Prev);
+        assert_eq!(
+            asks.commands.recv().await,
+            Some(UiCommand::Media(MediaControl::Prev))
+        );
+        assert!(local.try_recv().is_err());
+        core.act(Action::Media {
+            control: MediaControl::Next,
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            asks.commands.recv().await,
+            Some(UiCommand::Media(MediaControl::Next))
+        );
+        core.act(Action::Seek { position_ms: 1250 }).await.unwrap();
+        assert_eq!(asks.commands.recv().await, Some(UiCommand::Seek(1250)));
+
+        core.hub.update(|s| s.local_music.active = true);
+        core.media(MediaControl::Next);
+        assert!(matches!(
+            local.recv().await,
+            Some(crate::local_music::Ask::Control(MediaControl::Next))
+        ));
+        assert!(asks.commands.try_recv().is_err());
+        core.act(Action::Media {
+            control: MediaControl::PlayPause,
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            local.recv().await,
+            Some(crate::local_music::Ask::Control(MediaControl::PlayPause))
+        ));
+        core.act(Action::Seek {
+            position_ms: 45_000,
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            local.recv().await,
+            Some(crate::local_music::Ask::Seek(45_000))
+        ));
+        core.act(Action::LocalMusic {
+            command: livi_core_proto::message::LocalMusicCommand::Refresh,
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            local.recv().await,
+            Some(crate::local_music::Ask::Command(
+                livi_core_proto::message::LocalMusicCommand::Refresh
+            ))
+        ));
     }
 
     #[tokio::test]

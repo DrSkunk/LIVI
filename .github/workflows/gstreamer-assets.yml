@@ -98,9 +98,9 @@ jobs:
           echo "Resolved macOS GStreamer: $GST_VERSION"
           echo "GST_VERSION=$GST_VERSION" >> "$GITHUB_ENV"
           base="https://gstreamer.freedesktop.org/data/pkg/osx/${GST_VERSION}"
-          curl -fL -o gstreamer-runtime.pkg "${base}/gstreamer-1.0-${GST_VERSION}-universal.pkg"
+          curl -fL --http1.1 --retry 5 --retry-all-errors -C - -o gstreamer-runtime.pkg "${base}/gstreamer-1.0-${GST_VERSION}-universal.pkg"
           # devel pkg carries the headers and .pc files build-patched-macos.sh needs
-          curl -fL -o gstreamer-devel.pkg "${base}/gstreamer-1.0-devel-${GST_VERSION}-universal.pkg"
+          curl -fL --http1.1 --retry 5 --retry-all-errors -C - -o gstreamer-devel.pkg "${base}/gstreamer-1.0-devel-${GST_VERSION}-universal.pkg"
 
       - name: Install GStreamer runtime + devel pkg [macos-arm64]
         if: matrix.os == 'macos' && matrix.arch == 'arm64'

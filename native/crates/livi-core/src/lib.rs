@@ -44,9 +44,11 @@ mod hub;
 mod hwaddr;
 mod kiosk_unit;
 mod livi_os;
+mod local_music;
 pub mod log_file;
 mod mfi;
 mod minidsp;
+mod music_sync;
 mod nav_text;
 mod network;
 mod nmea;
@@ -123,6 +125,13 @@ pub async fn run(
     res: Resources,
     stop: impl Future<Output = ()>,
 ) -> Result<Exit, String> {
+    // WebRTC's DTLS verifier needs a process default; keep reqwest's existing provider.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let installed = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        if installed.is_err() && rustls::crypto::CryptoProvider::get_default().is_none() {
+            return Err("Cannot initialize the TLS cryptography provider".into());
+        }
+    }
     let uid = unsafe { libc::geteuid() };
     let paths = &instance.paths;
 
@@ -141,6 +150,7 @@ pub async fn run(
     let resume_radio = saved.radio;
     let start = projection::start_page(&config, saved.ui_path.as_deref());
     let wants = projection::first_wants(&start);
+    let local_music_audio_level = config.audio_volume;
     let livi = PerScreen {
         main: Front::Livi,
         cluster: Front::Livi,
@@ -151,6 +161,10 @@ pub async fn run(
         front: livi,
         sessions: Default::default(),
         now_playing: Default::default(),
+        local_music: livi_core_proto::state::LocalMusic {
+            audio_level: local_music_audio_level,
+            ..Default::default()
+        },
         video_playback: None,
         telemetry: Default::default(),
         navigation: Default::default(),
@@ -270,10 +284,20 @@ pub async fn run(
         core.hub.clone(),
         quit.clone(),
         asks,
+        core.take_local_music_asks()
+            .ok_or("local music player asks were already taken")?,
         inside,
         settings,
         resume_radio,
     );
+    let (music_sync_stop, music_sync_shutdown) = tokio::sync::oneshot::channel();
+    let music_sync = tokio::spawn(music_sync::run(
+        core.clone(),
+        user_data.join("music-sync.json"),
+        core.take_music_sync_asks()
+            .ok_or("music sync asks were already taken")?,
+        music_sync_shutdown,
+    ));
 
     tokio::select! {
         _ = server::serve(core.clone(), listener) => {}
@@ -281,6 +305,10 @@ pub async fn run(
         _ = quit.notified() => println!("[core] stopping"),
     }
     let _ = tokio::time::timeout(Duration::from_secs(2), gvfs_guard::stop()).await;
+    let _ = music_sync_stop.send(());
+    if let Err(error) = music_sync.await {
+        eprintln!("[music-sync] service stopped unexpectedly: {error}");
+    }
     goodbye(&core).await;
     services.stop().await;
     let _ = tokio::time::timeout(

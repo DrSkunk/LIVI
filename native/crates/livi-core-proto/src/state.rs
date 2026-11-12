@@ -17,6 +17,8 @@ pub struct State {
     pub sessions: Sessions,
     pub now_playing: NowPlaying,
     #[serde(default)]
+    pub local_music: LocalMusic,
+    #[serde(default)]
     pub video_playback: Option<VideoPlayback>,
     pub navigation: Navigation,
     pub system: System,
@@ -587,6 +589,92 @@ pub struct NowPlaying {
     pub elapsed_ms: Option<f64>,
     pub playing: Option<bool>,
     pub artwork: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LocalMusic {
+    pub active: bool,
+    pub browsing: bool,
+    pub scanned: bool,
+    pub folder: Option<String>,
+    pub folder_name: Option<String>,
+    pub parent: Option<String>,
+    pub entries: Vec<LocalMusicEntry>,
+    pub current_track: Option<String>,
+    pub playing: bool,
+    pub elapsed_ms: Option<f64>,
+    pub duration_ms: Option<f64>,
+    pub audio_level: f64,
+    pub error: Option<String>,
+    pub eject_device: Option<String>,
+    pub ejecting: bool,
+    pub sync: MusicSync,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phone_now_playing: Option<NowPlaying>,
+}
+
+impl Default for LocalMusic {
+    fn default() -> Self {
+        Self {
+            active: false,
+            browsing: false,
+            scanned: false,
+            folder: None,
+            folder_name: None,
+            parent: None,
+            entries: Vec::new(),
+            current_track: None,
+            playing: false,
+            elapsed_ms: None,
+            duration_ms: None,
+            audio_level: 1.0,
+            error: None,
+            eject_device: None,
+            ejecting: false,
+            sync: MusicSync::default(),
+            phone_now_playing: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MusicSync {
+    pub phase: MusicSyncPhase,
+    pub code: Option<String>,
+    pub verification: Option<String>,
+    pub website: Option<String>,
+    pub last_file: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MusicSyncPhase {
+    #[default]
+    Idle,
+    Starting,
+    Pairing,
+    Pending,
+    Connected,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalMusicEntry {
+    pub id: String,
+    pub label: String,
+    pub kind: LocalMusicEntryKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LocalMusicEntryKind {
+    Folder,
+    Playlist,
+    Track,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]

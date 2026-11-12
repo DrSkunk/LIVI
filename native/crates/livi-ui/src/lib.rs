@@ -217,7 +217,7 @@ fn render_settings(ui: &AppWindow) {
 
 fn apply(ui: &AppWindow, update: Update) {
     match update {
-        Update::Media(m) => CLIENT.with_borrow(|c| media_ui::apply_media(ui, c.as_ref(), m)),
+        Update::Media(m) => CLIENT.with_borrow(|c| media_ui::apply_media(ui, c.as_ref(), *m)),
         Update::Games(g) => games_ui::apply(ui, g),
         Update::MiniDsp(v) => minidsp_ui::apply(ui, v),
         Update::Radio(r) => media_ui::apply_radio(ui, *r),

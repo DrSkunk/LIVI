@@ -109,5 +109,7 @@ impl Projection {
             .send(CpCmd::InitialNightMode(cfg.appearance_mode.night_mode()));
         self.bindings = cfg.bindings.clone();
         self.stream_volumes_to_phone();
+        let level = self.level(AudioKind::Media);
+        self.hub.update(|s| s.local_music.audio_level = level);
     }
 }

@@ -131,6 +131,11 @@ plugins=(
   libgstrawparse.dylib
   libgstvolume.dylib
   libgstopus.dylib
+  libgstflac.dylib
+  libgstogg.dylib
+  libgstvorbis.dylib
+  libgstwavparse.dylib
+  libgstmpg123.dylib
   libgstrtp.dylib
   libgstudp.dylib
   libgstrtpmanager.dylib

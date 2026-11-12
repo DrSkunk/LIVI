@@ -67,6 +67,7 @@ livi-link-host = { path = "crates/livi-link-host" }
 livi-link-provision = { path = "crates/livi-link-provision" }
 livi-mdns = { path = "crates/livi-mdns" }
 livi-media = { path = "crates/livi-media" }
+livi-music-sync = { path = "crates/livi-music-sync" }
 livi-net = { path = "crates/livi-net" }
 livi-rtlsdr = { path = "crates/livi-rtlsdr" }
 livi-runtime = { path = "crates/livi-runtime" }
