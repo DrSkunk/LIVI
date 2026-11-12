@@ -33,6 +33,32 @@ fn livi() -> PerScreen<Front> {
     }
 }
 
+#[tokio::test]
+async fn local_music_ducking_uses_the_projection_media_volume() {
+    let mut rig = Rig::new();
+    let expected = rig.p.levels.music * 0.25;
+    rig.p.duck(0.25, 300);
+    assert!((rig.hub.watch().borrow().local_music.audio_level - expected).abs() < 0.0001);
+}
+
+#[tokio::test]
+async fn projection_updates_keep_local_now_playing_and_refresh_the_phone_fallback() {
+    let mut rig = Rig::new();
+    let local = NowPlaying {
+        title: Some("Local song".into()),
+        app: Some("Local Music".into()),
+        ..Default::default()
+    };
+    rig.hub.update(|s| {
+        s.local_music.active = true;
+        s.now_playing = local.clone();
+    });
+    rig.p.publish();
+    let state = rig.hub.watch();
+    assert_eq!(state.borrow().now_playing, local);
+    assert!(state.borrow().local_music.phone_now_playing.is_some());
+}
+
 #[test]
 fn the_projection_start_page_shows_a_phone_before_the_ui_reports() {
     let mut cfg = defaults();
@@ -68,6 +94,7 @@ impl Rig {
             front: livi(),
             sessions: Default::default(),
             now_playing: Default::default(),
+            local_music: Default::default(),
             video_playback: None,
             telemetry: Default::default(),
             navigation: Default::default(),

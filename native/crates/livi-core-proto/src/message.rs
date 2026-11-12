@@ -65,6 +65,12 @@ pub enum Action {
     Media {
         control: MediaControl,
     },
+    LocalMusic {
+        command: LocalMusicCommand,
+    },
+    MusicSync {
+        command: MusicSyncCommand,
+    },
     #[serde(rename_all = "camelCase")]
     Seek {
         position_ms: u32,
@@ -256,6 +262,28 @@ pub enum MediaControl {
     Pause,
     Next,
     Prev,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "command", rename_all = "camelCase")]
+pub enum LocalMusicCommand {
+    Open,
+    Close,
+    Hide,
+    Refresh,
+    Eject { device: String },
+    Browse { id: String },
+    Play { id: String },
+    PlayPlaylist { id: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MusicSyncCommand {
+    Start,
+    Approve,
+    Reject,
+    Stop,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

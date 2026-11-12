@@ -56,7 +56,8 @@ for el in v4l2h264dec v4l2h265dec v4l2slh264dec v4l2slh265dec vah264dec vah265de
 done
 
 # DAB+ and CarPlay AAC decode through faad
-for el in aacparse faad; do
+for el in aacparse faad filesrc decodebin audioconvert audioresample appsink \
+  flacdec oggdemux vorbisdec opusdec wavparse mpg123audiodec; do
   if "$INSPECT" "$el" >/dev/null 2>&1; then
     echo "ok   $el"
   else

@@ -168,6 +168,10 @@ pub fn run(arch: Arch) -> Result<(), String> {
         &res.join("gst-host/livi-gst-host"),
         &format!("@loader_path/../{GST}/lib"),
     )?;
+    relink(
+        &res.join("core/livi-core"),
+        &format!("@loader_path/../{GST}/lib"),
+    )?;
 
     let inherit = root.join("assets/mac/entitlements.mac.inherit.plist");
     let main = root.join("assets/mac/entitlements.mac.plist");

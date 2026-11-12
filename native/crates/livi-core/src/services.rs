@@ -133,6 +133,7 @@ impl Services {
         hub: Arc<Hub>,
         quit: Arc<Notify>,
         mut asks: UiAsks,
+        local_music_asks: mpsc::UnboundedReceiver<crate::local_music::Ask>,
         telemetry: mpsc::UnboundedSender<serde_json::Value>,
         settings: mpsc::UnboundedSender<serde_json::Value>,
         resume_radio: Option<crate::radio::Band>,
@@ -193,6 +194,11 @@ impl Services {
         if let Some(launch) = host_launch(&res, user_data, None) {
             gst.set_launch(launch);
         }
+        tokio::spawn(crate::local_music::run(
+            hub.clone(),
+            gst.clone(),
+            local_music_asks,
+        ));
         let plane = MainPlane::new(gst.clone(), ctrl.clone());
         let clusters = ClusterPlanes::new(gst.clone(), ctrl.clone());
 

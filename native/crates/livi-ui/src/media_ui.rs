@@ -7,12 +7,15 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use livi_core_client::Client;
-use livi_core_proto::message::{Action, MediaControl};
+use livi_core_proto::message::{Action, MediaControl, MusicSyncCommand};
 use livi_ui_model::media::{Guess, Playback, Pressed};
 use slint::{Color, ComponentHandle, Image, ModelRc, Timer, TimerMode, VecModel};
 
 use crate::media::{MediaView, RadioView, Radios};
-use crate::{AppWindow, DabState, MediaSource, MediaText, Page, Press, StationData};
+use crate::{
+    AppWindow, DabState, LocalMusicRow as SlintLocalMusicRow, MediaSource, MediaText, Page, Press,
+    StationData,
+};
 
 const UI_INTERVAL: Duration = Duration::from_millis(120);
 const FLASH: Duration = Duration::from_millis(140);
@@ -75,6 +78,30 @@ pub fn apply_media(ui: &AppWindow, client: Option<&Client>, mut m: MediaView) {
     ui.set_app(m.app.into());
     ui.set_can_seek(m.can_seek);
     ui.set_total_ms(m.duration_ms as f32);
+    ui.set_local_music_active(m.local_music.active);
+    ui.set_local_music_browsing(m.local_music.browsing);
+    ui.set_local_music_parent(m.local_music.parent.unwrap_or_default().into());
+    ui.set_local_music_folder(m.local_music.folder_name.into());
+    ui.set_local_music_entries(slint::ModelRc::new(slint::VecModel::from(
+        m.local_music
+            .entries
+            .into_iter()
+            .map(|entry| SlintLocalMusicRow {
+                id: entry.id.into(),
+                label: entry.label.into(),
+                kind: entry.kind.into(),
+            })
+            .collect::<Vec<_>>(),
+    )));
+    ui.set_local_music_error(m.local_music.error.into());
+    ui.set_local_music_eject_device(m.local_music.eject_device.into());
+    ui.set_local_music_ejecting(m.local_music.ejecting);
+    ui.set_music_sync_phase(m.local_music.sync_phase.into());
+    ui.set_music_sync_code(m.local_music.sync_code.into());
+    ui.set_music_sync_verification(m.local_music.sync_verification.into());
+    ui.set_music_sync_website(m.local_music.sync_website.into());
+    ui.set_music_sync_last_file(m.local_music.sync_last_file.into());
+    ui.set_music_sync_error(m.local_music.sync_error.into());
     match m.artwork.take() {
         Some(Some(buf)) => {
             ui.set_artwork(Image::from_rgba8(buf));
@@ -242,6 +269,44 @@ pub fn set_texts(ui: &AppWindow, tr: impl Fn(&str, &str) -> String) {
     t.set_no_stations(tr("media.noStations", "No stations yet").into());
     t.set_no_fm_stations(tr("media.noFmStations", "No stations yet").into());
     t.set_no_artwork(tr("media.noArtwork", "No Artwork").into());
+    t.set_local_music(tr("media.localMusic", "Local Music").into());
+    t.set_browse(tr("media.browse", "Browse").into());
+    t.set_back(tr("media.back", "Back").into());
+    t.set_refresh(tr("media.refresh", "Refresh").into());
+    t.set_no_local_music(tr("media.noLocalMusic", "No music found").into());
+    t.set_wireless_sync(tr("media.wirelessSync", "Wireless sync").into());
+    t.set_sync_starting(
+        tr(
+            "media.syncStarting",
+            "Connecting to the signaling server...",
+        )
+        .into(),
+    );
+    t.set_sync_instructions(
+        tr(
+            "media.syncInstructions",
+            "Open your LIVI Music page and enter this code:",
+        )
+        .into(),
+    );
+    t.set_sync_pending(
+        tr(
+            "media.syncPending",
+            "A browser is requesting access. Match this code with the browser before allowing:",
+        )
+        .into(),
+    );
+    t.set_sync_connected(
+        tr(
+            "media.syncConnected",
+            "Connected. Music will be saved to internal storage.",
+        )
+        .into(),
+    );
+    t.set_sync_allow(tr("media.syncAllow", "Allow").into());
+    t.set_sync_reject(tr("media.syncReject", "Reject").into());
+    t.set_sync_stop(tr("media.syncStop", "Stop").into());
+    t.set_sync_retry(tr("media.syncRetry", "Try again").into());
 }
 
 fn flash(ui: &AppWindow, which: Pressed) {
@@ -282,7 +347,8 @@ pub fn wire(ui: &AppWindow, client: &Client) {
             pressed_feedback(&ui, which);
             let d = ui.global::<DabState>();
             let view = d.get_view();
-            let idle = d.get_receiver()
+            let idle = !ui.get_local_music_active()
+                && d.get_receiver()
                 && view != MediaSource::Phone
                 && LIVE.with_borrow(|l| l.on_air != Some(view));
             match view {
@@ -311,6 +377,74 @@ pub fn wire(ui: &AppWindow, client: &Client) {
             });
         }
     });
+    ui.on_local_music({
+        let c = client.clone();
+        let weak = weak.clone();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let command = if ui.get_local_music_active() && ui.get_local_music_browsing() {
+                livi_core_proto::message::LocalMusicCommand::Close
+            } else {
+                livi_core_proto::message::LocalMusicCommand::Open
+            };
+            c.act(Action::LocalMusic { command });
+        }
+    });
+    ui.on_local_item({
+        let c = client.clone();
+        move |id, kind| {
+            let id = id.to_string();
+            let command = match kind.as_str() {
+                "folder" => livi_core_proto::message::LocalMusicCommand::Browse { id },
+                "playlist" => livi_core_proto::message::LocalMusicCommand::PlayPlaylist { id },
+                _ => livi_core_proto::message::LocalMusicCommand::Play { id },
+            };
+            c.act(Action::LocalMusic { command });
+        }
+    });
+    ui.on_local_back({
+        let c = client.clone();
+        let weak = weak.clone();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let parent = ui.get_local_music_parent().to_string();
+            let command = if parent.is_empty() {
+                livi_core_proto::message::LocalMusicCommand::Close
+            } else {
+                livi_core_proto::message::LocalMusicCommand::Browse { id: parent }
+            };
+            c.act(Action::LocalMusic { command });
+        }
+    });
+    ui.on_local_refresh({
+        let c = client.clone();
+        move || {
+            c.act(Action::LocalMusic {
+                command: livi_core_proto::message::LocalMusicCommand::Refresh,
+            })
+        }
+    });
+    ui.on_local_eject({
+        let c = client.clone();
+        let weak = weak.clone();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let device = ui.get_local_music_eject_device().to_string();
+            if !device.is_empty() && !ui.get_local_music_ejecting() {
+                c.act(Action::LocalMusic {
+                    command: livi_core_proto::message::LocalMusicCommand::Eject { device },
+                });
+            }
+        }
+    });
+    let sync = |command| {
+        let c = client.clone();
+        move || c.act(Action::MusicSync { command })
+    };
+    ui.on_music_sync_start(sync(MusicSyncCommand::Start));
+    ui.on_music_sync_approve(sync(MusicSyncCommand::Approve));
+    ui.on_music_sync_reject(sync(MusicSyncCommand::Reject));
+    ui.on_music_sync_stop(sync(MusicSyncCommand::Stop));
     let d = ui.global::<DabState>();
     d.on_phone({
         let (c, weak) = (client.clone(), weak.clone());

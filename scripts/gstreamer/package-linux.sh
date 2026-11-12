@@ -319,6 +319,11 @@ plugins=(
   libgstalsa.so
   libgstfaad.so
   libgstopus.so
+  libgstflac.so
+  libgstogg.so
+  libgstvorbis.so
+  libgstwavparse.so
+  libgstmpg123.so
   libgstrtp.so
   libgstudp.so
   libgstrtpmanager.so

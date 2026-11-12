@@ -13,6 +13,14 @@ const APPIMAGETOOL: &str = "https://api.github.com/repos/AppImage/appimagetool/r
 
 const START: &str = r#"#!/bin/sh
 HERE="$(dirname "$(readlink -f "$0")")"
+for GST_ROOT in "$HERE"/resources/gstreamer/linux-*; do
+    [ -d "$GST_ROOT/lib" ] || continue
+    export LD_LIBRARY_PATH="$GST_ROOT/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export GST_PLUGIN_SYSTEM_PATH=""
+    export GST_PLUGIN_PATH="$GST_ROOT/lib/gstreamer-1.0"
+    export GST_PLUGIN_SCANNER="$GST_ROOT/libexec/gstreamer-1.0/gst-plugin-scanner"
+    break
+done
 [ "$1" = telemetry ] && exec "$HERE/resources/core/livi-core" "$@"
 export LIVI_RESOURCES="$HERE/resources"
 if [ "$LIVI_OS" = 1 ] && [ "$LIVI_OS_API" = 2 ]; then
@@ -195,6 +203,30 @@ pub fn run(arch: Arch) -> Result<(), String> {
     fetch_gstreamer(&format!("linux-{}", arch.name()))?;
     let gst_dir = format!("gstreamer/linux-{}", arch.name());
     let gst_src = root.join("assets").join(&gst_dir);
+    for plugin in [
+        "app",
+        "playback",
+        "typefindfunctions",
+        "audioconvert",
+        "audioresample",
+        "audioparsers",
+        "isomp4",
+        "flac",
+        "ogg",
+        "vorbis",
+        "wavparse",
+        "mpg123",
+        "opus",
+        "faad",
+    ] {
+        let plugin = gst_src.join(format!("lib/gstreamer-1.0/libgst{plugin}.so"));
+        if !plugin.is_file() {
+            return Err(format!(
+                "{} is missing; rebuild the GStreamer bundle with scripts/gstreamer/package-linux.sh before packaging local music",
+                plugin.display()
+            ));
+        }
+    }
     if arch == Arch::Arm64 {
         let plugin = gst_src.join("lib/gstreamer-1.0/libgstv4l2codecs.so");
         let bytes = fs::read(&plugin).map_err(|e| format!("{}: {e}", plugin.display()))?;
@@ -243,7 +275,10 @@ mod tests {
 
     #[test]
     fn launcher_selects_legacy_hevc_slice_abi_only_for_the_os_appliance() {
-        let dir = std::env::temp_dir().join(format!("livi-launcher-test-{}", std::process::id()));
+        let dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join(format!("livi-launcher-test-{}", std::process::id()));
         fs::create_dir_all(dir.join("resources/core")).unwrap();
         write_exe(&dir.join("LIVI"), START).unwrap();
         write_exe(
@@ -265,6 +300,40 @@ mod tests {
                 .unwrap();
             assert!(output.status.success());
             assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn launcher_configures_core_loader_and_music_plugins_even_for_telemetry() {
+        let dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join(format!("livi-gst-launcher-test-{}", std::process::id()));
+        fs::create_dir_all(dir.join("resources/core")).unwrap();
+        let gst = dir.join("resources/gstreamer/linux-arm64");
+        fs::create_dir_all(gst.join("lib")).unwrap();
+        write_exe(&dir.join("LIVI"), START).unwrap();
+        write_exe(&dir.join("resources/core/livi-core"),
+            "#!/bin/sh\nprintf '%s\\n' \"$LD_LIBRARY_PATH\" \"$GST_PLUGIN_PATH\" \"$GST_PLUGIN_SYSTEM_PATH\" \"$GST_PLUGIN_SCANNER\" \"$*\"\n").unwrap();
+        for args in [vec![], vec!["telemetry", "demo"]] {
+            let output = Command::new(dir.join("LIVI"))
+                .args(&args)
+                .env("LD_LIBRARY_PATH", "/existing")
+                .env("GST_PLUGIN_SYSTEM_PATH", "/host/plugins")
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            assert_eq!(
+                String::from_utf8(output.stdout).unwrap(),
+                format!(
+                    "{}/lib:/existing\n{}/lib/gstreamer-1.0\n\n{}/libexec/gstreamer-1.0/gst-plugin-scanner\n{}\n",
+                    gst.display(),
+                    gst.display(),
+                    gst.display(),
+                    args.join(" ")
+                )
+            );
         }
         fs::remove_dir_all(dir).unwrap();
     }

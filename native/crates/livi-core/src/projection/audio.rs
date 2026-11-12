@@ -37,6 +37,8 @@ impl Projection {
         self.duck_level = level.clamp(0.0, 1.0);
         self.duck_ramp_ms = ramp_ms;
         self.push_level(AudioKind::Media, ramp_ms);
+        let level = self.level(AudioKind::Media);
+        self.hub.update(|s| s.local_music.audio_level = level);
     }
 
     pub(super) fn stream_volumes_to_phone(&self) {

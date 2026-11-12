@@ -22,6 +22,13 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
+    let resources = Resources::from_env();
+    if let Some(root) = &resources.gstreamer {
+        for (name, value) in livi_core::resources::gst_env(root) {
+            // SAFETY: startup is single-threaded, before Tokio or GStreamer is initialized.
+            unsafe { std::env::set_var(name, value) };
+        }
+    }
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -32,7 +39,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let outcome = runtime.block_on(start());
+    let outcome = runtime.block_on(start(resources));
     runtime.shutdown_timeout(Duration::from_secs(2));
     let code = match outcome {
         Ok(Exit::Quit | Exit::PowerOff) => ExitCode::SUCCESS,
@@ -63,7 +70,7 @@ fn restart(program: Option<PathBuf>) -> ExitCode {
     ExitCode::FAILURE
 }
 
-async fn start() -> Result<Exit, String> {
+async fn start(resources: Resources) -> Result<Exit, String> {
     // SAFETY: geteuid has no preconditions.
     let uid = unsafe { libc::geteuid() };
     let instance = Instance::claim(Paths::from_env(uid)?)?;
@@ -78,7 +85,7 @@ async fn start() -> Result<Exit, String> {
             _ = ui_gone.notified() => println!("[core] the UI that started core is gone"),
         }
     };
-    livi_core::run(instance, Resources::from_env(), stop).await
+    livi_core::run(instance, resources, stop).await
 }
 
 async fn shutdown_signal() {

@@ -9,6 +9,228 @@ import { DabPage, DabState, StationData } from "dab.slint";
 
 export { MediaSource, MediaText, Press, DabState, StationData }
 
+export struct LocalMusicRow {
+    id: string,
+    label: string,
+    kind: string,
+}
+
+component SyncButton inherits Rectangle {
+    in property <string> label;
+    callback clicked();
+    width: sync-label.preferred-width + 32px;
+    height: 40px;
+    border-radius: Theme.radius;
+    background: Theme.panel;
+    sync-label := Text {
+        x: 16px;
+        y: 10px;
+        text: root.label;
+        color: Theme.text;
+        font-size: 15px;
+        font-weight: 700;
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+component LocalMusicLibrary inherits Rectangle {
+    in property <[LocalMusicRow]> entries;
+    in property <string> folder-name;
+    in property <string> parent-id;
+    in property <string> error;
+    in property <string> eject-device;
+    in property <bool> ejecting;
+    in property <string> sync-phase;
+    in property <string> sync-code;
+    in property <string> sync-verification;
+    in property <string> sync-website;
+    in property <string> sync-last-file;
+    in property <string> sync-error;
+    callback pick(string, string);
+    callback back();
+    callback refresh();
+    callback eject();
+    callback sync-start();
+    callback sync-approve();
+    callback sync-reject();
+    callback sync-stop();
+
+    background: Theme.backdrop;
+    VerticalLayout {
+        padding: 18px;
+        spacing: 10px;
+        HorizontalLayout {
+            height: 44px;
+            spacing: 10px;
+            Rectangle {
+                width: back-label.preferred-width + 32px;
+                height: 40px;
+                border-radius: Theme.radius;
+                background: Theme.panel;
+                back-label := Text {
+                    x: 16px;
+                    y: 10px;
+                    text: root.parent-id == "" ? MediaText.phone-source : MediaText.back;
+                    color: Theme.text;
+                    font-size: 15px;
+                    font-weight: 700;
+                }
+                TouchArea { clicked => { root.back(); } }
+            }
+            Text {
+                text: root.folder-name == "" ? MediaText.local-music : root.folder-name;
+                color: Theme.text;
+                font-size: 18px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+            if root.sync-phase == "idle": SyncButton {
+                label: MediaText.wireless-sync;
+                clicked => { root.sync-start(); }
+            }
+            if root.eject-device != "" || root.ejecting: Rectangle {
+                width: eject-label.preferred-width + 32px;
+                height: 40px;
+                border-radius: Theme.radius;
+                background: Theme.panel;
+                eject-label := Text {
+                    x: 16px;
+                    y: 10px;
+                    text: root.ejecting ? "Ejecting…" : "Eject USB";
+                    color: Theme.primary;
+                    font-size: 15px;
+                    font-weight: 700;
+                }
+                TouchArea {
+                    enabled: !root.ejecting;
+                    clicked => { root.eject(); }
+                }
+            }
+            Rectangle {
+                width: refresh-label.preferred-width + 32px;
+                height: 40px;
+                border-radius: Theme.radius;
+                background: Theme.panel;
+                refresh-label := Text {
+                    x: 16px;
+                    y: 10px;
+                    text: MediaText.refresh;
+                    color: Theme.text;
+                    font-size: 15px;
+                    font-weight: 700;
+                }
+                TouchArea { clicked => { root.refresh(); } }
+            }
+        }
+        if root.error != "": Text {
+            text: root.error;
+            color: Theme.primary;
+            font-size: 14px;
+            wrap: word-wrap;
+        }
+        if root.sync-phase != "idle": VerticalLayout {
+            spacing: 10px;
+            Text {
+                text: root.sync-phase == "starting" ? MediaText.sync-starting
+                    : root.sync-phase == "pairing" ? MediaText.sync-instructions
+                    : root.sync-phase == "pending" ? MediaText.sync-pending
+                    : root.sync-phase == "connected" ? MediaText.sync-connected
+                    : root.sync-error;
+                color: Theme.text;
+                font-size: 16px;
+                wrap: word-wrap;
+            }
+            if root.sync-website != "": Text {
+                text: root.sync-website;
+                color: Theme.text-secondary;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            if root.sync-code != "" && root.sync-phase != "pending": Text {
+                text: root.sync-code;
+                color: Theme.text;
+                font-size: 32px;
+                font-weight: 700;
+            }
+            if root.sync-verification != "" && root.sync-phase == "pending": Text {
+                text: root.sync-verification;
+                color: Theme.primary;
+                font-size: 30px;
+                font-weight: 700;
+            }
+            if root.sync-last-file != "" && root.sync-phase == "connected": Text {
+                text: root.sync-last-file;
+                color: Theme.text-secondary;
+                font-size: 14px;
+                overflow: elide;
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                if root.sync-phase == "pending": SyncButton {
+                    label: MediaText.sync-allow;
+                    clicked => { root.sync-approve(); }
+                }
+                if root.sync-phase == "pending": SyncButton {
+                    label: MediaText.sync-reject;
+                    clicked => { root.sync-reject(); }
+                }
+                if root.sync-phase == "error": SyncButton {
+                    label: MediaText.sync-retry;
+                    clicked => { root.sync-start(); }
+                }
+                SyncButton {
+                    label: MediaText.sync-stop;
+                    clicked => { root.sync-stop(); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            Rectangle { vertical-stretch: 1; }
+        }
+        if root.sync-phase == "idle": Flickable {
+            content-width: self.width;
+            content-height: max(self.height, items.preferred-height);
+            items := VerticalLayout {
+                width: root.width - 36px;
+                spacing: 6px;
+                for entry in root.entries: Rectangle {
+                    height: 54px;
+                    border-radius: Theme.radius;
+                    border-width: 1px;
+                    border-color: Theme.rule;
+                    background: Theme.panel;
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        spacing: 12px;
+                        Text {
+                            text: entry.kind == "folder" ? "▸" : entry.kind == "playlist" ? "♫" : "♪";
+                            color: Theme.primary;
+                            font-size: 18px;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: entry.label;
+                            color: Theme.text;
+                            font-size: 16px;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    TouchArea { clicked => { root.pick(entry.id, entry.kind); } }
+                }
+                if root.entries.length == 0: Text {
+                    text: MediaText.no-local-music;
+                    color: Theme.text-secondary;
+                    font-size: 16px;
+                }
+            }
+        }
+    }
+}
 
 export component Progress inherits Rectangle {
     in property <bool> focused;
@@ -314,6 +536,20 @@ export component MediaPage inherits Rectangle {
     in property <float> elapsed-ms;
     in property <float> total-ms;
     in property <bool> can-seek;
+    in property <bool> local-music-active;
+    in property <bool> local-music-browsing;
+    in property <string> local-music-parent;
+    in property <string> local-music-folder;
+    in property <[LocalMusicRow]> local-music-entries;
+    in property <string> local-music-error;
+    in property <string> local-music-eject-device;
+    in property <bool> local-music-ejecting;
+    in property <string> music-sync-phase;
+    in property <string> music-sync-code;
+    in property <string> music-sync-verification;
+    in property <string> music-sync-website;
+    in property <string> music-sync-last-file;
+    in property <string> music-sync-error;
     in-out property <bool> show-spectrum;
     in property <[float]> bands;
     callback play-pause();
@@ -321,15 +557,45 @@ export component MediaPage inherits Rectangle {
     callback next();
     callback seek(float);
     callback spectrum-changed(bool);
+    callback local-music();
+    callback local-item(string, string);
+    callback local-back();
+    callback local-refresh();
+    callback local-eject();
+    callback music-sync-start();
+    callback music-sync-approve();
+    callback music-sync-reject();
+    callback music-sync-stop();
 
     property <int> base: DabState.receiver ? 3 : 0;
-    property <bool> dab-shown: DabState.receiver && DabState.view != MediaSource.phone;
-    property <length> tabs-h: DabState.receiver ? 48px : 0;
+    property <bool> dab-shown: DabState.receiver && DabState.view != MediaSource.phone && !root.local-music-active;
+    property <length> tabs-h: DabState.receiver && !root.local-music-active ? 48px : 0;
 
     background: Theme.backdrop;
 
     Rectangle {
-        if DabState.receiver: SourceTabs {
+        x: root.width - self.width - 12px;
+        y: root.tabs-h + 4px;
+        width: button-label.preferred-width + 28px;
+        height: 34px;
+        border-radius: Theme.radius;
+        border-width: 1px;
+        border-color: Theme.rule;
+        background: Theme.panel;
+        button-label := Text {
+            x: 14px;
+            y: 7px;
+            text: root.local-music-active
+                ? (root.local-music-browsing ? MediaText.phone-source : MediaText.browse)
+                : MediaText.local-music;
+            color: Theme.text;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        TouchArea { clicked => { root.local-music(); } }
+    }
+    Rectangle {
+        if DabState.receiver && !root.local-music-active: SourceTabs {
             y: 0;
             width: parent.width;
             height: root.tabs-h;
@@ -339,7 +605,7 @@ export component MediaPage inherits Rectangle {
             dab => { DabState.resume(); }
             fm => { DabState.resume-fm(); }
         }
-        if !root.dab-shown: PhonePlayer {
+        if !root.local-music-browsing && !root.dab-shown: PhonePlayer {
             y: root.tabs-h;
             width: parent.width;
             height: parent.height - root.tabs-h;
@@ -363,7 +629,7 @@ export component MediaPage inherits Rectangle {
             seek(f) => { root.seek(f); }
             spectrum-changed(on) => { root.spectrum-changed(on); }
         }
-        if root.dab-shown: DabPage {
+        if !root.local-music-browsing && root.dab-shown: DabPage {
             y: root.tabs-h;
             width: parent.width;
             height: parent.height - root.tabs-h;
@@ -374,6 +640,31 @@ export component MediaPage inherits Rectangle {
             play-pause => { root.play-pause(); }
             prev => { root.prev(); }
             next => { root.next(); }
+        }
+        if root.local-music-browsing: LocalMusicLibrary {
+            y: root.tabs-h;
+            width: parent.width;
+            height: parent.height - root.tabs-h;
+            entries: root.local-music-entries;
+            folder-name: root.local-music-folder;
+            parent-id: root.local-music-parent;
+            error: root.local-music-error;
+            eject-device: root.local-music-eject-device;
+            ejecting: root.local-music-ejecting;
+            sync-phase: root.music-sync-phase;
+            sync-code: root.music-sync-code;
+            sync-verification: root.music-sync-verification;
+            sync-website: root.music-sync-website;
+            sync-last-file: root.music-sync-last-file;
+            sync-error: root.music-sync-error;
+            pick(id, kind) => { root.local-item(id, kind); }
+            back => { root.local-back(); }
+            refresh => { root.local-refresh(); }
+            eject => { root.local-eject(); }
+            sync-start => { root.music-sync-start(); }
+            sync-approve => { root.music-sync-approve(); }
+            sync-reject => { root.music-sync-reject(); }
+            sync-stop => { root.music-sync-stop(); }
         }
     }
 }

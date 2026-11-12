@@ -27,7 +27,8 @@ for el in h264parse h265parse vtdec vtdec_hw videoconvert videoscale glimagesink
 done
 
 # DAB+ audio needs faad, CarPlay AAC needs avdec_aac
-for el in aacparse faad avdec_aac; do
+for el in aacparse faad avdec_aac filesrc decodebin audioconvert audioresample appsink \
+  flacdec oggdemux vorbisdec opusdec wavparse mpg123audiodec; do
   if "$INSPECT" "$el" >/dev/null 2>&1; then
     echo "ok   $el"
   else
