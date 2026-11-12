@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use livi_core_client::Client;
 use livi_core_proto::message::{Action, ToCore};
-use livi_ui_model::keys::{Outcome, Zone, decide};
+use livi_ui_model::keys::Zone;
 use serde_json::json;
 use slint::platform::software_renderer::{
     MinimalSoftwareWindow, PremultipliedRgbaColor, RepaintBufferType,
@@ -25,11 +25,15 @@ use super::{Target, activate, context, open_tab, targets};
 use crate::follow::{Follow, Update};
 use crate::{AppWindow, ClockFace, Focus, FocusZone, Page, SidebarClock, TabData, Theme};
 
-struct TestPlatform(Rc<MinimalSoftwareWindow>);
+struct TestPlatform(Rc<MinimalSoftwareWindow>, Rc<Cell<Duration>>);
 
 impl Platform for TestPlatform {
     fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, PlatformError> {
         Ok(self.0.clone())
+    }
+
+    fn duration_since_start(&self) -> Duration {
+        self.1.get()
     }
 }
 
@@ -79,6 +83,21 @@ fn click(window: &MinimalSoftwareWindow, x: f32, y: f32) {
     });
 }
 
+fn drag(window: &MinimalSoftwareWindow, from: (f32, f32), to: (f32, f32)) {
+    let position = LogicalPosition::new(from.0, from.1);
+    window.dispatch_event(WindowEvent::PointerMoved { position });
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    let position = LogicalPosition::new(to.0, to.1);
+    window.dispatch_event(WindowEvent::PointerMoved { position });
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position,
+        button: PointerEventButton::Left,
+    });
+}
+
 fn message(stream: &mut UnixStream) -> ToCore {
     let mut length = [0; 4];
     stream.read_exact(&mut length).unwrap();
@@ -98,7 +117,8 @@ fn sidebar_clock(hour: &str, minute: &str, colon_visible: bool) -> SidebarClock 
 #[test]
 fn sidebar_clock_blink_does_not_move_the_digits_or_layout() {
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
-    slint::platform::set_platform(Box::new(TestPlatform(window.clone()))).unwrap();
+    slint::platform::set_platform(Box::new(TestPlatform(window.clone(), Default::default())))
+        .unwrap();
     let ui = AppWindow::new().unwrap();
     ui.set_page(Page::Camera);
     ui.set_tabs(ModelRc::from(Rc::new(VecModel::from(vec![
@@ -247,9 +267,10 @@ fn sidebar_clock_blink_does_not_move_the_digits_or_layout() {
 }
 
 #[test]
-fn clock_resizes_and_style_controls_work_on_the_waveshare_layout() {
+fn clock_shows_one_centered_face_with_swipe_and_dot_selection() {
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
-    slint::platform::set_platform(Box::new(TestPlatform(window.clone()))).unwrap();
+    let time = Rc::new(Cell::new(Duration::ZERO));
+    slint::platform::set_platform(Box::new(TestPlatform(window.clone(), time.clone()))).unwrap();
     let ui = AppWindow::new().unwrap();
     assert!(!ui.get_clock_auto_hide());
     ui.set_tabs(ModelRc::from(Rc::new(VecModel::from(vec![TabData {
@@ -268,36 +289,39 @@ fn clock_resizes_and_style_controls_work_on_the_waveshare_layout() {
     ui.show().unwrap();
 
     let picked = Rc::new(Cell::new(None));
+    let picks = Rc::new(Cell::new(0));
     ui.on_clock_style_picked({
         let picked = picked.clone();
-        move |face| picked.set(Some(face))
+        let picks = picks.clone();
+        let weak = ui.as_weak();
+        move |face| {
+            picked.set(Some(face));
+            picks.set(picks.get() + 1);
+            weak.upgrade().unwrap().set_clock_face(face);
+        }
     });
 
     let pixels = render(&window);
     assert_eq!(window.size(), PhysicalSize::new(1280, 400));
-    assert!(ui.get_clock_wide());
-    let left_hand = count_pixels(&pixels, 1280, 80..640, 0..300, orange);
-    let right_hand = count_pixels(&pixels, 1280, 640..1200, 0..300, orange);
-    assert!(left_hand > 300 && left_hand > right_hand * 3);
-    let readout = count_pixels(&pixels, 1280, 640..1200, 0..300, |p| {
-        p.red > 160 && p.green > 160 && p.blue > 140
-    });
-    assert!(readout > 500, "wide layout should include a readable time");
+    let markings = |p: &PremultipliedRgbaColor| p.red > 160 && p.green > 160 && p.blue > 140;
+    assert!(count_pixels(&pixels, 1280, 510..870, 0..350, orange) > 300);
+    assert_eq!(
+        count_pixels(&pixels, 1280, 100..510, 0..350, markings)
+            + count_pixels(&pixels, 1280, 870..1280, 0..350, markings),
+        0,
+        "only one centered dial should be visible, with no companion time panel"
+    );
 
     let theme = ui.global::<Theme>();
     theme.set_dark(false);
     let light = render(&window);
-    let panel = &light[40 * 1280 + 700];
+    let panel = &light[100 * 1280 + 690];
     assert!(panel.red < 60 && panel.green < 60 && panel.blue < 60);
-    assert!(
-        count_pixels(&light, 1280, 700..1180, 40..250, |p| {
-            p.red > 160 && p.green > 160 && p.blue > 140
-        }) > 500
-    );
+    assert!(count_pixels(&light, 1280, 510..870, 0..350, markings) > 500);
     theme.set_dark(true);
     theme.set_background_override(Color::from_rgb_u8(255, 255, 255));
     let custom = render(&window);
-    let panel = &custom[40 * 1280 + 700];
+    let panel = &custom[100 * 1280 + 690];
     assert!(panel.red < 60 && panel.green < 60 && panel.blue < 60);
     theme.set_background_override(Color::from_argb_u8(0, 0, 0, 0));
 
@@ -315,49 +339,99 @@ fn clock_resizes_and_style_controls_work_on_the_waveshare_layout() {
     activate(&ui, Target::ClockStyle(ClockFace::Amber));
     assert_eq!(picked.get(), Some(ClockFace::Amber));
     picked.set(None);
-    click(&window, 1140.0, 362.0);
+    click(&window, 734.0, 374.0);
     assert_eq!(picked.get(), Some(ClockFace::Digital));
 
-    ui.set_clock_face(ClockFace::Digital);
     let digital = render(&window);
     assert!(count_pixels(&digital, 1280, 200..1100, 0..320, orange) > 500);
     picked.set(None);
-    click(&window, 650.0, 362.0);
+    click(&window, 690.0, 374.0);
     assert_eq!(picked.get(), Some(ClockFace::Amber));
+
+    ui.set_clock_face(ClockFace::Classic);
+    for (from, to, expected) in [
+        ((600.0, 180.0), (560.0, 180.0), Some(ClockFace::Amber)),
+        ((600.0, 180.0), (400.0, 180.0), Some(ClockFace::Digital)),
+        ((600.0, 180.0), (400.0, 180.0), None),
+        ((400.0, 180.0), (600.0, 180.0), Some(ClockFace::Amber)),
+        ((400.0, 180.0), (600.0, 180.0), Some(ClockFace::Classic)),
+        ((400.0, 180.0), (600.0, 180.0), None),
+        ((600.0, 180.0), (561.0, 180.0), None),
+        ((600.0, 180.0), (550.0, 250.0), None),
+        ((600.0, 180.0), (550.0, 230.0), None),
+        ((600.0, 180.0), (600.0, 260.0), None),
+        ((600.0, 180.0), (600.0, 180.0), None),
+    ] {
+        picked.set(None);
+        let before = picks.get();
+        drag(&window, from, to);
+        assert_eq!(picked.get(), expected, "drag {from:?} -> {to:?}");
+        assert_eq!(picks.get() - before, usize::from(expected.is_some()));
+    }
+    picked.set(None);
+    click(&window, 646.0, 374.0);
+    assert_eq!(picked.get(), None, "tapping the selected dot is a no-op");
+
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position: LogicalPosition::new(600.0, 180.0),
+        button: PointerEventButton::Left,
+    });
+    window.dispatch_event(WindowEvent::PointerExited);
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position: LogicalPosition::new(400.0, 180.0),
+        button: PointerEventButton::Left,
+    });
+    assert_eq!(picked.get(), None, "cancelled drags must not pick a face");
 
     ui.set_clock_face(ClockFace::Classic);
     ui.set_right_hand(true);
     let mirrored = render(&window);
-    let left_hand = count_pixels(&mirrored, 1280, 80..640, 0..300, orange);
-    let right_hand = count_pixels(&mirrored, 1280, 640..1200, 0..300, orange);
-    assert!(right_hand > 300 && right_hand > left_hand * 3);
+    assert!(count_pixels(&mirrored, 1280, 410..770, 0..350, orange) > 300);
+    assert_eq!(
+        count_pixels(&mirrored, 1280, 0..410, 0..350, markings)
+            + count_pixels(&mirrored, 1280, 770..1180, 0..350, markings),
+        0
+    );
     picked.set(None);
-    click(&window, 300.0, 362.0);
+    click(&window, 590.0, 374.0);
     assert_eq!(picked.get(), Some(ClockFace::Amber));
 
     ui.window().set_size(PhysicalSize::new(320, 200));
     let compact = render(&window);
     assert_eq!(window.size(), PhysicalSize::new(320, 200));
-    assert!(!ui.get_clock_wide());
-    assert!(targets(&ui).is_empty());
+    assert_eq!(targets(&ui).len(), 3);
     ui.global::<Focus>().set_zone(FocusZone::Main);
     let compact_context = context(&ui, false);
-    assert_eq!(compact_context.zone, Zone::None);
-    assert!(compact_context.nav_only);
-    assert_eq!(
-        decide("ArrowDown", compact_context, &json!({})),
-        Outcome::ToNav
-    );
+    assert_eq!(compact_context.zone, Zone::Main);
+    assert!(!compact_context.nav_only);
     ui.global::<Focus>().set_zone(FocusZone::Nav);
     open_tab(&ui, true);
-    assert_eq!(ui.global::<Focus>().get_zone(), FocusZone::Nav);
+    assert_eq!(ui.global::<Focus>().get_zone(), FocusZone::Main);
     assert!(count_pixels(&compact, 320, 0..320, 0..200, orange) > 30);
 
+    for right_hand in [false, true] {
+        ui.set_right_hand(right_hand);
+        for face in [ClockFace::Classic, ClockFace::Amber, ClockFace::Digital] {
+            ui.set_clock_face(face);
+            let compact = render(&window);
+            assert!(count_pixels(&compact, 320, 0..320, 0..150, orange) > 30);
+        }
+        ui.set_clock_face(ClockFace::Classic);
+        picked.set(None);
+        drag(&window, (190.0, 75.0), (130.0, 75.0));
+        assert_eq!(picked.get(), Some(ClockFace::Amber));
+        picked.set(None);
+        let center = if right_hand { 132.0 } else { 188.0 };
+        click(&window, center + 44.0, 174.0);
+        assert_eq!(picked.get(), Some(ClockFace::Digital));
+    }
+
+    ui.set_clock_face(ClockFace::Classic);
     ui.set_clock_valid(false);
     ui.set_clock_time("--:--".into());
     let unavailable = render(&window);
     assert!(
-        count_pixels(&unavailable, 320, 90..175, 80..120, |p| {
+        count_pixels(&unavailable, 320, 90..175, 50..100, |p| {
             p.red > 160 && p.green > 160 && p.blue > 140
         }) > 20,
         "an unavailable time should be readable in the middle of the dial"
@@ -367,7 +441,6 @@ fn clock_resizes_and_style_controls_work_on_the_waveshare_layout() {
     ui.set_clock_time("12:34".into());
     ui.window().set_size(PhysicalSize::new(1280, 400));
     render(&window);
-    assert!(ui.get_clock_wide());
     assert_eq!(targets(&ui).len(), 3);
 
     window.dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor: 2.0 });
@@ -376,16 +449,52 @@ fn clock_resizes_and_style_controls_work_on_the_waveshare_layout() {
     });
     render(&window);
     assert_eq!(window.size(), PhysicalSize::new(1280, 400));
-    assert!(ui.get_clock_wide());
     assert_eq!(targets(&ui).len(), 3);
     picked.set(None);
-    click(&window, 146.0, 162.0);
+    click(&window, 292.0, 174.0);
     assert_eq!(picked.get(), Some(ClockFace::Amber));
 
     window.dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor: 1.0 });
     window.dispatch_event(WindowEvent::Resized {
         size: LogicalSize::new(1280.0, 400.0),
     });
+    render(&window);
+
+    for right_hand in [false, true] {
+        ui.set_right_hand(right_hand);
+        for distance in [39.0, 40.0] {
+            ui.set_clock_face(ClockFace::Classic);
+            ui.set_clock_auto_hide(true);
+            ui.invoke_wake_nav();
+            time.set(time.get() + Duration::from_secs(4));
+            slint::platform::update_timers_and_animations();
+            render(&window);
+            let position = LogicalPosition::new(600.0, 180.0);
+            window.dispatch_event(WindowEvent::PointerPressed {
+                position,
+                button: PointerEventButton::Left,
+            });
+            super::touched(&ui);
+            slint::platform::update_timers_and_animations();
+            render(&window);
+            window.dispatch_event(WindowEvent::PointerReleased {
+                position: LogicalPosition::new(600.0 - distance, 180.0),
+                button: PointerEventButton::Left,
+            });
+            assert_eq!(
+                ui.get_clock_face(),
+                if distance < 40.0 {
+                    ClockFace::Classic
+                } else {
+                    ClockFace::Amber
+                },
+                "waking navigation must preserve swipe distance, right_hand={right_hand}"
+            );
+        }
+    }
+    ui.set_clock_auto_hide(false);
+    ui.set_right_hand(false);
+    ui.set_clock_face(ClockFace::Classic);
     render(&window);
 
     let (ours, mut peer) = UnixStream::pair().unwrap();
@@ -396,22 +505,33 @@ fn clock_resizes_and_style_controls_work_on_the_waveshare_layout() {
     let mut follow = Follow::default();
     let changed = BTreeSet::from(["config".to_string()]);
     for (id, face, expected) in [
-        (1, ClockFace::Classic, "classic"),
-        (2, ClockFace::Amber, "amber"),
-        (3, ClockFace::Digital, "digital"),
+        (1, ClockFace::Amber, "amber"),
+        (2, ClockFace::Digital, "digital"),
+        (3, ClockFace::Amber, "amber"),
+        (4, ClockFace::Classic, "classic"),
+        (5, ClockFace::Digital, "digital"),
+        (6, ClockFace::Amber, "amber"),
     ] {
-        if face == ClockFace::Classic {
-            activate(&ui, Target::ClockStyle(face));
-        } else {
-            click(
-                &window,
-                if face == ClockFace::Amber {
-                    300.0
-                } else {
-                    480.0
-                },
-                362.0,
+        if id == 6 {
+            ui.window().set_size(PhysicalSize::new(320, 200));
+            ui.global::<Focus>().set_zone(FocusZone::None);
+            let unfocused = render(&window);
+            assert!(super::key(&ui, &client, "ArrowRight", true, false));
+            assert!(super::key(&ui, &client, "ArrowRight", true, false));
+            assert_eq!(ui.global::<Focus>().get_main_index(), 1);
+            let focused = render(&window);
+            assert!(
+                count_pixels(&focused, 320, 166..210, 152..196, orange)
+                    > count_pixels(&unfocused, 320, 166..210, 152..196, orange),
+                "the focused dot should have a visible D-pad focus ring"
             );
+            assert!(super::key(&ui, &client, "Enter", true, false));
+        } else if id == 5 {
+            click(&window, 734.0, 374.0);
+        } else if id <= 2 {
+            drag(&window, (600.0, 180.0), (400.0, 180.0));
+        } else {
+            drag(&window, (400.0, 180.0), (600.0, 180.0));
         }
         assert_eq!(
             message(&mut peer),
@@ -426,7 +546,7 @@ fn clock_resizes_and_style_controls_work_on_the_waveshare_layout() {
             "config": {
                 "clockStyle": expected,
                 "clockAutoHide": true,
-                "hand": 1
+                "hand": 0
             }
         });
         let update = follow
@@ -438,5 +558,11 @@ fn clock_resizes_and_style_controls_work_on_the_waveshare_layout() {
         assert_eq!(ui.get_clock_face(), face);
         assert!(ui.get_clock_auto_hide());
     }
+    peer.set_nonblocking(true).unwrap();
+    assert_eq!(
+        peer.read(&mut [0]).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock,
+        "each selection should send exactly one settings action"
+    );
     ui.hide().unwrap();
 }

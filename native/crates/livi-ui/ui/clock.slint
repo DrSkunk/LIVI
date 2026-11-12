@@ -85,30 +85,30 @@ component ClockHand inherits Path {
     Close {}
 }
 
-component ClockStyleButton inherits Rectangle {
+component ClockStyleDot inherits Rectangle {
     in property <string> label;
     in property <bool> selected;
     in property <bool> focused;
     in property <color> accent;
     callback clicked();
 
-    background: root.selected ? #33281c : #171715;
-    border-radius: 2px;
-    border-width: root.focused ? 2px : 1px;
-    border-color: root.focused || touch.has-hover ? root.accent : root.selected ? #8c6b43 : #504a3f;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    background: transparent;
+    border-radius: 8px;
+    border-width: root.focused ? 2px : 0px;
+    border-color: root.accent;
 
-    Text {
-        width: parent.width - 8px;
-        height: parent.height;
-        x: 4px;
-        text: root.label;
-        font-family: "D-DIN";
-        font-size: min(16px, parent.height * 0.38);
-        font-weight: root.selected ? 700 : 400;
-        color: root.selected || root.focused ? root.accent : #c1bbb0;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-        overflow: elide;
+    Rectangle {
+        width: 10px;
+        height: self.width;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: self.width / 2;
+        border-width: 1px;
+        border-color: root.selected || touch.has-hover ? root.accent : #85847d;
+        background: root.selected ? root.accent : transparent;
     }
     touch := TouchArea {
         clicked => { root.clicked(); }
@@ -119,8 +119,6 @@ export component ClockPage inherits Rectangle {
     in property <ClockFace> style: ClockFace.classic;
     in property <string> time: "--:--";
     in property <bool> valid;
-    in property <bool> wide-layout;
-    in property <bool> right-hand;
     in property <float> hour-angle;
     in property <float> minute-angle;
     in property <float> second-angle;
@@ -130,16 +128,17 @@ export component ClockPage inherits Rectangle {
     property <color> markings: root.amber ? #f1b35e : #e4e0d4;
     property <color> minor-markings: root.amber ? #a87540 : #85847d;
     property <color> hands: root.amber ? #ffd394 : #ef9047;
+    property <length> swipe-x;
+    property <length> swipe-y;
+    property <bool> swiping;
 
     background: Theme.backdrop;
 
     if root.style != ClockFace.digital: Rectangle {
-        width: max(0px, min(min((root.wide-layout ? root.width / 2 : root.width) - 24px, root.height - 24px), 650px));
+        width: max(0px, min(min(root.width - 24px, root.height - 68px), 650px));
         height: self.width;
-        x: root.wide-layout
-            ? (root.right-hand ? root.width / 2 : 0px) + (root.width / 2 - self.width) / 2
-            : (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - 48px - self.height) / 2;
         border-radius: self.width / 2;
         border-width: max(1px, self.width * 0.004);
         border-color: #514d46;
@@ -225,33 +224,11 @@ export component ClockPage inherits Rectangle {
         }
     }
 
-    if root.wide-layout && root.style != ClockFace.digital: Rectangle {
-        x: (root.right-hand ? 0px : root.width / 2) + 16px;
-        y: 16px;
-        width: root.width / 2 - 32px;
-        height: root.height - 100px;
-        border-radius: 2px;
-        border-width: 1px;
-        border-color: #514b40;
-        background: @linear-gradient(180deg, #1a1610 0%, #090908 100%);
-        Text {
-            width: parent.width;
-            height: parent.height;
-            text: root.time;
-            font-family: "D-DIN";
-            font-size: min(parent.width * 0.19, parent.height * 0.36);
-            color: root.markings;
-            letter-spacing: 2px;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-        }
-    }
-
     if root.style == ClockFace.digital: Rectangle {
-        width: max(0px, min(min(root.width - 24px, (root.height - (root.wide-layout ? 104px : 24px)) * 2.35), 900px));
+        width: max(0px, min(min(root.width - 24px, (root.height - 68px) * 2.35), 900px));
         height: self.width / 2.35;
         x: (parent.width - self.width) / 2;
-        y: root.wide-layout ? (parent.height - 72px - self.height) / 2 : (parent.height - self.height) / 2;
+        y: (parent.height - 48px - self.height) / 2;
         border-width: max(1px, self.width * 0.004);
         border-color: #514b40;
         border-radius: self.width * 0.015;
@@ -280,22 +257,48 @@ export component ClockPage inherits Rectangle {
         }
     }
 
-    if root.wide-layout: Rectangle {
-        width: root.style == ClockFace.digital ? min(root.width - 32px, 620px) : root.width / 2 - 64px;
-        height: 48px;
-        x: root.style == ClockFace.digital
-            ? (root.width - self.width) / 2
-            : (root.right-hand ? 0px : root.width / 2) + (root.width / 2 - self.width) / 2;
-        y: root.height - self.height - 14px;
+    TouchArea {
+        height: root.height - 48px;
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                root.swipe-x = self.absolute-position.x + self.mouse-x;
+                root.swipe-y = self.absolute-position.y + self.mouse-y;
+                root.swiping = true;
+            } else if (e.kind == PointerEventKind.cancel) {
+                root.swiping = false;
+            } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
+                let dx = self.absolute-position.x + self.mouse-x - root.swipe-x;
+                let dy = self.absolute-position.y + self.mouse-y - root.swipe-y;
+                if (root.swiping && abs(dx) >= 40px && abs(dx) > abs(dy)) {
+                    if (dx < 0 && root.style != ClockFace.digital) {
+                        root.style-picked(root.style == ClockFace.classic ? ClockFace.amber : ClockFace.digital);
+                    } else if (dx > 0 && root.style != ClockFace.classic) {
+                        root.style-picked(root.style == ClockFace.digital ? ClockFace.amber : ClockFace.classic);
+                    }
+                }
+                root.swiping = false;
+            }
+        }
+    }
+
+    Rectangle {
+        width: 132px;
+        height: 44px;
+        x: (root.width - self.width) / 2;
+        y: root.height - 48px;
         HorizontalLayout {
-            spacing: 8px;
-            for i in 3: ClockStyleButton {
+            spacing: 0px;
+            for i in 3: ClockStyleDot {
                 property <ClockFace> face: i == 0 ? ClockFace.classic : i == 1 ? ClockFace.amber : ClockFace.digital;
                 label: i == 0 ? ClockText.classic : i == 1 ? ClockText.amber : ClockText.digital;
                 selected: self.face == root.style;
                 focused: Focus.main(i);
                 accent: root.amber ? #ffd394 : #efb16e;
-                clicked => { root.style-picked(self.face); }
+                clicked => {
+                    if (self.face != root.style) {
+                        root.style-picked(self.face);
+                    }
+                }
             }
         }
     }

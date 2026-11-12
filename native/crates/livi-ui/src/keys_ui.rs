@@ -175,12 +175,10 @@ fn targets(ui: &AppWindow) -> Vec<Target> {
         Page::Games => (0..crate::games_ui::targets(ui))
             .map(Target::Games)
             .collect(),
-        Page::Clock if ui.get_clock_wide() => {
-            [ClockFace::Classic, ClockFace::Amber, ClockFace::Digital]
-                .into_iter()
-                .map(Target::ClockStyle)
-                .collect()
-        }
+        Page::Clock => [ClockFace::Classic, ClockFace::Amber, ClockFace::Digital]
+            .into_iter()
+            .map(Target::ClockStyle)
+            .collect(),
         Page::Minidsp => {
             let mut out = vec![Target::DspRefresh];
             if crate::minidsp_ui::ready() {
@@ -415,7 +413,7 @@ fn open_tab(ui: &AppWindow, enter: bool) {
     ui.set_page(tab.page);
     ui.invoke_page_chosen(tab.page);
     TRAIL.with_borrow_mut(Vec::clear);
-    if enter && tab.page != Page::Projection && (tab.page != Page::Clock || ui.get_clock_wide()) {
+    if enter && tab.page != Page::Projection {
         enter_main(ui);
     }
 }

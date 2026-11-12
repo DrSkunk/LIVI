@@ -38,8 +38,6 @@ export component AppWindow inherits Window {
     in property <float> clock-hour-angle;
     in property <float> clock-minute-angle;
     in property <float> clock-second-angle;
-    // Leave at least 64px per style button in the wide layout.
-    out property <bool> clock-wide: content.width >= 544px && content.width >= content.height * 2.2;
     in property <bool> right-hand;
     in property <int> stream-width: 1280;
     in property <int> stream-height: 720;
@@ -211,8 +209,6 @@ export component AppWindow inherits Window {
                 style: root.clock-face;
                 time: root.clock-time;
                 valid: root.clock-valid;
-                wide-layout: root.clock-wide;
-                right-hand: root.right-hand;
                 hour-angle: root.clock-hour-angle;
                 minute-angle: root.clock-minute-angle;
                 second-angle: root.clock-second-angle;
