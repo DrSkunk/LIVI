@@ -32,12 +32,16 @@ use smithay::output::OutputModeSource;
 use smithay::reexports::calloop::LoopHandle;
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::drm::control::property::ValueType;
-use smithay::reexports::drm::control::{Device as _, Mode, ModeTypeFlags, connector, crtc};
+use smithay::reexports::drm::control::{
+    Device as _, Mode, ModeFlags, ModeTypeFlags, connector, crtc,
+};
 use smithay::reexports::input::Libinput;
 use smithay::reexports::rustix::fs::OFlags;
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{DeviceFd, Point, SERIAL_COUNTER, Scale, Size, Transform};
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Stroke};
+
+use livi_output_proto::ctrl::TouchCal;
 
 use crate::render::LiviElement;
 use crate::state::LiviState;
@@ -70,13 +74,6 @@ pub struct DrmState {
     active: bool,
     mouse_active: bool,
     cursor: MemoryRenderBuffer,
-}
-
-#[derive(PartialEq)]
-struct TouchCal {
-    enabled: bool,
-    display: String,
-    matrix: [f64; 6],
 }
 
 fn calibrated(m: &[f64; 6], x: f64, y: f64, w: f64, h: f64) -> (f64, f64) {
@@ -236,7 +233,9 @@ fn start(
     let (device, notifier, fd) = open_device(&mut session, &seat)?;
 
     let gbm = GbmDevice::new(fd.clone())?;
+    // SAFETY: no other code in this process creates EGL displays, smithay tracks this one.
     let egl_display = unsafe { EGLDisplay::new(gbm.clone())? };
+    // SAFETY: the context was just created here and is current on no other thread.
     let renderer = unsafe { GlesRenderer::new(EGLContext::new(&egl_display)?)? };
     let formats = renderer.egl_context().dmabuf_render_formats().clone();
     let scanout = fd.dev_id().ok().map(|dev| (dev, plane_formats(&device)));
@@ -759,7 +758,12 @@ pub fn displays_lines(state: &LiviState) -> Option<String> {
             .map_or("-", |s| s.role.as_str());
         let current = output.map_or("-".to_string(), |o| {
             let (w, h) = o.mode.size();
-            format!("{w}x{h}@{}", o.mode.vrefresh())
+            let scan = if o.mode.flags().contains(ModeFlags::INTERLACE) {
+                "i"
+            } else {
+                ""
+            };
+            format!("{w}x{h}@{}{scan}", o.mode.vrefresh())
         });
         let modes = sizes(&c.modes);
         let modes = if modes.is_empty() {
@@ -775,26 +779,29 @@ pub fn displays_lines(state: &LiviState) -> Option<String> {
     Some(out)
 }
 
-pub fn touch_calibration(state: &mut LiviState, line: &str) {
+pub fn touch_calibrations(state: &mut LiviState, count: usize) {
+    if let Some(drm) = state.drm.as_mut() {
+        drm.touch_cal_incoming = Some((count, HashMap::new()));
+    }
+    take_touch_calibration(state);
+}
+
+pub fn touch_calibration(state: &mut LiviState, name: String, cal: TouchCal) {
+    let Some((_, entries)) = state
+        .drm
+        .as_mut()
+        .and_then(|drm| drm.touch_cal_incoming.as_mut())
+    else {
+        return;
+    };
+    entries.insert(name, cal);
+    take_touch_calibration(state);
+}
+
+fn take_touch_calibration(state: &mut LiviState) {
     let Some(drm) = state.drm.as_mut() else {
         return;
     };
-    let mut words = line.split(' ');
-    match words.next() {
-        Some("touchcals") => {
-            let count = words.next().and_then(|n| n.parse().ok()).unwrap_or(0);
-            drm.touch_cal_incoming = Some((count, HashMap::new()));
-        }
-        Some("touchcal") => {
-            let (Some((_, entries)), Some((name, cal))) =
-                (drm.touch_cal_incoming.as_mut(), touch_cal_of(line))
-            else {
-                return;
-            };
-            entries.insert(name, cal);
-        }
-        _ => return,
-    }
     let Some((count, entries)) = drm.touch_cal_incoming.take_if(|(n, e)| e.len() >= *n) else {
         return;
     };
@@ -804,32 +811,6 @@ pub fn touch_calibration(state: &mut LiviState, line: &str) {
     log::info!("touch calibration for {count} device(s)");
     drm.touch_cal = entries;
     crate::ctrl::send_displays(state);
-}
-
-fn touch_cal_of(line: &str) -> Option<(String, TouchCal)> {
-    let mut words = line.splitn(10, ' ');
-    if words.next() != Some("touchcal") {
-        return None;
-    }
-    let enabled = words.next()? == "1";
-    let display = words.next()?;
-    let mut matrix = [0.0f64; 6];
-    for v in &mut matrix {
-        *v = words.next()?.parse().ok()?;
-    }
-    let name = words.next().filter(|n| !n.is_empty())?;
-    Some((
-        name.to_string(),
-        TouchCal {
-            enabled,
-            display: if display == "-" {
-                String::new()
-            } else {
-                display.to_string()
-            },
-            matrix,
-        },
-    ))
 }
 
 pub fn panel_mm(state: &LiviState, screen_idx: usize) -> Option<(i32, i32)> {

@@ -6,39 +6,40 @@ pub mod clock;
 #[cfg(not(target_os = "android"))]
 mod cursor_ui;
 mod dashboard_ui;
+#[cfg(target_os = "macos")]
+mod dock_ui;
 mod files_ui;
 mod follow;
 mod fonts;
 mod fullscreen;
-mod games_ui;
 mod icon_ui;
 mod icons;
 mod keys_ui;
 mod media;
 mod media_ui;
-mod minidsp_ui;
 mod overlay_ui;
 mod secondary;
 mod settings_ui;
+#[cfg(target_os = "macos")]
+mod shape_ui;
 mod touch_ui;
 mod video_ui;
 
 use std::cell::{Cell, RefCell};
 use std::os::unix::net::UnixStream;
 use std::rc::Rc;
+use std::sync::Mutex;
 use std::time::Duration;
 
-use livi_core_client::{Client, Event};
-use livi_core_proto::config::ClockStyle;
+use livi_core_client::{Client, Event, Mirror};
 use livi_core_proto::input::{Input, Phase, Point};
-use livi_core_proto::message::Action;
-use livi_core_proto::state::{Front, Screen};
+use livi_core_proto::state::{Front, Screen, State};
 use serde_json::Value;
 use slint::platform::WindowEvent;
 use slint::{Color, Model, ModelRc, Timer, TimerMode, VecModel, Weak};
 
 use crate::follow::{Follow, Update};
-use livi_ui_model::shell::{Look, Style, Tab, ui_scale};
+use livi_ui_model::shell::{Look, Tab, ui_scale};
 
 slint::include_modules!();
 
@@ -108,10 +109,7 @@ fn tab(t: Tab) -> TabData {
         Tab::Projection => (Page::Projection, "CropPortraitOutlined"),
         Tab::Telemetry => (Page::Telemetry, "SpeedOutlined"),
         Tab::Media => (Page::Media, "PlayCircleOutlined"),
-        Tab::Clock => (Page::Clock, "ScheduleOutlined"),
         Tab::Camera => (Page::Camera, "CameraOutlined"),
-        Tab::Games => (Page::Games, "SportsEsportsOutlined"),
-        Tab::MiniDsp => (Page::Minidsp, "GraphicEqOutlined"),
         Tab::Settings => (Page::Settings, "SettingsOutlined"),
     };
     TabData {
@@ -127,19 +125,12 @@ fn apply_look(ui: &AppWindow, look: Look) {
     theme.set_highlight_override(rgb(look.highlight));
     theme.set_background_override(rgb(look.background));
     theme.set_text_override(rgb(look.text));
-    theme.set_comand(look.style == Style::Comand);
-    ui.set_clock_face(match look.clock_style {
-        ClockStyle::Classic => ClockFace::Classic,
-        ClockStyle::Amber => ClockFace::Amber,
-        ClockStyle::Digital => ClockFace::Digital,
-    });
-    ui.set_clock_auto_hide(look.clock_auto_hide);
     ui.set_right_hand(look.right_hand);
     ui.set_stream_width(look.stream.0);
     ui.set_stream_height(look.stream.1);
     let tabs: Vec<TabData> = look.tabs.iter().copied().map(tab).collect();
     if !tabs.iter().any(|t| t.page == ui.get_page()) {
-        choose(ui, tabs.first().map_or(Page::Settings, |t| t.page));
+        choose(ui, Page::Media);
     }
     ui.set_tabs(ModelRc::from(Rc::new(VecModel::from(tabs))));
     ui.set_projection_icon(tab(Tab::Projection).icon);
@@ -153,56 +144,10 @@ fn apply_look(ui: &AppWindow, look: Look) {
 
 fn apply_language(ui: &AppWindow, lang: &str) {
     settings_ui::set_language(lang);
-    let clock_text = ui.global::<ClockText>();
-    clock_text.set_classic(settings_ui::tr("settings.clockStyleClassic", "Classic").into());
-    clock_text.set_amber(settings_ui::tr("settings.clockStyleAmber", "Amber").into());
-    clock_text.set_digital(settings_ui::tr("settings.clockStyleDigital", "Digital").into());
     secondary::set_texts();
     media_ui::set_texts(ui, settings_ui::tr);
-    minidsp_ui::set_texts(ui, settings_ui::tr);
     dashboard_ui::set_texts(&ui.global::<DashState>(), settings_ui::tr);
     ui.set_no_camera(settings_ui::tr("camera.noCamera", "No camera found").into());
-    games_ui::set_texts(ui, settings_ui::tr);
-}
-
-fn update_clock(ui: &AppWindow) {
-    let (sidebar, time, sidebar_clock) = match clock::now() {
-        Ok(time) => {
-            let (hour, minute, second) = time.angles();
-            ui.set_clock_hour_angle(hour);
-            ui.set_clock_minute_angle(minute);
-            ui.set_clock_second_angle(second);
-            ui.set_clock_valid(true);
-            let (hour, minute, colon_visible) = time.sidebar_parts();
-            (
-                time.blinking_text(),
-                time.text(),
-                SidebarClock {
-                    hour: hour.into(),
-                    minute: minute.into(),
-                    colon_visible,
-                },
-            )
-        }
-        Err(e) => {
-            eprintln!("[ui] cannot read local time: {e}");
-            ui.set_clock_valid(false);
-            (
-                "--:--".to_string(),
-                "--:--".to_string(),
-                SidebarClock {
-                    hour: "--".into(),
-                    minute: "--".into(),
-                    colon_visible: true,
-                },
-            )
-        }
-    };
-    ui.set_clock_time(time.into());
-    ui.set_sidebar_clock(sidebar_clock);
-    ui.set_clock(sidebar.clone().into());
-    ui.global::<DashState>().set_clock(sidebar.clone().into());
-    secondary::tick_clock(&sidebar);
 }
 
 fn render_settings(ui: &AppWindow) {
@@ -217,9 +162,7 @@ fn render_settings(ui: &AppWindow) {
 
 fn apply(ui: &AppWindow, update: Update) {
     match update {
-        Update::Media(m) => CLIENT.with_borrow(|c| media_ui::apply_media(ui, c.as_ref(), *m)),
-        Update::Games(g) => games_ui::apply(ui, g),
-        Update::MiniDsp(v) => minidsp_ui::apply(ui, v),
+        Update::Media(m) => CLIENT.with_borrow(|c| media_ui::apply_media(ui, c.as_ref(), m)),
         Update::Radio(r) => media_ui::apply_radio(ui, *r),
         Update::Dash(d) => {
             let before = dashboard_ui::map_shown(ui);
@@ -241,6 +184,7 @@ fn apply(ui: &AppWindow, update: Update) {
         Update::Front(front) => match (front, ui.get_page()) {
             (Front::Projection, Page::Projection) => {}
             (Front::Projection, _) => choose(ui, Page::Projection),
+            (Front::Livi, Page::Projection) if ui.get_phone() == PhoneState::Connected => {}
             (_, Page::Projection) => choose(ui, Page::Media),
             _ => {}
         },
@@ -249,6 +193,8 @@ fn apply(ui: &AppWindow, update: Update) {
             settle_projection_focus(ui);
         }
         Update::Look(look) => apply_look(ui, look),
+        #[cfg(target_os = "macos")]
+        Update::Shape(w, h) => shape_ui::follow(ui, w, h),
         Update::Kiosk(on) => {
             fullscreen::follow_main(ui.window(), on);
             KIOSK.with_borrow(|k| {
@@ -271,7 +217,10 @@ fn apply(ui: &AppWindow, update: Update) {
         Update::PhoneName(name) => overlay_ui::phone(ui, &name),
         Update::Camera(found) => ui.set_camera_found(found),
         Update::MainMask(mask) => ui.set_main_mask(dashboard_ui::mask_data(mask)),
+        Update::ViewArea(area) => ui.set_view_area(view_area(area)),
         Update::Video(video) => video_ui::show(ui, video),
+        Update::Mirrored(mirrored) => video_ui::mirrored(ui, mirrored),
+        Update::Held(held) => ui.set_held(held),
         Update::Fonts(paths) => {
             if fonts::register(&paths) {
                 let lang = settings_ui::language();
@@ -283,6 +232,16 @@ fn apply(ui: &AppWindow, update: Update) {
                 secondary::relayout();
             }
         }
+    }
+}
+
+pub(crate) fn view_area(area: livi_core_proto::config::ViewArea) -> ViewArea {
+    let px = |v: u32| i32::try_from(v).unwrap_or(i32::MAX);
+    ViewArea {
+        top: px(area.top),
+        bottom: px(area.bottom),
+        left: px(area.left),
+        right: px(area.right),
     }
 }
 
@@ -300,10 +259,7 @@ fn open_path(ui: &AppWindow, path: &str) {
         None | Some("projection") => Page::Projection,
         Some("telemetry") => Page::Telemetry,
         Some("media") => Page::Media,
-        Some("clock") => Page::Clock,
         Some("camera") => Page::Camera,
-        Some("games") => Page::Games,
-        Some("minidsp") => Page::Minidsp,
         Some("settings") => Page::Settings,
         Some(other) => {
             println!("[ui] no page for {other}");
@@ -341,10 +297,7 @@ fn reported(ui: &AppWindow, client: &Client, page: Page) {
         Page::Telemetry if dashboard_ui::map_shown(ui) => (Front::Cluster, "/telemetry"),
         Page::Telemetry => (Front::Livi, "/telemetry"),
         Page::Media => (Front::Livi, media_ui::path(ui)),
-        Page::Clock => (Front::Livi, "/clock"),
         Page::Camera => (Front::Camera, "/camera"),
-        Page::Games => (Front::Livi, "/games"),
-        Page::Minidsp => (Front::Livi, "/minidsp"),
         Page::Settings => (Front::Livi, "/settings"),
     };
     client.show(Screen::Main, front);
@@ -407,15 +360,16 @@ pub(crate) fn detach_video(screen: &str) {
     let _ = screen;
 }
 
-fn follow_core(weak: Weak<AppWindow>) -> impl FnMut(Event, &Value) + Send + 'static {
+fn follow_core(weak: Weak<AppWindow>) -> impl FnMut(Event, &Mutex<Mirror>) + Send + 'static {
     let mut follow = Follow::default();
-    move |ev, state| {
-        let updates = match ev {
+    move |ev, mirror| {
+        let read = || mirror.lock().unwrap_or_else(|e| e.into_inner());
+        let mut updates = match ev {
             Event::Welcome { version } => {
                 println!("[ui] core {version}");
-                follow.changed(None, state)
+                follow.changed(None, &read().state)
             }
-            Event::Changed(keys) => follow.changed(Some(&keys), state),
+            Event::Changed(keys) => follow.changed(Some(&keys), &read().state),
             Event::Spectrum(bands) => vec![Update::Spectrum(bands)],
             Event::OpenPage(path) => vec![Update::Open(path)],
             Event::Gone(why) => {
@@ -426,6 +380,7 @@ fn follow_core(weak: Weak<AppWindow>) -> impl FnMut(Event, &Value) + Send + 'sta
         if updates.is_empty() {
             return;
         }
+        follow.decode(&mut updates);
         let weak = weak.clone();
         let _ = slint::invoke_from_event_loop(move || {
             let Some(ui) = weak.upgrade() else { return };
@@ -476,26 +431,11 @@ fn wire(ui: &AppWindow, client: &Client) {
         move |phase, x, y| send_touch(&c, phase, x, y)
     });
     media_ui::wire(ui, client);
-    minidsp_ui::wire(ui, client);
     ui.on_spectrum_changed({
         let c = client.clone();
         move |on| c.spectrum(on)
     });
-    ui.on_clock_style_picked({
-        let c = client.clone();
-        move |face| {
-            let style = match face {
-                ClockFace::Classic => ClockStyle::Classic,
-                ClockFace::Amber => ClockStyle::Amber,
-                ClockFace::Digital => ClockStyle::Digital,
-            };
-            c.act(Action::SetConfig {
-                patch: serde_json::json!({ "clockStyle": style }),
-            });
-        }
-    });
     dashboard_ui::wire(&ui.global::<DashState>(), client);
-    games_ui::wire(ui, client);
 }
 
 pub fn key(code: &str, down: bool, repeat: bool) {
@@ -509,11 +449,35 @@ pub fn key(code: &str, down: bool, repeat: bool) {
     });
 }
 
+fn own_panel(ui: &AppWindow) {
+    ui.set_keep_safe_area(false);
+    #[cfg(target_os = "ios")]
+    defer_system_gestures(ui);
+}
+
+// Slint's Skia renderer sends no rendering notifier on iOS, so the winit window is awaited instead.
+#[cfg(target_os = "ios")]
+fn defer_system_gestures(ui: &AppWindow) {
+    use slint::winit_030::WinitWindowAccessor;
+    use slint::winit_030::winit::platform::ios::{ScreenEdge, WindowExtIOS};
+    let weak = ui.as_weak();
+    let _ = slint::spawn_local(async move {
+        let Some(ui) = weak.upgrade() else { return };
+        let Ok(window) = ui.window().winit_window().await else {
+            eprintln!("[ui] no winit window to hide the home indicator in");
+            return;
+        };
+        window.set_prefers_home_indicator_hidden(true);
+        window.set_preferred_screen_edges_deferring_system_gestures(ScreenEdge::ALL);
+    });
+}
+
 pub fn run(
     connect: impl FnOnce() -> std::io::Result<UnixStream>,
     fixture: Option<Value>,
     kiosk: impl Fn(bool) + 'static,
     pick: Option<Pick>,
+    full_panel: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     KIOSK.with_borrow_mut(|k| *k = Some(Box::new(kiosk)));
     PICK.with_borrow_mut(|p| *p = pick);
@@ -522,7 +486,8 @@ pub fn run(
         std::env::var("LIVI_OUTPUT_APP_ID").unwrap_or_else(|_| "dev.f-io.livi".into()),
     )?;
     ui.set_bands(ModelRc::from(Rc::new(VecModel::from(vec![0.0f32; BANDS]))));
-    update_clock(&ui);
+    ui.set_clock(clock::now_text().into());
+    ui.global::<DashState>().set_clock(clock::now_text().into());
 
     let mut _peer = None;
     let stream = if fixture.is_some() {
@@ -536,12 +501,11 @@ pub fn run(
     let client = Client::start(stream, "LIVI", follow_core(weak.clone()))?;
     CLIENT.with_borrow_mut(|c| *c = Some(client.clone()));
     MAIN.with_borrow_mut(|m| *m = Some(weak.clone()));
-    let lang = client
-        .state()
-        .get("config")
-        .and_then(|c| c["language"].as_str().map(str::to_string))
-        .unwrap_or_else(|| "en".into());
+    let lang = client.mirror().state.config.language.clone();
     settings_ui::wire(&ui, &client, &lang);
+    if full_panel {
+        own_panel(&ui);
+    }
     #[cfg(not(target_os = "android"))]
     keys_ui::wire(&ui, &client);
     #[cfg(target_os = "android")]
@@ -549,11 +513,11 @@ pub fn run(
     video_ui::wire(&ui, &client);
     wire(&ui, &client);
     if let Some(state) = fixture {
-        *client.state() = state.clone();
-        Follow::default()
-            .changed(None, &state)
-            .into_iter()
-            .for_each(|u| apply(&ui, u));
+        let mut mirror = client.mirror();
+        *mirror = Mirror::new(State::filled(state));
+        let updates = Follow::default().changed(None, &mirror.state);
+        drop(mirror);
+        updates.into_iter().for_each(|u| apply(&ui, u));
     }
 
     let clock_timer = Timer::default();
@@ -561,7 +525,9 @@ pub fn run(
         let weak = weak.clone();
         move || {
             if let Some(ui) = weak.upgrade() {
-                update_clock(&ui);
+                ui.set_clock(clock::now_text().into());
+                ui.global::<DashState>().set_clock(clock::now_text().into());
+                secondary::tick_clock(&clock::now_text());
             }
         }
     });
@@ -610,16 +576,17 @@ pub fn run(
     {
         ui.window().set_size(slint::LogicalSize::new(w, h));
     }
+    #[cfg(target_os = "macos")]
+    dock_ui::keep(&ui);
     ui.show()?;
+    #[cfg(target_os = "macos")]
+    shape_ui::apply(&ui);
     reported(&ui, &client, ui.get_page());
     if let Ok(page) = std::env::var("LIVI_UI_PAGE") {
         let page = match page.as_str() {
             "projection" => Page::Projection,
             "settings" => Page::Settings,
             "telemetry" => Page::Telemetry,
-            "clock" => Page::Clock,
-            "games" => Page::Games,
-            "minidsp" => Page::Minidsp,
             _ => Page::Media,
         };
         choose(&ui, page);

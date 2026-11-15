@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
-use crate::crypto::{
-    chacha_open, chacha_seal, ed25519_sign, ed25519_verify, hkdf_sha512, nonce_label,
-};
 use crate::identity::Identity;
 use crate::pairings::Pairings;
 use crate::srp::SrpServer;
 use crate::tlv8;
+use livi_crypto::{
+    chacha_open, chacha_seal, ed25519_sign, ed25519_verify, hkdf_sha512, nonce_label,
+};
 
 pub(crate) mod tlv {
     pub const IDENTIFIER: u8 = 0x01;
@@ -40,8 +40,13 @@ impl PairSetup {
         Self::default()
     }
 
+    #[cfg(test)]
     pub fn complete(&self) -> bool {
         self.complete
+    }
+
+    pub fn session_key(&self) -> Option<[u8; 64]> {
+        self.session_key
     }
 
     pub fn handle(&mut self, body: &[u8], identity: &Identity, pairings: &Pairings) -> Vec<u8> {
@@ -147,10 +152,10 @@ impl PairSetup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::{ed25519_public, random_bytes};
     use crate::identity::load_or_create;
     use crate::pairings::tests::TempDir;
     use crate::srp::tests::client;
+    use livi_crypto::{ed25519_public, random_bytes};
 
     struct Env {
         _dir: TempDir,

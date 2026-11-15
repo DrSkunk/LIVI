@@ -10,6 +10,11 @@ impl<M: Media> Conn<M> {
             .pair_verify
             .shared_secret()
             .ok_or("vehicle state DataStream SETUP arrived before pair-verify")?;
+        if let (Some(state), Some(phone)) =
+            (&mut self.vehicle_state, self.pair_verify.controller_id())
+        {
+            state.set_phone(phone);
+        }
         let into_session = self
             .vehicle_in
             .get_or_insert_with(|| {
@@ -171,7 +176,7 @@ impl<M: Media> Conn<M> {
                 .shared_secret()
                 .ok_or("video settings DataStream SETUP arrived before pair-verify")?;
             let seed = id_text(sd.get("seed"));
-            let (tx, rx) = mpsc::unbounded_channel();
+            let (tx, rx) = mpsc::channel(iap_tunnel::QUEUED);
             let tunnel = IapTunnel::listen_as("video settings", &shared, &seed, tx)
                 .map_err(|e| e.to_string())?;
             let port = tunnel.port();
@@ -220,7 +225,7 @@ impl<M: Media> Conn<M> {
                 .shared_secret()
                 .ok_or("video overlay DataStream SETUP arrived before pair-verify")?;
             let seed = id_text(sd.get("seed"));
-            let (tx, rx) = mpsc::unbounded_channel();
+            let (tx, rx) = mpsc::channel(iap_tunnel::QUEUED);
             let tunnel = IapTunnel::listen_as("video overlay", &shared, &seed, tx)
                 .map_err(|e| e.to_string())?;
             let port = tunnel.port();
@@ -259,7 +264,7 @@ impl<M: Media> Conn<M> {
             .shared_secret()
             .ok_or("iAP DataStream SETUP arrived before pair-verify")?;
         let seed = id_text(sd.get("seed"));
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(iap_tunnel::QUEUED);
         let tunnel = IapTunnel::listen(&shared, &seed, tx).map_err(|e| e.to_string())?;
         let port = tunnel.port();
         self.iap_tunnel = Some(tunnel);

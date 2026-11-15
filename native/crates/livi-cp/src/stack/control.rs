@@ -20,7 +20,8 @@ impl<M: Media> Conn<M> {
         } else {
             self.plain.extend_from_slice(chunk);
         }
-        let (requests, rest) = rtsp::parse(&self.plain);
+        let (requests, rest) =
+            rtsp::parse(&self.plain).map_err(|_| io::Error::other("control request too large"))?;
         self.plain = rest;
         for req in requests {
             let res = self.handle(&req).await;
@@ -53,9 +54,9 @@ impl<M: Media> Conn<M> {
         let mut check = |shown: &[u8]| {
             let (expected, ours) = pair_verify
                 .transcript_proofs()
-                .ok_or_else(|| "nothing to bind, pair-verify has not run".to_string())?;
+                .ok_or(mfi4::session::TunnelError::NotVerified)?;
             if shown.get(..expected.len()) != Some(&expected[..]) {
-                return Err("the phone's transcript proof does not match".to_string());
+                return Err(mfi4::session::TunnelError::ProofMismatch);
             }
             bound = true;
             Ok(ours.to_vec())
@@ -86,17 +87,19 @@ impl<M: Media> Conn<M> {
                 }
             }
         }
+        if self.cipher.is_none() && !before_pairing(&req.method, &path) {
+            println!(
+                "[cpStack] {} {} refused before pair-verify",
+                req.method, req.path
+            );
+            return status(470);
+        }
         match req.method.as_str() {
             "SETUP" => return self.handle_setup(req).await,
             "RECORD" => {
                 println!("[cpStack] RECORD (session started)");
                 self.live = true;
-                if let Some(night) = self.night_mode {
-                    self.send_night_mode(night).await;
-                }
-                if let Some(night) = self.cluster_night_mode {
-                    self.send_cluster_appearance(night).await;
-                }
+                self.send_surfaces().await;
                 if let Some(limited) = self.limited_ui {
                     self.send_limited_ui(limited).await;
                 }
@@ -184,6 +187,7 @@ impl<M: Media> Conn<M> {
                 let _ = tokio::task::spawn_blocking(move || refresh()).await;
             }
             let cfg = self.ctx.config.borrow().info.clone();
+            self.told_info = Some(cfg.clone());
             let mut info = info::build(&cfg);
             if self.video_playback {
                 let features = info.get("features").and_then(Value::as_int).unwrap_or(0);
@@ -227,4 +231,11 @@ impl<M: Media> Conn<M> {
         );
         status(200)
     }
+}
+
+fn before_pairing(method: &str, path: &str) -> bool {
+    method == "OPTIONS"
+        || ["/info", "/pair-setup", "/pair-verify", "/auth-setup"]
+            .iter()
+            .any(|p| path.ends_with(p))
 }

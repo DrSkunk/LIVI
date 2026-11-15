@@ -7,7 +7,7 @@ use serde_json::Value;
 const NEEDS_RESTART: &[&str] = &[
     "wirelessAaEnabled",
     "wirelessCpEnabled",
-    "carPlayHlsVideo",
+    "airplayEnabled",
     "carPlayTheme",
     "carPlayVehicleModel",
     "carPlayDockPosition",

@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 
 const HELPER_DIR: &str = "/tmp";
+pub const USER_DATA: &str = "LIVI_USER_DATA";
 
 const AA_WIRELESS: &str = "LIVI_AA_WIRELESS";
 const CP_WIRELESS: &str = "LIVI_CP_WIRELESS";
@@ -21,10 +22,18 @@ const PASSPHRASE: &str = "LIVI_PASSPHRASE";
 const WIFI_TYPE: &str = "LIVI_WIFI_TYPE";
 const CHANNEL: &str = "LIVI_CHANNEL";
 const COUNTRY: &str = "LIVI_COUNTRY";
+const SOURCE_VERSION: &str = "LIVI_CP_SOURCE_VERSION";
+const MFI_I2C_BUS: &str = "LIVI_CP_MFI_I2C_BUS";
+const MFI_POWER_GPIO: &str = "LIVI_CP_MFI_POWER_GPIO";
+const MFI_I2C_BUS_DEFAULT: u32 = 2;
+const MFI_POWER_GPIO_DEFAULT: i32 = -1;
 const DEVICE_ID: &str = "LIVI_CP_DEVICE_ID";
 const PUBLIC_KEY: &str = "LIVI_CP_PK";
 const PAIRING_ID: &str = "LIVI_CP_PI";
 const AIRPLAY_PORT: &str = "LIVI_CP_AIRPLAY_PORT";
+const MIRROR_PORT: &str = "LIVI_AIRPLAY_PORT";
+const MIRROR_TXT: &str = "LIVI_AIRPLAY_TXT";
+const MIRROR_NAME: &str = "LIVI_AIRPLAY_NAME";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HelperSockets {
@@ -67,6 +76,9 @@ pub struct HelperSettings {
     pub wifi_type: String,
     pub channel: u32,
     pub country: String,
+    pub source_version: String,
+    pub mfi_i2c_bus: u32,
+    pub mfi_power_gpio: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +88,21 @@ pub struct HelperStart {
     pub public_key: String,
     pub pairing_id: String,
     pub airplay_port: Option<u16>,
+    pub mirror: Option<Mirror>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mirror {
+    pub name: String,
+    pub port: u16,
+    pub txt: Vec<String>,
+}
+
+pub fn mirror_name(car_name: &str) -> String {
+    match car_name.trim() {
+        "" => "LIVI".into(),
+        name => name.into(),
+    }
 }
 
 impl Default for HelperSettings {
@@ -95,6 +122,9 @@ impl Default for HelperSettings {
             wifi_type: String::new(),
             channel: 0,
             country: String::new(),
+            source_version: String::new(),
+            mfi_i2c_bus: MFI_I2C_BUS_DEFAULT,
+            mfi_power_gpio: MFI_POWER_GPIO_DEFAULT,
         }
     }
 }
@@ -126,6 +156,9 @@ impl HelperStart {
             (WIFI_TYPE, s.wifi_type.clone()),
             (CHANNEL, channel),
             (COUNTRY, s.country.clone()),
+            (SOURCE_VERSION, s.source_version.clone()),
+            (MFI_I2C_BUS, s.mfi_i2c_bus.to_string()),
+            (MFI_POWER_GPIO, s.mfi_power_gpio.to_string()),
             (CP_DEBUG, flag(s.debug, "")),
             (DEVICE_ID, self.device_id.clone()),
             (PUBLIC_KEY, self.public_key.clone()),
@@ -133,6 +166,11 @@ impl HelperStart {
         ];
         if let Some(port) = self.airplay_port.filter(|p| *p > 0) {
             env.push((AIRPLAY_PORT, port.to_string()));
+        }
+        if let Some(mirror) = &self.mirror {
+            env.push((MIRROR_NAME, mirror.name.clone()));
+            env.push((MIRROR_PORT, mirror.port.to_string()));
+            env.push((MIRROR_TXT, mirror.txt.join("\n")));
         }
         env.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
     }
@@ -159,6 +197,13 @@ impl HelperStart {
                 wifi_type: text(WIFI_TYPE),
                 channel: var(CHANNEL).and_then(|v| v.parse().ok()).unwrap_or(0),
                 country: text(COUNTRY),
+                source_version: text(SOURCE_VERSION),
+                mfi_i2c_bus: var(MFI_I2C_BUS)
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(MFI_I2C_BUS_DEFAULT),
+                mfi_power_gpio: var(MFI_POWER_GPIO)
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(MFI_POWER_GPIO_DEFAULT),
             },
             device_id: text(DEVICE_ID),
             public_key: text(PUBLIC_KEY),
@@ -166,6 +211,14 @@ impl HelperStart {
             airplay_port: var(AIRPLAY_PORT)
                 .and_then(|v| v.parse().ok())
                 .filter(|p| *p > 0),
+            mirror: var(MIRROR_PORT)
+                .and_then(|v| v.parse().ok())
+                .filter(|p| *p > 0)
+                .map(|port| Mirror {
+                    name: mirror_name(&text(MIRROR_NAME)),
+                    port,
+                    txt: text(MIRROR_TXT).lines().map(str::to_string).collect(),
+                }),
         }
     }
 }
@@ -191,11 +244,19 @@ mod tests {
                 wifi_type: "2.4ghz".into(),
                 channel: 6,
                 country: "DE".into(),
+                source_version: "950.7.1".into(),
+                mfi_i2c_bus: 1,
+                mfi_power_gpio: 21,
             },
             device_id: "88:00:33:77:8C:26".into(),
             public_key: "ab".repeat(32),
             pairing_id: "pi-1".into(),
             airplay_port: Some(7000),
+            mirror: Some(Mirror {
+                name: "Golf".into(),
+                port: 7100,
+                txt: vec!["deviceid=88:00:33:77:8C:27".into(), "acl=0".into()],
+            }),
         }
     }
 
@@ -210,6 +271,7 @@ mod tests {
         let quiet = HelperStart {
             settings: HelperSettings::default(),
             airplay_port: None,
+            mirror: None,
             ..start
         };
         assert_eq!(back(&quiet.to_env()), quiet);
@@ -220,6 +282,7 @@ mod tests {
         let start = back(&[]);
         assert_eq!(start.settings, HelperSettings::default());
         assert_eq!(start.airplay_port, None);
+        assert_eq!(start.mirror, None);
     }
 
     #[test]

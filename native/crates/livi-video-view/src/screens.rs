@@ -5,12 +5,12 @@
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
-use livi_host_proto::CameraOrder;
-use livi_host_proto::display::Correction;
-use livi_host_proto::plane_place;
+use livi_output_proto::CameraOrder;
+use livi_output_proto::ctrl::{Command, Region};
+use livi_output_proto::display::Correction;
+use livi_output_proto::plane_place;
 use livi_video_player::{CameraPlayer, Player, Say, UrlPlayer};
 
-use crate::control::{Line, Region};
 use crate::main_thread::on_main;
 
 #[cfg(target_os = "macos")]
@@ -22,10 +22,12 @@ mod window {
     }
 
     pub fn backdrop(window: usize, [r, g, b]: [f64; 3]) {
+        // SAFETY: window is the UI window's NSView or 0, which is ignored.
         unsafe { livi_set_backdrop(window, r, g, b) };
     }
 
     pub fn prepare(window: usize) {
+        // SAFETY: window is the UI window's NSView or 0, which is ignored.
         unsafe { livi_prepare_window(window) };
     }
 
@@ -36,11 +38,12 @@ mod window {
         } else {
             rgb.as_ptr()
         };
+        // SAFETY: rgb holds 3 * count floats or is null with count 0.
         unsafe { livi_set_window_curves(window, rgb, count) };
     }
 }
 
-#[cfg(target_os = "android")]
+#[cfg(in_process)]
 mod window {
     pub fn backdrop(_window: usize, _rgb: [f64; 3]) {}
 
@@ -166,10 +169,10 @@ fn paint(window: usize, [r, g, b]: [u8; 3]) {
     window::backdrop(window, [c(r), c(g), c(b)]);
 }
 
-pub fn apply(line: Line) -> Option<String> {
-    match line {
-        Line::Claim(tag) => return Some(format!("bound {tag}\n")),
-        Line::Place { tag, region } => on_main(|| {
+pub fn apply(cmd: Command) -> Option<String> {
+    match cmd {
+        Command::Claim(tag) => return Some(format!("bound {tag}\n")),
+        Command::Place { tag, region, .. } => on_main(|| {
             let mut s = screens();
             s.placements.entry(tag.clone()).or_default().region = region;
             s.drawn
@@ -177,7 +180,7 @@ pub fn apply(line: Line) -> Option<String> {
                 .filter(|d| d.tag == tag)
                 .for_each(|d| d.view.place(region));
         }),
-        Line::Show { tag, shown } => on_main(|| {
+        Command::Show { tag, shown } => on_main(|| {
             let mut s = screens();
             s.placements.entry(tag.clone()).or_default().shown = shown;
             s.drawn
@@ -185,21 +188,26 @@ pub fn apply(line: Line) -> Option<String> {
                 .filter(|d| d.tag == tag)
                 .for_each(|d| d.view.set_visible(shown));
         }),
-        Line::Backdrop(rgb) => on_main(|| {
+        Command::Backdrop(rgb) => on_main(|| {
             let mut s = screens();
             s.backdrop = Some(rgb);
             s.windows.values().for_each(|&w| paint(w, rgb));
         }),
-        Line::Gamma(v) => on_main(|| {
+        Command::Gamma(v) => on_main(|| {
             let mut s = screens();
             s.gamma = Some(v);
             s.windows.values().for_each(|&w| correct(w, v));
         }),
+        _ => {}
     }
     None
 }
 
-pub fn create(id: u32, codec: &str, codec_data: &[u8]) -> Option<Arc<Player>> {
+pub fn create(
+    id: u32,
+    codec: livi_output_proto::VideoCodec,
+    codec_data: &[u8],
+) -> Option<Arc<Player>> {
     draw(id, |window| Player::new(codec, window, codec_data))
 }
 

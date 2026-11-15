@@ -4,9 +4,8 @@
 
 use std::collections::BTreeSet;
 
-use livi_core_proto::state::{Front, VideoPlayback};
-use livi_ui_model::shell::{Look, look_at};
-use serde_json::Value;
+use livi_core_proto::state::{Front, Protocol, State, VideoPlayback};
+use livi_ui_model::shell::{Look, look};
 
 use crate::PhoneState;
 use crate::dashboard_ui::{DashReader, DashView};
@@ -16,9 +15,7 @@ use livi_ui_model::mask::{Mask, Stream, mask};
 use livi_ui_model::overlay;
 
 pub enum Update {
-    Media(Box<MediaView>),
-    Games(crate::games_ui::GamesView),
-    MiniDsp(livi_ui_model::minidsp::View),
+    Media(MediaView),
     Radio(Box<Radios>),
     Dash(Box<DashView>),
     DashOn(livi_core_proto::state::Screen, Box<DashView>),
@@ -27,6 +24,8 @@ pub enum Update {
     Phone(PhoneState),
     Look(Look),
     Kiosk(bool),
+    #[cfg(target_os = "macos")]
+    Shape(u32, u32),
     Settings,
     Spectrum(Vec<f32>),
     Open(String),
@@ -34,18 +33,22 @@ pub enum Update {
     PhoneName(String),
     Camera(bool),
     MainMask(Option<Mask>),
+    ViewArea(livi_core_proto::config::ViewArea),
     Fonts(Vec<String>),
     Video(Option<VideoPlayback>),
+    Mirrored(bool),
+    Held(bool),
 }
 
 #[derive(Default)]
 pub struct Follow {
     media: MediaReader,
-    covers: crate::games_ui::CoverReader,
     front: Option<Front>,
     phone: Option<PhoneState>,
     look: Option<Look>,
     kiosk: Option<bool>,
+    #[cfg(target_os = "macos")]
+    shape: Option<(u32, u32)>,
     dash: DashReader,
     others: Vec<(livi_core_proto::state::Screen, DashReader)>,
     secondary: Option<Vec<livi_ui_model::dashboard::screens::Secondary>>,
@@ -53,73 +56,98 @@ pub struct Follow {
     phones: overlay::Phone,
     started: bool,
     main_mask: Option<Option<Mask>>,
+    view_area: Option<livi_core_proto::config::ViewArea>,
     fonts: Option<Vec<String>>,
-    minidsp: Option<livi_ui_model::minidsp::View>,
     video: Option<Option<VideoPlayback>>,
+    mirrored: Option<bool>,
+    held: Option<bool>,
 }
 
 impl Follow {
-    pub fn changed(&mut self, keys: Option<&BTreeSet<String>>, state: &Value) -> Vec<Update> {
+    pub fn decode(&mut self, updates: &mut [Update]) {
+        for update in updates {
+            match update {
+                Update::Media(m) => m.decode(),
+                Update::Radio(r) => self.media.decode_radios(r),
+                Update::Dash(d) | Update::DashOn(_, d) => d.decode(),
+                _ => {}
+            }
+        }
+    }
+
+    pub fn changed(&mut self, keys: Option<&BTreeSet<String>>, state: &State) -> Vec<Update> {
         let all = keys.is_none_or(|k| k.contains(""));
         let hit = |key: &str| all || keys.is_some_and(|k| k.contains(key));
         let mut out = Vec::new();
-        if hit("nowPlaying") || hit("sessions") || hit("localMusic") {
-            out.push(Update::Media(Box::new(self.media.read(state))));
+        if hit("nowPlaying") || hit("sessions") {
+            out.push(Update::Media(self.media.read(state)));
         }
         if (hit("dab") || hit("fm"))
             && let Some(r) = self.media.read_radio(state)
         {
             out.push(Update::Radio(Box::new(r)));
         }
-        if hit("games") {
-            out.push(Update::Games(self.covers.read(state)));
-        }
-        if hit("minidsp") || hit("config") {
-            let next = livi_ui_model::minidsp::view(state);
-            if self.minidsp.as_ref() != Some(&next) {
-                self.minidsp = Some(next.clone());
-                out.push(Update::MiniDsp(next));
-            }
-        }
-
         if hit("sessions") {
-            let phone = if state["sessions"]["active"].is_null() {
+            let phone = if state.sessions.active.is_none() {
                 PhoneState::None
-            } else {
+            } else if state.sessions.video {
                 PhoneState::Streaming
+            } else {
+                PhoneState::Connected
             };
             if self.phone != Some(phone) {
                 self.phone = Some(phone);
                 out.push(Update::Phone(phone));
             }
+            let mirrored = state.sessions.active == Some(Protocol::Airplay);
+            if self.mirrored != Some(mirrored) {
+                self.mirrored = Some(mirrored);
+                out.push(Update::Mirrored(mirrored));
+            }
+            let held = state.sessions.held;
+            if self.held != Some(held) {
+                self.held = Some(held);
+                out.push(Update::Held(held));
+            }
         }
         if hit("front") {
-            let front: Option<Front> = serde_json::from_value(state["front"]["main"].clone()).ok();
-            if let Some(front) = front
-                && self.front != Some(front)
-            {
+            let front = state.front.main;
+            if self.front != Some(front) {
                 self.front = Some(front);
                 out.push(Update::Front(front));
             }
         }
-        if hit("config") || hit("telemetry") {
-            let next = look_at(&state["config"], &state["telemetry"]);
+        if hit("config") {
+            let next = look(&state.config);
             if self.look.as_ref() != Some(&next) {
                 self.look = Some(next.clone());
                 out.push(Update::Look(next));
             }
-        }
-        if hit("config") {
-            let kiosk = state["config"]["kiosk"]["main"].as_bool().unwrap_or(false);
+            let area = state.config.view_area.main;
+            if self.view_area != Some(area) {
+                self.view_area = Some(area);
+                out.push(Update::ViewArea(area));
+            }
+            let kiosk = state.config.kiosk.main;
             if self.kiosk != Some(kiosk) {
                 self.kiosk = Some(kiosk);
                 out.push(Update::Kiosk(kiosk));
             }
+            #[cfg(target_os = "macos")]
+            {
+                let size = |v: u32| (v > 0).then_some(v);
+                let shape =
+                    size(state.config.main_screen_width).zip(size(state.config.main_screen_height));
+                if let Some((w, h)) = shape
+                    && self.shape != shape
+                {
+                    self.shape = shape;
+                    out.push(Update::Shape(w, h));
+                }
+            }
         }
         if hit("videoPlayback") {
-            let next = serde_json::from_value(state["videoPlayback"].clone())
-                .ok()
-                .flatten();
+            let next = state.video_playback;
             if self.video != Some(next) {
                 self.video = Some(next);
                 out.push(Update::Video(next));
@@ -166,19 +194,14 @@ impl Follow {
             }
         }
         if hit("system") {
-            let fonts: Vec<String> = state["system"]["fonts"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|f| f.as_str().map(str::to_string))
-                .collect();
+            let fonts = state.system.fonts.clone();
             if self.fonts.as_ref() != Some(&fonts) {
                 self.fonts = Some(fonts.clone());
                 out.push(Update::Fonts(fonts));
             }
         }
         if hit("cameras") {
-            let found = state["cameras"].as_array().is_some_and(|c| !c.is_empty());
+            let found = !state.cameras.is_empty();
             out.push(Update::Camera(found));
         }
         if livi_ui_model::settings::STATE_READ
@@ -201,7 +224,8 @@ impl Follow {
             && !std::mem::replace(&mut self.started, true)
             && std::env::var_os("LIVI_UI_PAGE").is_none()
         {
-            let start = state["system"]["startPage"].as_str().unwrap_or("/");
+            let start = &state.system.start_page;
+            let start = if start.is_empty() { "/" } else { start };
             out.push(Update::Open(start.to_string()));
         }
         out
@@ -210,39 +234,26 @@ impl Follow {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::Value;
+
     use super::*;
-    use livi_core_proto::config::ClockStyle;
-    use serde_json::json;
 
     #[test]
-    fn clock_style_changes_are_forwarded_without_restarting() {
-        let mut follow = Follow::default();
-        let keys = BTreeSet::from(["config".to_string()]);
-        let mut state = json!({ "config": { "clockStyle": "classic" } });
-
-        assert!(
-            follow.changed(Some(&keys), &state).iter().any(
-                |u| matches!(u, Update::Look(look) if look.clock_style == ClockStyle::Classic)
-            )
-        );
-        assert!(
-            !follow
-                .changed(Some(&keys), &state)
-                .iter()
-                .any(|u| matches!(u, Update::Look(_)))
-        );
-        state["config"]["clockStyle"] = json!("amber");
-        assert!(
-            follow
-                .changed(Some(&keys), &state)
-                .iter()
-                .any(|u| matches!(u, Update::Look(look) if look.clock_style == ClockStyle::Amber))
-        );
-        state["config"]["clockStyle"] = json!("digital");
-        assert!(
-            follow.changed(Some(&keys), &state).iter().any(
-                |u| matches!(u, Update::Look(look) if look.clock_style == ClockStyle::Digital)
-            )
-        );
+    fn every_fixture_reads_into_the_typed_state() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let partial: Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let Value::Object(sections) = State::filled(partial) else {
+                panic!("{} is not an object", path.display());
+            };
+            let mut state = State::default();
+            for (section, value) in &sections {
+                if let Err(e) = state.refresh(section, value) {
+                    panic!("{} {section}: {e}", path.display());
+                }
+            }
+        }
     }
 }

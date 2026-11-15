@@ -37,8 +37,16 @@ impl Projection {
         self.duck_level = level.clamp(0.0, 1.0);
         self.duck_ramp_ms = ramp_ms;
         self.push_level(AudioKind::Media, ramp_ms);
-        let level = self.level(AudioKind::Media);
-        self.hub.update(|s| s.local_music.audio_level = level);
+        self.duck_beside(self.duck_level, ramp_ms);
+    }
+
+    pub(super) fn duck_beside(&self, level: f64, ramp_ms: u32) {
+        if let Some(radio) = &self.radio {
+            let _ = radio.send(crate::radio::RadioAsk::Duck { level, ramp_ms });
+        }
+        if let Some(airplay) = &self.ap_audio {
+            airplay.duck(level, ramp_ms);
+        }
     }
 
     pub(super) fn stream_volumes_to_phone(&self) {
@@ -57,7 +65,8 @@ impl Projection {
         let Some(s) = self.by_link(link) else { return };
         s.duck_level = level;
         s.duck_ramp_ms = duration_ms;
-        if self.is_active(link) {
+        let beside_airplay = self.active().is_some_and(|a| matches!(a.link, Link::Ap(_)));
+        if self.is_active(link) || beside_airplay {
             self.duck(if level >= 1.0 { 1.0 } else { level }, duration_ms);
         }
     }

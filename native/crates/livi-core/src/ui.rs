@@ -18,7 +18,6 @@ const STABLE_AFTER: Duration = Duration::from_secs(30);
 const STOP_GRACE: Duration = Duration::from_secs(5);
 
 pub struct UiSupervisor {
-    pub pid: watch::Receiver<Option<u32>>,
     stop: watch::Sender<bool>,
     task: tokio::task::JoinHandle<()>,
 }
@@ -41,17 +40,8 @@ impl UiSupervisor {
         restart_delay: Duration,
     ) -> Self {
         let (stop, stop_rx) = watch::channel(false);
-        let (pid_tx, pid) = watch::channel(None);
-        let task = tokio::spawn(run(
-            cmd,
-            core_socket,
-            display,
-            quit,
-            restart_delay,
-            stop_rx,
-            pid_tx,
-        ));
-        Self { stop, task, pid }
+        let task = tokio::spawn(run(cmd, core_socket, display, quit, restart_delay, stop_rx));
+        Self { stop, task }
     }
 
     pub async fn stop(self) {
@@ -84,13 +74,12 @@ fn command(cmd: &UiCmd, core_socket: &Path, ui: Option<&Ui>) -> Command {
             None => c.env_remove("LIVI_RENDER_NODE"),
         };
     }
-    crate::child::with_lifeline(&mut c)
+    crate::system::child::with_lifeline(&mut c)
         .process_group(0)
         .kill_on_drop(true);
     c
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn run(
     cmd: UiCmd,
     core_socket: PathBuf,
@@ -98,7 +87,6 @@ async fn run(
     quit: Arc<Notify>,
     restart_delay: Duration,
     mut stop: watch::Receiver<bool>,
-    pid: watch::Sender<Option<u32>>,
 ) {
     let ui = match display {
         Some(mut display) => tokio::select! {
@@ -122,17 +110,14 @@ async fn run(
             }
         };
         println!("[core] UI started");
-        pid.send_replace(child.id());
-        let _lifeline = crate::child::hold_lifeline(&mut child);
+        let _lifeline = crate::system::child::hold_lifeline(&mut child);
         let status = tokio::select! {
             status = child.wait() => status,
             _ = stop.changed() => {
-                pid.send_replace(None);
-                crate::child::terminate(&mut child, STOP_GRACE, true).await;
+                crate::system::child::terminate(&mut child, STOP_GRACE, true).await;
                 return;
             }
         };
-        pid.send_replace(None);
         match status {
             Ok(status) if status.success() => {
                 println!("[core] the UI closed");
@@ -231,26 +216,6 @@ mod tests {
         );
         assert!(quits(&quit).await);
         ui.stop().await;
-    }
-
-    #[tokio::test]
-    async fn only_the_current_owned_ui_pid_is_published() {
-        let quit = Arc::new(Notify::new());
-        let ui = UiSupervisor::start(
-            UiCmd::Shell("exec sleep 30".into()),
-            PathBuf::from("/s"),
-            None,
-            quit,
-        );
-        let mut pid = ui.pid.clone();
-        let child_pid =
-            *tokio::time::timeout(Duration::from_secs(5), pid.wait_for(Option::is_some))
-                .await
-                .unwrap()
-                .unwrap();
-        assert!(child_pid.is_some_and(|pid| pid != std::process::id()));
-        ui.stop().await;
-        assert_eq!(*pid.borrow(), None);
     }
 
     #[tokio::test]

@@ -3,7 +3,7 @@
 // Additional terms: see NOTICE
 
 use livi_core_proto::state::State;
-use livi_media::gst_host::{AudioCodec, AudioOpts, GstHost};
+use livi_media::output::{AudioCodec, AudioOpts, Output};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Format {
@@ -13,14 +13,24 @@ pub struct Format {
     pub channels: u8,
 }
 
-#[derive(Default)]
 pub struct Audio {
     pub stream: Option<u32>,
     level: f64,
+    duck: f64,
+}
+
+impl Default for Audio {
+    fn default() -> Self {
+        Self {
+            stream: None,
+            level: 0.0,
+            duck: 1.0,
+        }
+    }
 }
 
 impl Audio {
-    pub async fn open(&mut self, gst: &GstHost, s: &State, f: Format) {
+    pub async fn open(&mut self, gst: &Output, s: &State, f: Format) {
         self.close(gst);
         if s.config.disable_audio_output {
             return;
@@ -41,12 +51,12 @@ impl Audio {
             return;
         }
         gst.set_audio_active(id, true);
-        gst.set_audio_volume(id, s.config.audio_volume, 0);
         self.stream = Some(id);
         self.level = s.config.audio_volume;
+        gst.set_audio_volume(id, self.level * self.duck, 0);
     }
 
-    pub fn push(&self, gst: &GstHost, units: &[Vec<u8>]) {
+    pub fn push(&self, gst: &Output, units: &[Vec<u8>]) {
         if let Some(id) = self.stream {
             for u in units {
                 gst.push_audio(id, u);
@@ -54,7 +64,7 @@ impl Audio {
         }
     }
 
-    pub fn follow(&mut self, gst: &GstHost, s: &State) {
+    pub fn follow(&mut self, gst: &Output, s: &State) {
         let Some(id) = self.stream else { return };
         if s.config.disable_audio_output {
             self.close(gst);
@@ -62,11 +72,18 @@ impl Audio {
         }
         if s.config.audio_volume != self.level {
             self.level = s.config.audio_volume;
-            gst.set_audio_volume(id, self.level, 100);
+            gst.set_audio_volume(id, self.level * self.duck, 100);
         }
     }
 
-    pub fn close(&mut self, gst: &GstHost) {
+    pub fn duck(&mut self, gst: &Output, level: f64, ramp_ms: u32) {
+        self.duck = level.clamp(0.0, 1.0);
+        if let Some(id) = self.stream {
+            gst.set_audio_volume(id, self.level * self.duck, ramp_ms);
+        }
+    }
+
+    pub fn close(&mut self, gst: &Output) {
         if let Some(id) = self.stream.take() {
             gst.close_audio(id);
         }

@@ -7,10 +7,12 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use livi_base::hex::rgb;
+use livi_base::num::round_half_up;
 use livi_core_proto::config::{Config, TouchCalibration};
 use livi_core_proto::input::{Input, Phase, Point};
 use livi_core_proto::state::{Display, Screen};
-use livi_host_proto::readiness::PresentedOutput;
+use livi_output_proto::ctrl::{Command, Region, TouchCal};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
@@ -21,10 +23,6 @@ const RECONNECT_EVERY: Duration = Duration::from_millis(500);
 const TOUCH_BACKLOG: usize = 64;
 
 pub fn env(cfg: &Config, ctrl: &Path) -> Vec<(String, String)> {
-    env_in(cfg, ctrl, |key| std::env::var_os(key).is_some())
-}
-
-fn env_in(cfg: &Config, ctrl: &Path, overridden: impl Fn(&str) -> bool) -> Vec<(String, String)> {
     let mut env = vec![
         (
             "LIVI_OUTPUT_APP_ID".to_string(),
@@ -55,21 +53,16 @@ fn env_in(cfg: &Config, ctrl: &Path, overridden: impl Fn(&str) -> bool) -> Vec<(
         ("AUX", &cfg.display_mode.aux, &cfg.display_connector.aux),
     ];
     for (role, mode, connector) in screens {
-        let key = if role == "MAIN" {
-            "LIVI_DISPLAY_MODE".to_string()
-        } else {
-            format!("LIVI_{role}_DISPLAY_MODE")
-        };
-        if overridden(&key) {
-            env.push((format!("LIVI_{role}_MODE_PINNED"), "1".into()));
-        } else if !mode.is_empty() {
+        if !mode.is_empty() {
+            let key = if role == "MAIN" {
+                "LIVI_DISPLAY_MODE".to_string()
+            } else {
+                format!("LIVI_{role}_DISPLAY_MODE")
+            };
             env.push((key, mode.clone()));
         }
         if !connector.is_empty() {
-            let key = format!("LIVI_{role}_CONNECTOR");
-            if !overridden(&key) {
-                env.push((key, connector.clone()));
-            }
+            env.push((format!("LIVI_{role}_CONNECTOR"), connector.clone()));
         }
     }
     env
@@ -117,20 +110,21 @@ fn touch_panel_of(line: &str) -> Option<(&str, &str)> {
     (!name.is_empty()).then_some((connector, name))
 }
 
+fn ctrl_line(cmd: Command) -> String {
+    format!("{cmd}\n")
+}
+
 fn touch_calibration_lines(entries: &BTreeMap<String, TouchCalibration>) -> String {
-    let mut out = format!("touchcals {}\n", entries.len());
+    let mut out = ctrl_line(Command::TouchCals(entries.len()));
     for (name, c) in entries {
-        let display = if c.display.is_empty() {
-            "-"
-        } else {
-            &c.display
-        };
-        let matrix: Vec<String> = c.matrix.iter().map(f64::to_string).collect();
-        out.push_str(&format!(
-            "touchcal {} {display} {} {name}\n",
-            u8::from(c.enabled),
-            matrix.join(" ")
-        ));
+        out.push_str(&ctrl_line(Command::TouchCal {
+            name: name.clone(),
+            cal: TouchCal {
+                enabled: c.enabled,
+                display: c.display.clone(),
+                matrix: c.matrix,
+            },
+        }));
     }
     out
 }
@@ -220,14 +214,9 @@ pub struct Ui {
 }
 
 enum Cmd {
-    Health,
     Claim(String, oneshot::Sender<()>),
     Release(String),
     State(String, String),
-}
-
-fn round_half_up(v: f64) -> f64 {
-    (v + 0.5).floor()
 }
 
 #[derive(Clone)]
@@ -235,7 +224,6 @@ pub struct CompositorControl {
     tx: mpsc::UnboundedSender<Cmd>,
     panels: watch::Receiver<HashMap<String, Panel>>,
     ui: watch::Receiver<Option<Ui>>,
-    presented: watch::Receiver<Option<(std::time::Instant, PresentedOutput)>>,
     displays: watch::Receiver<Option<Vec<Display>>>,
     touches: broadcast::Sender<Input>,
     fullscreen: broadcast::Sender<(Screen, bool)>,
@@ -246,7 +234,6 @@ impl CompositorControl {
         let (tx, rx) = mpsc::unbounded_channel();
         let (panels_tx, panels) = watch::channel(HashMap::new());
         let (ui_tx, ui) = watch::channel(None);
-        let (presented_tx, presented) = watch::channel(None);
         let (displays_tx, displays) = watch::channel(None);
         let (touches, _) = broadcast::channel(TOUCH_BACKLOG);
         let (fullscreen, _) = broadcast::channel(TOUCH_BACKLOG);
@@ -258,7 +245,6 @@ impl CompositorControl {
                 displays_tx,
                 touches.clone(),
                 fullscreen.clone(),
-                presented_tx,
             )
             .run(rx),
         );
@@ -266,7 +252,6 @@ impl CompositorControl {
             tx,
             panels,
             ui,
-            presented,
             displays,
             touches,
             fullscreen,
@@ -275,14 +260,6 @@ impl CompositorControl {
 
     pub fn displays(&self) -> watch::Receiver<Option<Vec<Display>>> {
         self.displays.clone()
-    }
-
-    pub fn health(&self) -> watch::Receiver<Option<(std::time::Instant, PresentedOutput)>> {
-        self.presented.clone()
-    }
-
-    pub fn poll_health(&self) {
-        let _ = self.tx.send(Cmd::Health);
     }
 
     pub fn touches(&self) -> broadcast::Receiver<Input> {
@@ -315,29 +292,36 @@ impl CompositorControl {
         tier_w: f64,
         tier_h: f64,
     ) {
-        let n = |v: f64| round_half_up(v) as i64;
-        let line = format!(
-            "videocfg {tag} {screen} {} {} {} {} {} {}\n",
-            n(crop_l),
-            n(crop_t),
-            n(vis_w),
-            n(vis_h),
-            n(tier_w),
-            n(tier_h)
-        );
+        let n = |v: f64| round_half_up(v) as i64 as f64;
+        let line = ctrl_line(Command::Place {
+            tag: tag.to_string(),
+            screen: screen.to_string(),
+            region: Region {
+                crop_l: n(crop_l),
+                crop_t: n(crop_t),
+                vis_w: n(vis_w),
+                vis_h: n(vis_h),
+                tier_w: n(tier_w),
+                tier_h: n(tier_h),
+            },
+        });
         let _ = self.tx.send(Cmd::State(format!("cfg:{tag}"), line));
     }
 
     pub fn videoshow(&self, tag: &str, visible: bool) {
-        let line = format!("videoshow {tag} {}\n", u8::from(visible));
+        let line = ctrl_line(Command::Show {
+            tag: tag.to_string(),
+            shown: visible,
+        });
         let _ = self.tx.send(Cmd::State(format!("show:{tag}"), line));
     }
 
     pub fn screen(&self, role: &str, on: bool, size: Option<(u32, u32)>) {
-        let size = size
-            .filter(|(w, h)| *w > 0 && *h > 0)
-            .map_or(String::new(), |(w, h)| format!(" {w} {h}"));
-        let line = format!("screen {role} {}{size}\n", u8::from(on));
+        let line = ctrl_line(Command::Screen {
+            role: role.to_string(),
+            on,
+            size,
+        });
         let _ = self.tx.send(Cmd::State(format!("screen:{role}"), line));
     }
 
@@ -349,31 +333,34 @@ impl CompositorControl {
     }
 
     pub fn aspect(&self, role: &str, size: Option<(u32, u32)>) {
-        let (w, h) = size.filter(|(w, h)| *w > 0 && *h > 0).unwrap_or((0, 0));
         let _ = self.tx.send(Cmd::State(
             format!("aspect:{role}"),
-            format!("aspect {role} {w} {h}\n"),
+            ctrl_line(Command::Aspect {
+                role: role.to_string(),
+                size,
+            }),
         ));
     }
 
     pub fn mode(&self, role: &str, mode: &str) {
-        let mode = if mode.is_empty() { "-" } else { mode };
         let _ = self.tx.send(Cmd::State(
             format!("mode:{role}"),
-            format!("mode {role} {mode}\n"),
+            ctrl_line(Command::Mode {
+                role: role.to_string(),
+                mode: (!mode.is_empty()).then(|| mode.to_string()),
+            }),
         ));
     }
 
     pub fn backdrop(&self, hex: &str) {
-        let (r, g, b) = rgb(hex);
         let _ = self.tx.send(Cmd::State(
             "__backdrop__".into(),
-            format!("backdrop {r} {g} {b}\n"),
+            ctrl_line(Command::Backdrop(rgb(hex).unwrap_or_default())),
         ));
     }
 
     pub fn gamma(&self, gamma: f64, contrast: f64, r: f64, g: f64, b: f64) {
-        let line = format!("gamma {gamma} {contrast} {r} {g} {b}\n");
+        let line = ctrl_line(Command::Gamma([gamma, contrast, r, g, b]));
         let _ = self.tx.send(Cmd::State("__gamma__".into(), line));
     }
 
@@ -392,16 +379,10 @@ impl CompositorControl {
 }
 
 fn fullscreen_line(role: &str, on: bool) -> String {
-    format!("fullscreen {role} {}\n", u8::from(on))
-}
-
-fn rgb(hex: &str) -> (u8, u8, u8) {
-    let h = hex.trim().trim_start_matches('#');
-    if h.len() != 6 || !h.chars().all(|c| c.is_ascii_hexdigit()) {
-        return (0, 0, 0);
-    }
-    let n = u32::from_str_radix(h, 16).unwrap_or(0);
-    ((n >> 16) as u8, (n >> 8) as u8, n as u8)
+    ctrl_line(Command::Fullscreen {
+        role: role.to_string(),
+        on,
+    })
 }
 
 pub fn backdrop_hex(cfg: &Config) -> String {
@@ -412,8 +393,8 @@ pub fn backdrop_hex(cfg: &Config) -> String {
     };
     match pick.as_deref().filter(|c| !c.is_empty()) {
         Some(c) => c.to_string(),
-        None if cfg.dark_mode => "#0b0b0b".into(),
-        None => "#ece7de".into(),
+        None if cfg.dark_mode => "#000000".into(),
+        None => "#f5f5f5".into(),
     }
 }
 
@@ -427,7 +408,6 @@ struct Actor {
     claim_deadline: Option<tokio::time::Instant>,
     panels: watch::Sender<HashMap<String, Panel>>,
     ui: watch::Sender<Option<Ui>>,
-    presented: watch::Sender<Option<(std::time::Instant, PresentedOutput)>>,
     displays: watch::Sender<Option<Vec<Display>>>,
     incoming: Option<Incoming>,
     touches: broadcast::Sender<Input>,
@@ -442,7 +422,6 @@ struct Incoming {
 }
 
 impl Actor {
-    #[allow(clippy::too_many_arguments)]
     fn new(
         path: PathBuf,
         panels: watch::Sender<HashMap<String, Panel>>,
@@ -450,7 +429,6 @@ impl Actor {
         displays: watch::Sender<Option<Vec<Display>>>,
         touches: broadcast::Sender<Input>,
         fullscreen: broadcast::Sender<(Screen, bool)>,
-        presented: watch::Sender<Option<(std::time::Instant, PresentedOutput)>>,
     ) -> Self {
         Self {
             path,
@@ -462,7 +440,6 @@ impl Actor {
             claim_deadline: None,
             panels,
             ui,
-            presented,
             displays,
             incoming: None,
             touches,
@@ -482,12 +459,7 @@ impl Actor {
                 },
                 line = lines.recv() => match line.flatten() {
                     Some(line) => self.on_line(&line).await,
-                    None => {
-                        self.writer = None;
-                        self.presented.send_replace(None);
-                        self.ui.send_replace(None);
-                        self.displays.send_replace(None);
-                    }
+                    None => self.writer = None,
                 },
                 _ = async { tokio::time::sleep_until(deadline.unwrap()).await }, if deadline.is_some() => {
                     self.abort_in_flight().await;
@@ -518,12 +490,6 @@ impl Actor {
 
     async fn on_cmd(&mut self, cmd: Cmd) {
         match cmd {
-            Cmd::Health => {
-                if self.writer.is_some() {
-                    self.outbox.push("health\n".to_string());
-                    self.flush().await;
-                }
-            }
             Cmd::Claim(tag, done) => {
                 self.queue.push((tag, done));
                 self.pump().await;
@@ -549,7 +515,7 @@ impl Actor {
             return;
         }
         let (tag, done) = self.queue.remove(0);
-        self.outbox.push(format!("claim {tag}\n"));
+        self.outbox.push(ctrl_line(Command::Claim(tag.clone())));
         self.flush().await;
         self.in_flight = Some(tag);
         self.claim_deadline = Some(tokio::time::Instant::now() + CLAIM_TIMEOUT);
@@ -558,7 +524,7 @@ impl Actor {
 
     async fn abort_in_flight(&mut self) {
         if let Some(tag) = self.in_flight.take() {
-            self.outbox.push(format!("unclaim {tag}\n"));
+            self.outbox.push(ctrl_line(Command::Unclaim(tag.clone())));
             self.flush().await;
         }
         self.end_claim().await;
@@ -573,11 +539,6 @@ impl Actor {
     async fn on_line(&mut self, line: &str) {
         let mut words = line.split(' ');
         match words.next() {
-            Some("presented") => {
-                self.presented.send_replace(
-                    PresentedOutput::parse(line).map(|p| (std::time::Instant::now(), p)),
-                );
-            }
             Some("touch") => {
                 if let Some(input) = touch_of(line) {
                     let _ = self.touches.send(input);
@@ -709,7 +670,6 @@ impl Actor {
             self.outbox.clear();
         } else {
             self.writer = None;
-            self.presented.send_replace(None);
         }
     }
 }
@@ -770,82 +730,6 @@ mod tests {
             FakeCompositor { listener },
             CompositorControl::connect(path),
         )
-    }
-
-    #[test]
-    fn launcher_display_overrides_are_not_replaced_by_saved_settings() {
-        let mut cfg = defaults();
-        cfg.display_mode.main = "1920x1080".into();
-        cfg.display_connector.main = "HDMI-A-2".into();
-        cfg.display_mode.cluster = "800x480".into();
-        let generated = env_in(&cfg, Path::new("/run/ctrl"), |key| {
-            matches!(key, "LIVI_DISPLAY_MODE" | "LIVI_MAIN_CONNECTOR")
-        });
-        assert!(
-            !generated.iter().any(|(key, _)| matches!(
-                key.as_str(),
-                "LIVI_DISPLAY_MODE" | "LIVI_MAIN_CONNECTOR"
-            ))
-        );
-        assert!(generated.contains(&("LIVI_CLUSTER_DISPLAY_MODE".into(), "800x480".into())));
-        assert!(generated.contains(&("LIVI_MAIN_MODE_PINNED".into(), "1".into())));
-        assert!(
-            !generated
-                .iter()
-                .any(|(key, _)| key == "LIVI_CLUSTER_MODE_PINNED")
-        );
-    }
-
-    #[tokio::test]
-    async fn presentation_is_fresh_evidence_and_is_cleared_on_loss_and_reconnect() {
-        let dir = TempDir::new();
-        let (comp, ctrl) = setup(&dir);
-        let (mut rd, mut wr) = comp.accept().await;
-        let mut health = ctrl.health();
-        assert!(health.borrow().is_none());
-        ctrl.poll_health();
-        assert_eq!(line(&mut rd).await, "health\n");
-        wr.write_all(b"presented 12 13 HDMI-A-1 400 1280 90 1\n")
-            .await
-            .unwrap();
-        tokio::time::timeout(Duration::from_secs(5), health.wait_for(Option::is_some))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(health.borrow().as_ref().unwrap().1.transform, "90");
-        wr.write_all(b"presented -\n").await.unwrap();
-        tokio::time::timeout(Duration::from_secs(5), health.wait_for(Option::is_none))
-            .await
-            .unwrap()
-            .unwrap();
-        wr.write_all(b"presented 12 13 HDMI-A-1 400 1280 90 1\n")
-            .await
-            .unwrap();
-        tokio::time::timeout(Duration::from_secs(5), health.wait_for(Option::is_some))
-            .await
-            .unwrap()
-            .unwrap();
-        drop((rd, wr));
-        tokio::time::timeout(Duration::from_secs(5), health.wait_for(Option::is_none))
-            .await
-            .unwrap()
-            .unwrap();
-        let (mut rd, mut wr) = comp.accept().await;
-        assert!(health.borrow().is_none());
-        ctrl.poll_health();
-        assert_eq!(
-            line(&mut rd).await,
-            "health\n",
-            "health evidence is never replayed"
-        );
-        wr.write_all(b"presented 22 23 HDMI-A-1 400 1280 90 1\n")
-            .await
-            .unwrap();
-        tokio::time::timeout(Duration::from_secs(5), health.wait_for(Option::is_some))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(health.borrow().as_ref().unwrap().1.ui, 23);
     }
 
     #[tokio::test]
@@ -1090,13 +974,11 @@ mod tests {
     #[test]
     fn backdrop_and_colours() {
         let mut cfg = defaults();
-        assert_eq!(backdrop_hex(&cfg), "#0b0b0b");
+        assert_eq!(backdrop_hex(&cfg), "#000000");
         cfg.dark_mode = false;
-        assert_eq!(backdrop_hex(&cfg), "#ece7de");
+        assert_eq!(backdrop_hex(&cfg), "#f5f5f5");
         cfg.background_color_light = Some("#ffffff".into());
         assert_eq!(backdrop_hex(&cfg), "#ffffff");
-        assert_eq!(rgb("#ff8000"), (255, 128, 0));
-        assert_eq!(rgb("nope"), (0, 0, 0));
     }
 
     #[test]

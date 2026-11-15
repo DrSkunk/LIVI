@@ -7,18 +7,16 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use livi_core_client::Client;
-use livi_core_proto::message::{Action, MediaControl, MusicSyncCommand};
-use livi_ui_model::media::{Guess, Playback, Pressed};
-use slint::{Color, ComponentHandle, Image, ModelRc, Timer, TimerMode, VecModel};
+use livi_core_proto::message::{Action, MediaControl};
+use livi_ui_model::media::{Guess, Playback, Pressed, Station};
+use slint::{Color, ComponentHandle, Image, Model, ModelRc, Timer, TimerMode, VecModel};
 
 use crate::media::{MediaView, RadioView, Radios};
-use crate::{
-    AppWindow, DabState, LocalMusicRow as SlintLocalMusicRow, MediaSource, MediaText, Page, Press,
-    StationData,
-};
+use crate::{AppWindow, DabState, MediaSource, MediaText, Page, Press, StationData};
 
 const UI_INTERVAL: Duration = Duration::from_millis(120);
 const FLASH: Duration = Duration::from_millis(140);
+const PICK_HOLD: Duration = Duration::from_millis(6000);
 
 #[derive(Default)]
 struct Live {
@@ -30,6 +28,14 @@ struct Live {
     radio_playing: bool,
     radio_guess: Guess,
     tuned: Option<(u32, bool)>,
+    picked: Option<(u32, Instant)>,
+    rows: Option<Rows>,
+}
+
+struct Rows {
+    fm: bool,
+    stations: Vec<Station>,
+    model: Rc<VecModel<StationData>>,
 }
 
 thread_local! {
@@ -50,9 +56,17 @@ fn tick(ui: &AppWindow) {
         ui.set_playing(shown.playing);
         ui.global::<DabState>()
             .set_playing(l.radio_guess.shown(l.radio_playing, now));
-        l.playback.running() || l.playback.guessing(now) || l.radio_guess.pending(now)
+        if l.picked.is_some_and(|(_, until)| now >= until) {
+            l.picked = None;
+            ui.global::<DabState>().set_picked(-1);
+        }
+        l.playback.running()
+            || l.playback.guessing(now)
+            || l.radio_guess.pending(now)
+            || l.picked.is_some()
     });
-    let wanted = keep && (ui.get_page() == Page::Media || ui.get_video_shown());
+    let wanted =
+        keep && (ui.get_page() == Page::Media || ui.get_video_shown() || ui.get_mirrored());
     TICK.with(|t| match (wanted, t.running()) {
         (true, false) => {
             let weak = ui.as_weak();
@@ -78,30 +92,6 @@ pub fn apply_media(ui: &AppWindow, client: Option<&Client>, mut m: MediaView) {
     ui.set_app(m.app.into());
     ui.set_can_seek(m.can_seek);
     ui.set_total_ms(m.duration_ms as f32);
-    ui.set_local_music_active(m.local_music.active);
-    ui.set_local_music_browsing(m.local_music.browsing);
-    ui.set_local_music_parent(m.local_music.parent.unwrap_or_default().into());
-    ui.set_local_music_folder(m.local_music.folder_name.into());
-    ui.set_local_music_entries(slint::ModelRc::new(slint::VecModel::from(
-        m.local_music
-            .entries
-            .into_iter()
-            .map(|entry| SlintLocalMusicRow {
-                id: entry.id.into(),
-                label: entry.label.into(),
-                kind: entry.kind.into(),
-            })
-            .collect::<Vec<_>>(),
-    )));
-    ui.set_local_music_error(m.local_music.error.into());
-    ui.set_local_music_eject_device(m.local_music.eject_device.into());
-    ui.set_local_music_ejecting(m.local_music.ejecting);
-    ui.set_music_sync_phase(m.local_music.sync_phase.into());
-    ui.set_music_sync_code(m.local_music.sync_code.into());
-    ui.set_music_sync_verification(m.local_music.sync_verification.into());
-    ui.set_music_sync_website(m.local_music.sync_website.into());
-    ui.set_music_sync_last_file(m.local_music.sync_last_file.into());
-    ui.set_music_sync_error(m.local_music.sync_error.into());
     match m.artwork.take() {
         Some(Some(buf)) => {
             ui.set_artwork(Image::from_rgba8(buf));
@@ -164,19 +154,14 @@ pub fn apply_radio(ui: &AppWindow, r: Radios) {
 fn render(ui: &AppWindow) {
     let s = ui.global::<DabState>();
     let fm = s.get_view() == MediaSource::Fm;
-    let shown = LIVE.with_borrow(|l| {
-        l.radios
-            .as_ref()
-            .map(|r| if fm { r.fm.clone() } else { r.dab.clone() })
-    });
-    let Some(RadioView {
+    let Some(radios) = LIVE.with_borrow_mut(|l| l.radios.take()) else {
+        return;
+    };
+    let RadioView {
         radio: d,
         logos,
         tuned_logo,
-    }) = shown
-    else {
-        return;
-    };
+    } = if fm { &radios.fm } else { &radios.dab };
     let t = ui.global::<MediaText>();
     let source = if fm {
         t.get_fm_source()
@@ -187,12 +172,12 @@ fn render(ui: &AppWindow) {
     s.set_active(d.active);
     s.set_title(d.title.clone().map_or_else(|| source.clone(), Into::into));
     s.set_source(source);
-    s.set_text(d.text.into());
+    s.set_text(d.text.as_str().into());
     s.set_ensemble(
         if d.title.is_some() {
-            d.ensemble
+            d.ensemble.as_str()
         } else {
-            String::new()
+            ""
         }
         .into(),
     );
@@ -202,35 +187,99 @@ fn render(ui: &AppWindow) {
     s.set_favorite(d.tuned_favorite);
     s.set_has_logo(tuned_logo.is_some());
     if let Some(px) = tuned_logo {
-        s.set_logo(Image::from_rgba8(px));
+        s.set_logo(Image::from_rgba8(px.clone()));
     }
-    s.set_initials(d.tuned_initials.into());
+    s.set_initials(d.tuned_initials.as_str().into());
     s.set_badge(rgb(d.tuned_badge));
-    let stations: Vec<StationData> = d
-        .stations
-        .into_iter()
-        .zip(logos)
-        .map(|(st, logo)| StationData {
-            id: st.id as i32,
-            number: st.number as i32,
-            label: st.label.into(),
-            favorite: st.favorite,
-            tuned: st.tuned,
-            has_logo: logo.is_some(),
-            logo: logo.map(Image::from_rgba8).unwrap_or_default(),
-            initials: st.initials.into(),
-            badge: rgb(st.badge),
-        })
-        .collect();
-    s.set_stations(ModelRc::from(Rc::new(VecModel::from(stations))));
+    show_stations(&s, fm, &d.stations, logos);
     s.set_tuned_index(d.tuned_index.map_or(-1, |i| i as i32));
-    LIVE.with_borrow_mut(|l| {
-        l.radio_playing = d.playing;
-        l.radio_guess.settle(d.playing);
-        l.tuned = d
-            .tuned
+    let (playing, tuned) = (
+        d.playing,
+        d.tuned
             .filter(|_| d.title.is_some())
-            .map(|id| (id, d.tuned_favorite));
+            .map(|id| (id, d.tuned_favorite)),
+    );
+    LIVE.with_borrow_mut(|l| {
+        l.radios = Some(radios);
+        l.radio_playing = playing;
+        l.radio_guess.settle(playing);
+        l.tuned = tuned;
+        if l.picked
+            .is_some_and(|(id, _)| playing && l.tuned.is_some_and(|(t, _)| t == id))
+        {
+            l.picked = None;
+            s.set_picked(-1);
+        }
+    });
+}
+
+fn station_row(st: &Station, logo: &Option<crate::media::Pixels>) -> StationData {
+    StationData {
+        id: st.id as i32,
+        number: st.number as i32,
+        label: st.label.as_str().into(),
+        favorite: st.favorite,
+        tuned: st.tuned,
+        has_logo: logo.is_some(),
+        logo: logo.clone().map(Image::from_rgba8).unwrap_or_default(),
+        initials: st.initials.as_str().into(),
+        badge: rgb(st.badge),
+    }
+}
+
+fn show_stations(
+    s: &DabState<'_>,
+    fm: bool,
+    stations: &[Station],
+    logos: &[Option<crate::media::Pixels>],
+) {
+    let marks_only = |a: &Station, b: &Station| {
+        (a.id, a.number, &a.label, &a.logo, &a.initials, a.badge)
+            == (b.id, b.number, &b.label, &b.logo, &b.initials, b.badge)
+    };
+    let kept = LIVE.with_borrow_mut(|l| {
+        let rows = l.rows.as_mut().filter(|r| r.fm == fm)?;
+        if rows.stations == stations {
+            return Some(());
+        }
+        if rows.stations.len() != stations.len()
+            || !rows
+                .stations
+                .iter()
+                .zip(stations)
+                .all(|(a, b)| marks_only(a, b))
+        {
+            return None;
+        }
+        for (i, (old, new)) in rows.stations.iter().zip(stations).enumerate() {
+            if old != new
+                && let Some(mut row) = rows.model.row_data(i)
+            {
+                row.favorite = new.favorite;
+                row.tuned = new.tuned;
+                rows.model.set_row_data(i, row);
+            }
+        }
+        rows.stations = stations.to_vec();
+        Some(())
+    });
+    if kept.is_some() {
+        return;
+    }
+    let model = Rc::new(VecModel::from(
+        stations
+            .iter()
+            .zip(logos)
+            .map(|(st, logo)| station_row(st, logo))
+            .collect::<Vec<_>>(),
+    ));
+    s.set_stations(ModelRc::from(model.clone()));
+    LIVE.with_borrow_mut(|l| {
+        l.rows = Some(Rows {
+            fm,
+            stations: stations.to_vec(),
+            model,
+        });
     });
 }
 
@@ -269,44 +318,6 @@ pub fn set_texts(ui: &AppWindow, tr: impl Fn(&str, &str) -> String) {
     t.set_no_stations(tr("media.noStations", "No stations yet").into());
     t.set_no_fm_stations(tr("media.noFmStations", "No stations yet").into());
     t.set_no_artwork(tr("media.noArtwork", "No Artwork").into());
-    t.set_local_music(tr("media.localMusic", "Local Music").into());
-    t.set_browse(tr("media.browse", "Browse").into());
-    t.set_back(tr("media.back", "Back").into());
-    t.set_refresh(tr("media.refresh", "Refresh").into());
-    t.set_no_local_music(tr("media.noLocalMusic", "No music found").into());
-    t.set_wireless_sync(tr("media.wirelessSync", "Wireless sync").into());
-    t.set_sync_starting(
-        tr(
-            "media.syncStarting",
-            "Connecting to the signaling server...",
-        )
-        .into(),
-    );
-    t.set_sync_instructions(
-        tr(
-            "media.syncInstructions",
-            "Open your LIVI Music page and enter this code:",
-        )
-        .into(),
-    );
-    t.set_sync_pending(
-        tr(
-            "media.syncPending",
-            "A browser is requesting access. Match this code with the browser before allowing:",
-        )
-        .into(),
-    );
-    t.set_sync_connected(
-        tr(
-            "media.syncConnected",
-            "Connected. Music will be saved to internal storage.",
-        )
-        .into(),
-    );
-    t.set_sync_allow(tr("media.syncAllow", "Allow").into());
-    t.set_sync_reject(tr("media.syncReject", "Reject").into());
-    t.set_sync_stop(tr("media.syncStop", "Stop").into());
-    t.set_sync_retry(tr("media.syncRetry", "Try again").into());
 }
 
 fn flash(ui: &AppWindow, which: Pressed) {
@@ -347,10 +358,11 @@ pub fn wire(ui: &AppWindow, client: &Client) {
             pressed_feedback(&ui, which);
             let d = ui.global::<DabState>();
             let view = d.get_view();
-            let idle = !ui.get_local_music_active()
-                && d.get_receiver()
-                && view != MediaSource::Phone
-                && LIVE.with_borrow(|l| l.on_air != Some(view));
+            if !d.get_receiver() || view == MediaSource::Phone {
+                c.act(Action::PhoneMedia { control });
+                return;
+            }
+            let idle = LIVE.with_borrow(|l| l.on_air != Some(view));
             match view {
                 MediaSource::Dab if idle => c.act(Action::DabResume),
                 MediaSource::Fm if idle => c.act(Action::FmResume),
@@ -377,74 +389,6 @@ pub fn wire(ui: &AppWindow, client: &Client) {
             });
         }
     });
-    ui.on_local_music({
-        let c = client.clone();
-        let weak = weak.clone();
-        move || {
-            let Some(ui) = weak.upgrade() else { return };
-            let command = if ui.get_local_music_active() && ui.get_local_music_browsing() {
-                livi_core_proto::message::LocalMusicCommand::Close
-            } else {
-                livi_core_proto::message::LocalMusicCommand::Open
-            };
-            c.act(Action::LocalMusic { command });
-        }
-    });
-    ui.on_local_item({
-        let c = client.clone();
-        move |id, kind| {
-            let id = id.to_string();
-            let command = match kind.as_str() {
-                "folder" => livi_core_proto::message::LocalMusicCommand::Browse { id },
-                "playlist" => livi_core_proto::message::LocalMusicCommand::PlayPlaylist { id },
-                _ => livi_core_proto::message::LocalMusicCommand::Play { id },
-            };
-            c.act(Action::LocalMusic { command });
-        }
-    });
-    ui.on_local_back({
-        let c = client.clone();
-        let weak = weak.clone();
-        move || {
-            let Some(ui) = weak.upgrade() else { return };
-            let parent = ui.get_local_music_parent().to_string();
-            let command = if parent.is_empty() {
-                livi_core_proto::message::LocalMusicCommand::Close
-            } else {
-                livi_core_proto::message::LocalMusicCommand::Browse { id: parent }
-            };
-            c.act(Action::LocalMusic { command });
-        }
-    });
-    ui.on_local_refresh({
-        let c = client.clone();
-        move || {
-            c.act(Action::LocalMusic {
-                command: livi_core_proto::message::LocalMusicCommand::Refresh,
-            })
-        }
-    });
-    ui.on_local_eject({
-        let c = client.clone();
-        let weak = weak.clone();
-        move || {
-            let Some(ui) = weak.upgrade() else { return };
-            let device = ui.get_local_music_eject_device().to_string();
-            if !device.is_empty() && !ui.get_local_music_ejecting() {
-                c.act(Action::LocalMusic {
-                    command: livi_core_proto::message::LocalMusicCommand::Eject { device },
-                });
-            }
-        }
-    });
-    let sync = |command| {
-        let c = client.clone();
-        move || c.act(Action::MusicSync { command })
-    };
-    ui.on_music_sync_start(sync(MusicSyncCommand::Start));
-    ui.on_music_sync_approve(sync(MusicSyncCommand::Approve));
-    ui.on_music_sync_reject(sync(MusicSyncCommand::Reject));
-    ui.on_music_sync_stop(sync(MusicSyncCommand::Stop));
     let d = ui.global::<DabState>();
     d.on_phone({
         let (c, weak) = (client.clone(), weak.clone());
@@ -452,7 +396,7 @@ pub fn wire(ui: &AppWindow, client: &Client) {
             if let Some(ui) = weak.upgrade() {
                 set_view(&ui, MediaSource::Phone);
             }
-            c.act(Action::DabStop)
+            c.act(Action::PhoneResume)
         }
     });
     d.on_resume({
@@ -478,7 +422,19 @@ pub fn wire(ui: &AppWindow, client: &Client) {
         move |id| {
             let Some(ui) = weak.upgrade() else { return };
             let id = id as u32;
-            c.act(match ui.global::<DabState>().get_view() {
+            let d = ui.global::<DabState>();
+            let (picked, tuned) =
+                LIVE.with_borrow(|l| (l.picked.map(|(p, _)| p), l.tuned.map(|(t, _)| t)));
+            if picked == Some(id) || (picked.is_none() && tuned == Some(id) && d.get_playing()) {
+                LIVE.with_borrow_mut(|l| l.picked = None);
+                d.set_picked(-1);
+                pressed_feedback(&ui, Pressed::Play);
+                return c.act(Action::DabPause);
+            }
+            LIVE.with_borrow_mut(|l| l.picked = Some((id, Instant::now() + PICK_HOLD)));
+            d.set_picked(id as i32);
+            tick(&ui);
+            c.act(match d.get_view() {
                 MediaSource::Fm => Action::FmPlay { khz: id },
                 _ => Action::DabPlay { service_id: id },
             })
@@ -499,12 +455,6 @@ pub fn wire(ui: &AppWindow, client: &Client) {
                     favorite,
                 },
             })
-        }
-    });
-    d.on_tune({
-        let c = client.clone();
-        move |by| {
-            c.act(Action::FmSeek { up: by > 0 });
         }
     });
 }

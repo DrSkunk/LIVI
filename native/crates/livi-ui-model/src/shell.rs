@@ -2,18 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
-use livi_core_proto::config::ClockStyle;
-use serde_json::Value;
+use livi_base::hex::rgb;
+use livi_core_proto::config::{Config, HandDriveType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Projection,
     Telemetry,
     Media,
-    Clock,
     Camera,
-    Games,
-    MiniDsp,
     Settings,
 }
 
@@ -29,65 +26,18 @@ pub struct Look {
     pub zoom: f32,
     pub stream: (i32, i32),
     pub language: String,
-    pub style: Style,
-    pub clock_style: ClockStyle,
-    pub clock_auto_hide: bool,
 }
 
-/// Which visual style the UI draws with (`uiStyle` in the config).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Style {
-    Standard,
-    Comand,
-}
-
-pub fn style(config: &Value) -> Style {
-    match config["uiStyle"].as_str() {
-        Some("standard") => Style::Standard,
-        _ => Style::Comand,
-    }
-}
-
-fn on_main(config: &Value, key: &str, default: bool) -> bool {
-    config[key]["main"].as_bool().unwrap_or(default)
-}
-
-fn on_sidebar(config: &Value, key: &str) -> bool {
-    config["sidebarTabs"][key].as_bool().unwrap_or(true)
-}
-
-pub fn hex_color(text: &str) -> Option<[u8; 3]> {
-    let hex = text.trim().trim_start_matches('#');
-    if hex.len() != 6 {
-        return None;
-    }
-    let v = u32::from_str_radix(hex, 16).ok()?;
-    Some([(v >> 16) as u8, (v >> 8) as u8, v as u8])
-}
-
-pub fn tabs(config: &Value) -> Vec<Tab> {
-    let camera_ready = config["cameraId"].as_str().is_some_and(|id| !id.is_empty());
-    let mut tabs = Vec::new();
-    if on_sidebar(config, "projection") {
-        tabs.push(Tab::Projection);
-    }
-    if on_main(config, "dashboard", false) && on_sidebar(config, "telemetry") {
+pub fn tabs(config: &Config) -> Vec<Tab> {
+    let mut tabs = vec![Tab::Projection];
+    if config.dashboard.main {
         tabs.push(Tab::Telemetry);
     }
-    if on_main(config, "media", true) && on_sidebar(config, "media") {
+    if config.media.main {
         tabs.push(Tab::Media);
     }
-    if on_sidebar(config, "clock") {
-        tabs.push(Tab::Clock);
-    }
-    if on_main(config, "camera", true) && camera_ready && on_sidebar(config, "camera") {
+    if config.camera.main && !config.camera_id.is_empty() {
         tabs.push(Tab::Camera);
-    }
-    if config["games"]["enabled"].as_bool().unwrap_or(false) && on_sidebar(config, "games") {
-        tabs.push(Tab::Games);
-    }
-    if config["minidsp"]["enabled"].as_bool().unwrap_or(false) && on_sidebar(config, "minidsp") {
-        tabs.push(Tab::MiniDsp);
     }
     tabs.push(Tab::Settings);
     tabs
@@ -105,126 +55,66 @@ pub fn ui_scale(base: f32, zoom: f32, physical_height: f32) -> f32 {
     base * zoom * fit
 }
 
-pub const NIGHT_PRIMARY: [u8; 3] = [0xd9, 0x36, 0x36];
-pub const NIGHT_HIGHLIGHT: [u8; 3] = [0xa8, 0x28, 0x28];
-
-pub fn look(config: &Value) -> Look {
-    look_at(config, &Value::Null)
-}
-
-pub fn look_at(config: &Value, telemetry: &Value) -> Look {
-    let night = telemetry["nightMode"].as_bool() == Some(true);
-    let dark = config["darkMode"].as_bool().unwrap_or(true);
-    let pick = |dark_key: &str, light_key: &str| {
-        config[if dark { dark_key } else { light_key }]
-            .as_str()
-            .and_then(hex_color)
+pub fn look(config: &Config) -> Look {
+    let dark = config.dark_mode;
+    let pick = |on_dark: &Option<String>, on_light: &Option<String>| {
+        if dark { on_dark } else { on_light }
+            .as_deref()
+            .and_then(rgb)
     };
-    let w = config["projectionWidth"]
-        .as_i64()
-        .filter(|v| *v > 0)
-        .unwrap_or(1280) as i32;
-    let h = config["projectionHeight"]
-        .as_i64()
-        .filter(|v| *v > 0)
-        .unwrap_or(720) as i32;
+    let positive = |v: u32, fallback: i32| if v > 0 { v as i32 } else { fallback };
     Look {
         tabs: tabs(config),
-        right_hand: config["hand"].as_i64() == Some(1),
+        right_hand: config.hand == HandDriveType::Rhd,
         dark,
-        primary: if night {
-            Some(NIGHT_PRIMARY)
+        primary: pick(&config.primary_color_dark, &config.primary_color_light),
+        highlight: pick(&config.highlight_color_dark, &config.highlight_color_light),
+        background: pick(
+            &config.background_color_dark,
+            &config.background_color_light,
+        ),
+        text: pick(&config.text_color_dark, &config.text_color_light),
+        zoom: if config.ui_zoom_percent > 0 {
+            config.ui_zoom_percent as f32 / 100.0
         } else {
-            pick("primaryColorDark", "primaryColorLight")
+            1.0
         },
-        highlight: if night {
-            Some(NIGHT_HIGHLIGHT)
-        } else {
-            pick("highlightColorDark", "highlightColorLight")
-        },
-        background: pick("backgroundColorDark", "backgroundColorLight"),
-        text: pick("textColorDark", "textColorLight"),
-        zoom: config["uiZoomPercent"]
-            .as_f64()
-            .filter(|z| *z > 0.0)
-            .map_or(1.0, |z| (z / 100.0) as f32),
-        stream: (w, h),
-        language: config["language"].as_str().unwrap_or("en").to_string(),
-        style: style(config),
-        clock_style: match &config["clockStyle"] {
-            Value::Null => ClockStyle::default(),
-            value => serde_json::from_value(value.clone()).unwrap_or_else(|e| {
-                eprintln!("[ui] invalid clock style: {e}");
-                ClockStyle::default()
-            }),
-        },
-        clock_auto_hide: config["clockAutoHide"].as_bool().unwrap_or(false),
+        stream: (
+            positive(config.projection_width, 1280),
+            positive(config.projection_height, 720),
+        ),
+        language: config.language.clone(),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use livi_core_proto::config::defaults;
 
     use super::*;
 
     #[test]
     fn tabs_follow_the_config() {
+        let mut config = defaults();
+        config.dashboard.main = false;
+        config.media.main = true;
+        config.camera.main = true;
+        config.camera_id.clear();
         assert_eq!(
-            tabs(&json!({})),
-            vec![Tab::Projection, Tab::Media, Tab::Clock, Tab::Settings]
+            tabs(&config),
+            vec![Tab::Projection, Tab::Media, Tab::Settings]
         );
+        config.dashboard.main = true;
+        config.camera_id = "cam0".into();
         assert_eq!(
-            tabs(&json!({ "dashboard": { "main": true }, "cameraId": "cam0" })),
+            tabs(&config),
             vec![
                 Tab::Projection,
                 Tab::Telemetry,
                 Tab::Media,
-                Tab::Clock,
                 Tab::Camera,
                 Tab::Settings
             ]
-        );
-        assert_eq!(
-            tabs(&json!({ "games": { "enabled": true } })),
-            vec![
-                Tab::Projection,
-                Tab::Media,
-                Tab::Clock,
-                Tab::Games,
-                Tab::Settings
-            ]
-        );
-        assert_eq!(
-            tabs(&json!({ "minidsp": { "enabled": true } })),
-            vec![
-                Tab::Projection,
-                Tab::Media,
-                Tab::Clock,
-                Tab::MiniDsp,
-                Tab::Settings
-            ]
-        );
-        assert_eq!(
-            tabs(&json!({ "minidsp": { "enabled": false } })),
-            vec![Tab::Projection, Tab::Media, Tab::Clock, Tab::Settings]
-        );
-    }
-
-    #[test]
-    fn sidebar_tabs_can_be_hidden_without_disabling_their_features() {
-        assert_eq!(
-            tabs(&json!({
-                "dashboard": { "main": true },
-                "media": { "main": true },
-                "sidebarTabs": {
-                    "projection": false,
-                    "telemetry": false,
-                    "media": false,
-                    "clock": false
-                }
-            })),
-            vec![Tab::Settings]
         );
     }
 
@@ -240,59 +130,14 @@ mod tests {
 
     #[test]
     fn colors_and_zoom() {
-        let l = look(
-            &json!({ "darkMode": true, "primaryColorDark": "#00ADAD", "uiZoomPercent": 200, "hand": 1 }),
-        );
+        let mut config = defaults();
+        config.dark_mode = true;
+        config.primary_color_dark = Some("#00ADAD".into());
+        config.ui_zoom_percent = 200;
+        config.hand = HandDriveType::Rhd;
+        let l = look(&config);
         assert_eq!(l.primary, Some([0, 0xad, 0xad]));
         assert_eq!(l.zoom, 2.0);
         assert!(l.right_hand);
-        assert_eq!(hex_color("nope"), None);
-    }
-
-    #[test]
-    fn night_swaps_the_accents_for_low_glare_red() {
-        let config = json!({ "darkMode": true, "primaryColorDark": "#00ADAD" });
-        let day = look_at(&config, &json!({ "nightMode": false }));
-        assert_eq!(day.primary, Some([0, 0xad, 0xad]));
-        assert_eq!(day.highlight, None);
-        let night = look_at(&config, &json!({ "nightMode": true }));
-        assert_eq!(night.primary, Some(NIGHT_PRIMARY));
-        assert_eq!(night.highlight, Some(NIGHT_HIGHLIGHT));
-        assert_eq!(look(&config), day);
-    }
-
-    #[test]
-    fn the_style_follows_the_config_and_defaults_to_comand() {
-        assert_eq!(look(&json!({})).style, Style::Comand);
-        assert_eq!(look(&json!({ "uiStyle": "comand" })).style, Style::Comand);
-        assert_eq!(
-            look(&json!({ "uiStyle": "standard" })).style,
-            Style::Standard
-        );
-        assert_eq!(look(&json!({ "uiStyle": "bogus" })).style, Style::Comand);
-    }
-
-    #[test]
-    fn clock_style_follows_the_config_and_defaults_to_classic() {
-        assert_eq!(look(&json!({})).clock_style, ClockStyle::Classic);
-        assert_eq!(
-            look(&json!({ "clockStyle": "amber" })).clock_style,
-            ClockStyle::Amber
-        );
-        assert_eq!(
-            look(&json!({ "clockStyle": "digital" })).clock_style,
-            ClockStyle::Digital
-        );
-        assert_eq!(
-            look(&json!({ "clockStyle": "unknown" })).clock_style,
-            ClockStyle::Classic
-        );
-    }
-
-    #[test]
-    fn clock_auto_hide_defaults_off_and_follows_the_config() {
-        assert!(!look(&json!({})).clock_auto_hide);
-        assert!(look(&json!({ "clockAutoHide": true })).clock_auto_hide);
-        assert!(!look(&json!({ "clockAutoHide": false })).clock_auto_hide);
     }
 }

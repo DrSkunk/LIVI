@@ -2,21 +2,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
-import { ViewAreaMask } from "mask.slint";
+import { ViewArea, ViewAreaMask } from "mask.slint";
 import { Theme } from "theme.slint";
 import { Gauge, Readout } from "dashboard/gauge.slint";
-import { NavFull, NavMini } from "dashboard/nav.slint";
+import { NavMini } from "dashboard/nav.slint";
 import { Blink, DashState, Signal } from "dashboard/state.slint";
-import { Dots, Lamp, Level } from "dashboard/widgets.slint";
+import { Strip } from "dashboard/strip.slint";
+import { Dots, Lamp, LampRows, Level } from "dashboard/widgets.slint";
 
-export { CapData, DashState, GaugeData, LabelData, TrailData } from "dashboard/state.slint";
+export { CapData, DashState, GaugeData, LabelData, LampData, LaneArrowData, LaneData, TrailData } from "dashboard/state.slint";
 
 export component Dashboard inherits Rectangle {
-    property <float> s: min(root.width / 1280px, root.height / 720px);
+    in property <ViewArea> view-area;
+    property <length> area-x: root.view-area.left * 1phx;
+    property <length> area-y: root.view-area.top * 1phx;
+    property <length> area-width: max(1px, root.width - (root.view-area.left + root.view-area.right) * 1phx);
+    property <length> area-height: max(1px, root.height - (root.view-area.top + root.view-area.bottom) * 1phx);
+    property <float> s: min(root.area-width / 1280px, root.area-height / 720px);
     property <length> u: max(0.01, s) * 1px;
-    property <length> left: (root.width - 1280 * u) / 2;
-    property <length> top: (root.height - 720 * u) / 2;
-    property <float> push: max(0, (root.width / u - 1280) / 2);
+    property <length> left: root.area-x + (root.area-width - 1280 * u) / 2;
+    property <length> top: root.area-y + (root.area-height - 720 * u) / 2;
+    property <float> push: max(0, (root.area-width / u - 1280) / 2);
     property <color> pointer: DashState.has-accent ? DashState.accent : Theme.text;
     property <color> major: DashState.has-accent ? DashState.accent : Theme.text-secondary;
     property <color> shade: Theme.dark ? #0000008c : #ffffffb8;
@@ -50,6 +56,8 @@ export component Dashboard inherits Rectangle {
     }
 
     if !DashState.enabled: Text {
+        x: root.area-x + (root.area-width - self.width) / 2;
+        y: root.area-y + (root.area-height - self.height) / 2;
         text: DashState.placeholder;
         color: Theme.text-secondary;
         font-size: 20px;
@@ -128,46 +136,12 @@ export component Dashboard inherits Rectangle {
             active: DashState.turn-right || DashState.hazards;
             blink: true;
         }
-        HorizontalLayout {
-            x: root.left + (640 - 2 * 30 - 1.5 * 21) * root.u;
+        LampRows {
+            u: root.u;
+            room: 640 * root.u;
+            lamps: DashState.light-lamps;
+            x: root.left + 640 * root.u - self.width / 2;
             y: root.top + 12 * root.u;
-            height: 30 * root.u;
-            spacing: 21 * root.u;
-            Lamp {
-                width: 30 * root.u;
-                source: @image-url("icons/TelltaleLowBeam.svg");
-                tint: Signal.green;
-                active: DashState.lights;
-            }
-            Lamp {
-                width: 30 * root.u;
-                source: @image-url("icons/TelltaleHighBeam.svg");
-                tint: Signal.blue;
-                active: DashState.high-beam;
-            }
-            Lamp {
-                width: 30 * root.u;
-                source: @image-url("icons/TelltaleHazard.svg");
-                tint: Signal.red;
-                active: DashState.hazards;
-                blink: true;
-            }
-            Rectangle {
-                width: 30 * root.u;
-                opacity: DashState.parking-brake ? 1 : 0;
-                Image {
-                    width: parent.width;
-                    height: parent.height;
-                    source: @image-url("icons/TelltaleParkingRing.svg");
-                    colorize: Signal.red;
-                }
-                Text {
-                    text: "P";
-                    font-size: 9.5 / 24 * 30 * root.u;
-                    font-weight: 700;
-                    color: Signal.red;
-                }
-            }
         }
         if DashState.ambient != "": Text {
             x: root.left + (1210 - 51 - 42) * root.u - self.width;
@@ -199,6 +173,13 @@ export component Dashboard inherits Rectangle {
             value: DashState.fuel + "%";
             warn: DashState.fuel-low;
         }
+        LampRows {
+            u: root.u;
+            room: 540 * root.u;
+            lamps: DashState.warn-lamps;
+            x: root.left + 640 * root.u - self.width / 2;
+            y: root.top + 687 * root.u - self.height;
+        }
     }
 
     if DashState.enabled && DashState.gauges && DashState.center == 1: NavMini {
@@ -208,18 +189,18 @@ export component Dashboard inherits Rectangle {
         height: 720 * root.u;
         u: root.u;
     }
-    if DashState.enabled && DashState.gauges && DashState.center == 2: NavFull {
-        x: root.left;
-        y: root.top;
-        width: 1280 * root.u;
-        height: 720 * root.u;
-        u: root.u;
+
+    if DashState.enabled && DashState.strip: Strip {
+        x: root.area-x;
+        y: root.area-y;
+        width: root.area-width;
+        height: root.area-height;
     }
 
     if DashState.enabled && DashState.page-count > 1: Dots {
-        Ui-height: root.height;
-        x: (root.width - self.width) / 2;
-        y: root.height - self.height - clamp(root.height * 0.022, 10px, 18px);
+        Ui-height: root.area-height;
+        x: root.area-x + (root.area-width - self.width) / 2;
+        y: root.area-y + (DashState.strip ? clamp(root.area-height * 0.022, 10px, 18px) : root.area-height - self.height - clamp(root.area-height * 0.022, 10px, 18px));
         opacity: DashState.dots-shown ? 1 : 0;
         animate opacity { duration: 220ms; }
     }

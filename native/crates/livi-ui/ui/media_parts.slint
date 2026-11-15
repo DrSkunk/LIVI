@@ -14,20 +14,6 @@ export global MediaText {
     in property <string> no-stations: "No stations yet";
     in property <string> no-fm-stations: "No stations yet";
     in property <string> no-artwork: "No Artwork";
-    in property <string> local-music: "Local Music";
-    in property <string> browse: "Browse";
-    in property <string> back: "Back";
-    in property <string> refresh: "Refresh";
-    in property <string> no-local-music: "No music found";
-    in property <string> wireless-sync: "Wireless sync";
-    in property <string> sync-starting: "Connecting to the signaling server...";
-    in property <string> sync-instructions: "Open the link shown here and enter its pairing code:";
-    in property <string> sync-pending: "A browser is requesting access. Match this code with the browser before allowing:";
-    in property <string> sync-connected: "Connected. Music will be saved to internal storage.";
-    in property <string> sync-allow: "Allow";
-    in property <string> sync-reject: "Reject";
-    in property <string> sync-stop: "Stop";
-    in property <string> sync-retry: "Try again";
 }
 
 export global Press {
@@ -58,27 +44,18 @@ export component RoundButton inherits Rectangle {
         width: root.size * s;
         height: root.size * s;
         border-radius: self.width / 2;
-        background: Theme.comand ? (root.down ? Theme.key-lit : Theme.key) : root.hover || root.down || root.focused ? Theme.button-active : Theme.button;
-        drop-shadow-blur: Theme.comand && (root.hover || root.focused) ? 10px : 0;
-        drop-shadow-color: Theme.primary.with-alpha(0.13);
+        background: root.hover || root.down || root.focused ? Theme.button-active : Theme.button;
         animate width, height { duration: 110ms; easing: ease; }
-        if Theme.comand: Rectangle {
-            y: 1px;
-            x: parent.width * 0.2;
-            width: parent.width * 0.6;
-            height: 1px;
-            background: Theme.bevel-light;
-        }
         Rectangle {
             border-radius: parent.width / 2;
-            border-width: Theme.comand ? 1px : root.focused ? 3px : root.down ? 4px : root.hover ? 2px : 0;
-            border-color: Theme.comand ? (root.focused ? Theme.focus-color : root.hover || root.down ? Theme.primary : Theme.key-edge) : Theme.primary;
+            border-width: root.focused ? 3px : root.down ? 4px : root.hover ? 2px : 0;
+            border-color: Theme.primary;
         }
         Image {
             width: root.icon-size;
             height: root.icon-size;
             source: root.icon;
-            colorize: Theme.comand && root.down ? Theme.key-lit-text : Theme.comand && (root.hover || root.focused) ? Theme.highlight : root.icon-color;
+            colorize: root.icon-color;
         }
     }
     touch := TouchArea {
@@ -151,18 +128,18 @@ component SourceTab inherits Rectangle {
     in property <string> label;
     in property <bool> on;
     in property <bool> focused;
+    in property <float> pad: 1;
+    in property <float> font: 1;
     callback picked();
-    height: label-text.preferred-height + 12px;
-    width: label-text.preferred-width + 40px;
-    border-radius: Theme.comand ? Theme.radius : self.height / 2;
-    background: Theme.comand && root.on ? Theme.wash : transparent;
-    border-width: root.focused ? Theme.ring(3px) : 0;
-    border-color: Theme.focus-color;
+    height: label-text.preferred-height + 12px * root.pad;
+    width: label-text.preferred-width + 40px * root.pad;
+    border-radius: self.height / 2;
+    border-width: root.focused ? 3px : 0;
+    border-color: Theme.primary;
     label-text := Text {
-        text: Theme.comand ? root.label.to-uppercase() : root.label;
-        font-size: 16px;
+        text: root.label;
+        font-size: 16px * root.font;
         font-weight: 700;
-        letter-spacing: Theme.comand ? Theme.tracking-wide : 0;
         color: root.on ? Theme.primary : Theme.text;
         opacity: root.on ? 1 : 0.65;
     }
@@ -176,10 +153,11 @@ component SourceTab inherits Rectangle {
 }
 
 component TabDivider inherits Rectangle {
+    in property <float> pad: 1;
     width: 1px;
     VerticalLayout {
-        padding-top: 6px;
-        padding-bottom: 6px;
+        padding-top: 6px * root.pad;
+        padding-bottom: 6px * root.pad;
         Rectangle { background: Theme.divider; }
     }
 }
@@ -187,44 +165,131 @@ component TabDivider inherits Rectangle {
 export component SourceTabs inherits Rectangle {
     in property <MediaSource> view;
     in property <int> focus-base;
+    in property <length> room: 100000px;
     callback phone();
     callback dab();
     callback fm();
-    height: pill.height + 8px;
+    property <length> text-w: phone-w.preferred-width + dab-w.preferred-width + fm-w.preferred-width;
+    property <length> gaps: 3 * 40px + 4 * 8px + 16px;
+    property <float> pad: max(0.25, min(1, (root.room - root.text-w - 2px) / root.gaps));
+    property <float> font: max(0.6, min(1, (root.room - 2px - root.gaps * root.pad) / root.text-w));
+    width: pill.width;
+    height: pill.height;
     pill := Rectangle {
-        y: 8px;
         width: row.preferred-width;
         height: row.preferred-height;
-        border-radius: Theme.comand ? Theme.radius : self.height / 2;
-        background: Theme.comand ? Theme.panel : #ffffff14;
-        border-width: Theme.comand ? 1px : 0;
-        border-color: Theme.rule;
+        border-radius: self.height / 2;
+        background: Theme.dark ? #ffffff14 : #00000012;
         row := HorizontalLayout {
-            padding-left: 8px;
-            padding-right: 8px;
-            padding-top: 4px;
-            padding-bottom: 4px;
-            spacing: 8px;
+            padding-left: 8px * root.pad;
+            padding-right: 8px * root.pad;
+            padding-top: 4px * root.pad;
+            padding-bottom: 4px * root.pad;
+            spacing: 8px * root.pad;
             SourceTab {
                 label: MediaText.phone-source;
+                pad: root.pad;
+                font: root.font;
                 on: root.view == MediaSource.phone;
                 focused: Focus.main(root.focus-base);
                 picked => { root.phone(); }
             }
-            TabDivider { }
+            TabDivider { pad: root.pad; }
             SourceTab {
                 label: MediaText.dab-source;
+                pad: root.pad;
+                font: root.font;
                 on: root.view == MediaSource.dab;
                 focused: Focus.main(root.focus-base + 1);
                 picked => { root.dab(); }
             }
-            TabDivider { }
+            TabDivider { pad: root.pad; }
             SourceTab {
                 label: MediaText.fm-source;
+                pad: root.pad;
+                font: root.font;
                 on: root.view == MediaSource.fm;
                 focused: Focus.main(root.focus-base + 2);
                 picked => { root.fm(); }
             }
+        }
+    }
+    phone-w := Text { visible: false; text: MediaText.phone-source; font-size: 16px; font-weight: 700; }
+    dab-w := Text { visible: false; text: MediaText.dab-source; font-size: 16px; font-weight: 700; }
+    fm-w := Text { visible: false; text: MediaText.fm-source; font-size: 16px; font-weight: 700; }
+}
+
+export component MediaGeometry {
+    in property <float> w;
+    in property <float> h;
+
+    pure function clampf(v: float, lo: float, hi: float) -> float { return min(max(v, lo), hi); }
+
+    property <float> min-side: min(w, h);
+    property <float> page-pad-raw: round(clampf(min-side * 0.02, 12, 22));
+    property <float> progress-h-raw: round(clampf(h * 0.012, 8, 12));
+    property <float> art-allowance: max(140, floor(inner-w - 120 - col-gap));
+
+    out property <bool> tiny: h > 0 && h <= 320;
+    out property <float> text-scale: tiny ? 0.88 : 1;
+    out property <float> page-pad: tiny ? min(page-pad-raw, 10) : page-pad-raw;
+    out property <float> bottom-pad: tiny ? 2 : page-pad;
+    out property <float> col-gap: round(clampf(w * 0.025, 16, 28));
+    out property <float> ctrl-size: round(clampf(h * 0.095, 50, 82));
+    out property <float> ctrl-gap: round(clampf(w * 0.03, 16, 32));
+    out property <float> progress-h: max(6, round(progress-h-raw * (tiny ? 0.85 : 1)));
+    out property <float> progress-box-h: max(20, round(progress-h * 2.4));
+    out property <float> title-px: max(12, round(round(clampf(min-side * 0.07, 18, 48)) * text-scale));
+    out property <float> artist-px: max(11, round(round(clampf(min-side * 0.034, 14, 24)) * text-scale));
+    out property <float> album-px: max(10, round(round(clampf(min-side * 0.028, 13, 20)) * text-scale));
+    out property <float> app-px: max(10, round(12 * text-scale));
+    out property <float> bottom-dock-h: ctrl-size + 16 + (progress-h + 20);
+    out property <float> content-h: max(0, h - page-pad * 2 - bottom-dock-h);
+    out property <float> inner-w: max(0, w - page-pad * 2);
+    out property <bool> two-col: inner-w >= 120 + 140 + col-gap;
+    out property <float> art-px: round(clampf(min(content-h, art-allowance), 140, 520));
+    out property <float> text-side-pad: max(6, round(page-pad * 0.75));
+    out property <float> left-w: two-col ? max(0, inner-w - art-px - col-gap) : inner-w;
+    out property <float> layout-gap: tiny ? 3 : 4;
+    out property <float> top-h: max(0, h - page-pad - bottom-pad - layout-gap * 2 - ctrl-size - progress-box-h - (tiny ? 0 : 8));
+    out property <float> art-inset: two-col ? max(0, (top-h - art-px) / 2) : 0;
+}
+
+export component Transport inherits Rectangle {
+    in property <int> focus-base;
+    in property <bool> playing;
+    in property <length> size;
+    in property <length> gap;
+    callback prev();
+    callback play-pause();
+    callback next();
+    height: size;
+    HorizontalLayout {
+        alignment: center;
+        spacing: root.gap;
+        RoundButton {
+            focused: Focus.main(root.focus-base);
+            flash: Press.prev;
+            size: root.size;
+            icon-size: round(root.size * 0.46 / 1px) * 1px;
+            icon: @image-url("icons/SkipPrevious.svg");
+            clicked => { root.prev(); }
+        }
+        RoundButton {
+            focused: Focus.main(root.focus-base + 1);
+            flash: Press.play;
+            size: root.size;
+            icon-size: round(root.size * 0.46 / 1px) * 1px;
+            icon: root.playing ? @image-url("icons/Pause.svg") : @image-url("icons/PlayArrow.svg");
+            clicked => { root.play-pause(); }
+        }
+        RoundButton {
+            focused: Focus.main(root.focus-base + 2);
+            flash: Press.next;
+            size: root.size;
+            icon-size: round(root.size * 0.46 / 1px) * 1px;
+            icon: @image-url("icons/SkipNext.svg");
+            clicked => { root.next(); }
         }
     }
 }

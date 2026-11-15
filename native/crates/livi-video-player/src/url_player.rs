@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use gstreamer as gst;
 use gstreamer::prelude::*;
-use livi_host_proto::UrlStatus;
+use livi_output_proto::{UrlStatus, VideoCodec};
 
 use crate::Say;
 
@@ -72,7 +72,7 @@ impl UrlPlayer {
             .ok()?;
         playbin.set_property_from_str("flags", "video+audio+soft-volume+buffering");
         let video = video_sink(&say)?;
-        let view = crate::WindowView::default();
+        let view = crate::WindowView::new();
         view.attach(window, crate::RANK_URL, Some(&video));
         let heard = Arc::new(Mutex::new(Heard::default()));
         playbin.set_property("video-sink", video);
@@ -194,7 +194,7 @@ impl Drop for UrlPlayer {
 
 fn prefer_our_decoders() {
     let sw_only = std::env::var_os("LIVI_GST_SWDEC").is_some();
-    for codec in ["h264", "h265"] {
+    for codec in [VideoCodec::H264, VideoCodec::H265] {
         let picked = crate::candidates(codec, sw_only)
             .into_iter()
             .find(|n| crate::usable(n));
@@ -205,24 +205,22 @@ fn prefer_our_decoders() {
 }
 
 pub(crate) fn video_sink(say: &Say) -> Option<gst::Element> {
-    if cfg!(any(target_os = "macos", target_os = "android")) {
+    if cfg!(any(target_vendor = "apple", target_os = "android")) {
         return gst::ElementFactory::make("glimagesink")
             .build()
             .inspect_err(|e| say(&format!("[gst_video] no glimagesink: {e}")))
             .ok();
     }
-    let desc = std::env::var("LIVI_GST_SINK")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "waylandsink".to_owned());
-    gst::parse::bin_from_description(&desc, true)
+    let chosen = livi_video::codec::sink_override();
+    let desc = livi_video::codec::desktop_sink(chosen.as_deref());
+    gst::parse::bin_from_description(desc, true)
         .inspect_err(|e| say(&format!("[gst_video] no video sink {desc}: {e}")))
         .ok()
         .map(|bin| bin.upcast())
 }
 
 fn audio_sink(device: &str) -> Option<gst::Element> {
-    let (element, device_property) = if cfg!(target_os = "macos") {
+    let (element, device_property) = if cfg!(target_vendor = "apple") {
         ("osxaudiosink", "unique-id")
     } else if cfg!(target_os = "android") {
         ("aaudiosink", "device")

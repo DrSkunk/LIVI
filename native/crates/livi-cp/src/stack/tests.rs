@@ -6,13 +6,15 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use super::*;
-use crate::crypto::{X25519, chacha_seal, ed25519_public, ed25519_sign, nonce_label, random_bytes};
 use crate::identity::load_or_create;
 use crate::media::AudioStream;
 use crate::opack;
 use crate::pair_setup::tlv;
 use crate::pairings::tests::TempDir;
 use crate::tlv8;
+use livi_crypto::{
+    X25519, chacha_seal, ed25519_public, ed25519_sign, hkdf_sha512, nonce_label, random_bytes,
+};
 
 pub(crate) struct FakeMedia {
     calls: Mutex<Vec<String>>,
@@ -186,7 +188,7 @@ impl Phone {
                 }
                 None => self.buf.extend_from_slice(&chunk[..n]),
             }
-            let (mut answers, rest) = rtsp::parse(&self.buf);
+            let (mut answers, rest) = rtsp::parse(&self.buf).unwrap();
             if let Some(answer) = answers.pop() {
                 self.buf = rest;
                 return (answer.path, answer.body);
@@ -241,10 +243,10 @@ struct Rig {
 
 impl Rig {
     async fn new() -> Self {
-        Self::with_video(false, false).await
+        Self::with_capture(false).await
     }
 
-    async fn with_video(video: bool, capture: bool) -> Self {
+    async fn with_capture(capture: bool) -> Self {
         let dir = TempDir::new();
         let identity = load_or_create(&dir.0.join("identity.json"));
         let pairings = Pairings::new(dir.0.join("pairings.json"));
@@ -258,7 +260,6 @@ impl Rig {
             info,
             audio_device: "out".into(),
             audio_input_device: "in".into(),
-            hls_video: video,
             vehicle_climate: true,
             app_version: "9.5.0".into(),
             app_build_date: String::new(),
@@ -377,31 +378,29 @@ async fn plain_requests_before_pairing() {
     assert!(info.get("displays").is_some());
     let (code, _) = rig.phone.request("OPTIONS", "*", b"").await;
     assert_eq!(code, "200");
-    let (code, _) = rig.phone.request("GET", "/whatever", b"").await;
-    assert_eq!(code, "200");
-    let (code, _) = rig.phone.request("SETUP", "/s", b"nope").await;
-    assert_eq!(code, "400");
-    let screen = dict([(
-        "streams",
-        Value::Array(vec![dict([("type", Value::Int(110))])]),
-    )]);
-    let (code, _) = rig
-        .phone
-        .request("SETUP", "/s", &bplist::encode(&screen))
-        .await;
-    assert_eq!(code, "500");
     let (code, _) = rig.phone.request("POST", "/auth-setup", b"short").await;
     assert_eq!(code, "400");
-    let (code, _) = rig.phone.request("TEARDOWN", "/s", b"").await;
-    assert_eq!(code, "200");
-    let (code, _) = rig.phone.request("POST", "/feedback", b"").await;
-    assert_eq!(code, "200");
+    for (method, path) in [
+        ("GET", "/whatever"),
+        ("SETUP", "/s"),
+        ("RECORD", "/s"),
+        ("POST", "/command"),
+        ("TEARDOWN", "/s"),
+        ("POST", "/feedback"),
+    ] {
+        let (code, _) = rig.phone.request(method, path, b"").await;
+        assert_eq!(code, "470", "{method} {path} needs pair-verify first");
+    }
     let (code, setup) = rig
         .phone
         .request("POST", "/pair-setup", &tlv8::encode(&[(tlv::STATE, &[1])]))
         .await;
     assert_eq!(code, "200");
     assert!(!setup.is_empty());
+    let secret = rig.secret;
+    rig.phone.verify(&secret, b"phone-1").await;
+    let (code, _) = rig.phone.request("SETUP", "/s", b"nope").await;
+    assert_eq!(code, "400");
     rig.phone.sock.shutdown().await.unwrap();
     assert_eq!(rig.event().await, StackEvent::Closed { was_active: false });
 }
@@ -443,7 +442,7 @@ async fn a_phone_that_falls_silent_ends_the_session() {
 
 #[tokio::test]
 async fn a_queued_video_plays_on_the_host_and_follows_the_phone() {
-    let mut rig = Rig::with_video(true, false).await;
+    let mut rig = Rig::new().await;
     let secret = rig.secret;
     rig.phone.verify(&secret, b"phone-1").await;
     let offered = Value::Array(vec![Value::String(video_playback::FEATURE.into())]);
@@ -547,7 +546,7 @@ async fn a_queued_video_plays_on_the_host_and_follows_the_phone() {
 
 #[tokio::test]
 async fn the_driver_pauses_seeks_and_closes_the_video() {
-    let mut rig = Rig::with_video(true, false).await;
+    let mut rig = Rig::new().await;
     let secret = rig.secret;
     rig.phone.verify(&secret, b"phone-1").await;
     let offered = Value::Array(vec![Value::String(video_playback::FEATURE.into())]);
@@ -659,7 +658,7 @@ async fn the_driver_pauses_seeks_and_closes_the_video() {
 
 #[tokio::test]
 async fn a_muted_item_starts_muted() {
-    let mut rig = Rig::with_video(true, false).await;
+    let mut rig = Rig::new().await;
     let secret = rig.secret;
     rig.phone.verify(&secret, b"phone-1").await;
     let offered = Value::Array(vec![Value::String(video_playback::FEATURE.into())]);
@@ -741,7 +740,7 @@ async fn a_muted_item_starts_muted() {
 
 #[tokio::test]
 async fn leaving_park_hides_the_picture_and_the_sound_plays_on() {
-    let mut rig = Rig::with_video(true, false).await;
+    let mut rig = Rig::new().await;
     let secret = rig.secret;
     rig.phone.verify(&secret, b"phone-1").await;
     let offered = Value::Array(vec![Value::String(video_playback::FEATURE.into())]);
@@ -874,7 +873,7 @@ async fn leaving_park_hides_the_picture_and_the_sound_plays_on() {
 
 #[tokio::test]
 async fn the_video_playback_trial_claims_the_feature_and_keeps_payloads() {
-    let mut rig = Rig::with_video(true, true).await;
+    let mut rig = Rig::with_capture(true).await;
     let secret = rig.secret;
     rig.phone.verify(&secret, b"phone-1").await;
     let offered = ["hevc", video_playback::FEATURE].map(|f| Value::String(f.into()));
@@ -1403,8 +1402,9 @@ async fn a_verified_session_streams_and_takes_input() {
         }]))
         .unwrap();
     rig.cmds.send(StackCmd::Keyframe).unwrap();
-    rig.cmds.send(StackCmd::NightMode(true)).unwrap();
-    rig.cmds.send(StackCmd::ClusterNightMode(true)).unwrap();
+    for surface in Surface::ALL {
+        rig.cmds.send(StackCmd::Appearance(surface, true)).unwrap();
+    }
     rig.cmds.send(StackCmd::LimitedUi(true)).unwrap();
     rig.cmds.send(StackCmd::Siri).unwrap();
     rig.cmds
@@ -1435,7 +1435,7 @@ async fn a_verified_session_streams_and_takes_input() {
     let mut plain = Vec::new();
     let mut chunk = vec![0u8; 16 * 1024];
     let mut commands = Vec::new();
-    while commands.len() < 15 {
+    while commands.len() < 14 {
         let n = tokio::time::timeout(Duration::from_secs(5), event.read(&mut chunk))
             .await
             .unwrap()
@@ -1444,7 +1444,7 @@ async fn a_verified_session_streams_and_takes_input() {
         let (data, rest) = event_cipher.decrypt(&sealed).unwrap();
         sealed = rest;
         plain.extend(data);
-        let (msgs, rest) = rtsp::parse(&plain);
+        let (msgs, rest) = rtsp::parse(&plain).unwrap();
         plain = rest;
         for m in msgs {
             let body = bplist::decode(&m.body).unwrap();
@@ -1461,9 +1461,8 @@ async fn a_verified_session_streams_and_takes_input() {
         [
             "hidSendReport",
             "forceKeyFrame",
-            "setNightMode",
             "uiAppearanceUpdate",
-            "mapAppearanceUpdate",
+            "setNightMode",
             "setLimitedUI",
             "requestSiri",
             "requestSiri",
@@ -1488,7 +1487,7 @@ async fn a_verified_session_streams_and_takes_input() {
         let (data, rest) = event_cipher.decrypt(&sealed).unwrap();
         sealed = rest;
         plain.extend(data);
-        let (mut msgs, rest) = rtsp::parse(&plain);
+        let (mut msgs, rest) = rtsp::parse(&plain).unwrap();
         plain = rest;
         if let Some(m) = msgs.pop() {
             break m;

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
-use livi_core_proto::config::{CarType, Config, SpeedUnit, TemperatureUnit, defaults};
-use livi_core_proto::state::Screen;
+use livi_core_proto::config::{CarType, SpeedUnit, TemperatureUnit};
+use livi_core_proto::state::{Screen, State};
 use serde_json::Value;
 
 use super::gauge::{Scale, scale};
@@ -29,12 +29,11 @@ pub enum Turn {
 pub struct Readings {
     pub enabled: bool,
     pub speed: f64,
-    pub speed_valid: bool,
     pub speed_text: String,
     pub speed_label: &'static str,
     pub speed_scale: Scale,
     pub rpm: f64,
-    pub rpm_valid: bool,
+    pub rpm_text: String,
     pub rpm_scale: Scale,
     pub redline: f64,
     pub gear: String,
@@ -46,14 +45,12 @@ pub struct Readings {
     pub ambient: Option<String>,
     pub fuel: i32,
     pub fuel_low: bool,
+    pub range: Option<String>,
     pub battery: bool,
     pub oil_text: String,
     pub oil_ratio: f64,
     pub oil_hot: bool,
-}
-
-pub fn config(state: &Value) -> Config {
-    serde_json::from_value(state["config"].clone()).unwrap_or_else(|_| defaults())
+    pub test: bool,
 }
 
 pub fn gear(v: &Value) -> String {
@@ -88,13 +85,10 @@ fn speed(kph: f64, unit: SpeedUnit) -> f64 {
     }
 }
 
-fn num(v: &Value) -> Option<f64> {
-    v.as_f64().filter(|f| f.is_finite())
-}
-
-pub fn readings(state: &Value, screen: Screen) -> Readings {
-    let c = config(state);
-    let t = &state["telemetry"];
+pub fn readings(state: &State, screen: Screen) -> Readings {
+    let c = &state.config;
+    let t = |key: &str| state.telemetry.get(key).unwrap_or(&Value::Null);
+    let num = |key: &str| t(key).as_f64().filter(|f| f.is_finite());
     let enabled = *c.dashboard.get(screen);
     let unit = c.speed_unit;
     let temp_unit = c.temperature_unit;
@@ -107,11 +101,27 @@ pub fn readings(state: &Value, screen: Screen) -> Readings {
     let rpm_scale = scale(f64::from(c.max_rpm), RPM_STEP, RPM_MAX_SECTIONS, |v| {
         format!("{}", v / 1000.0)
     });
-    let shown_speed = speed(num(&t["speedKph"]).unwrap_or(0.0), unit);
-    let fuel = num(&t["fuelPct"]).unwrap_or(0.0).round().clamp(0.0, 100.0) as i32;
-    let oil = num(&t["oilC"]).unwrap_or(0.0);
+    let test = t("dashTest").as_bool() == Some(true);
+    let on = |key: &str| test || t(key).as_bool() == Some(true);
+    let shown_speed = if test {
+        speed_scale.max
+    } else {
+        speed(num("speedKph").unwrap_or(0.0), unit)
+    };
+    let rpm = if test {
+        rpm_scale.max
+    } else {
+        num("rpm").unwrap_or(0.0).max(0.0)
+    };
+    let fuel_pct = if test { Some(100.0) } else { num("fuelPct") };
+    let fuel = fuel_pct.unwrap_or(0.0).round().clamp(0.0, 100.0) as i32;
+    let oil = if test {
+        OIL_MAX_C
+    } else {
+        num("oilC").unwrap_or(0.0)
+    };
     let oil_round = oil.round();
-    let turn = match t["turnSignal"].as_str() {
+    let turn = match t("turnSignal").as_str() {
         Some("left") => Turn::Left,
         Some("right") => Turn::Right,
         _ => Turn::None,
@@ -123,39 +133,39 @@ pub fn readings(state: &Value, screen: Screen) -> Readings {
     Readings {
         enabled,
         speed: shown_speed,
-        speed_valid: num(&t["speedKph"]).is_some(),
-        speed_text: if num(&t["speedKph"]).is_some() {
-            (shown_speed.round() as i64).clamp(0, 999).to_string()
-        } else {
-            "—".into()
-        },
+        speed_text: (shown_speed.round() as i64).clamp(0, 999).to_string(),
         speed_label: match unit {
             SpeedUnit::Kmh => "KPH",
             SpeedUnit::Mph => "MPH",
         },
         speed_scale,
-        rpm: num(&t["rpm"]).unwrap_or(0.0),
-        rpm_valid: num(&t["rpm"]).is_some(),
+        rpm,
+        rpm_text: (rpm.round() as i64).to_string(),
         rpm_scale,
         redline: f64::from(c.redline_rpm),
-        gear: gear(t.get("gear").unwrap_or(&Value::String("P".into()))),
+        gear: gear(
+            state
+                .telemetry
+                .get("gear")
+                .unwrap_or(&Value::String("P".into())),
+        ),
         turn,
-        hazards: t["hazards"].as_bool() == Some(true),
-        lights: t["lights"].as_bool() == Some(true),
-        high_beam: t["highBeam"].as_bool() == Some(true),
-        parking_brake: t["parkingBrake"].as_bool() == Some(true),
-        ambient: num(&t["ambientC"])
-            .map(|a| format!("{}{suffix}", temperature(a, temp_unit).round())),
+        hazards: on("hazards"),
+        lights: on("lights"),
+        high_beam: on("highBeam"),
+        parking_brake: on("parkingBrake"),
+        ambient: num("ambientC").map(|a| format!("{}{suffix}", temperature(a, temp_unit).round())),
         fuel,
-        fuel_low: fuel <= FUEL_WARN_BELOW,
+        fuel_low: fuel_pct.is_some() && fuel <= FUEL_WARN_BELOW,
+        range: num("rangeKm").filter(|r| *r >= 0.0).map(|r| match unit {
+            SpeedUnit::Kmh => format!("{} km", r.round()),
+            SpeedUnit::Mph => format!("{} mi", (r * MPH_PER_KPH).round()),
+        }),
         battery: c.car_type == Some(CarType::Electric),
-        oil_text: if num(&t["oilC"]).is_some() {
-            format!("{}°", temperature(oil, temp_unit).round())
-        } else {
-            "—".into()
-        },
+        oil_text: format!("{}°", temperature(oil, temp_unit).round()),
         oil_ratio: (oil_round.clamp(OIL_MIN_C, OIL_MAX_C) - OIL_MIN_C) / (OIL_MAX_C - OIL_MIN_C),
         oil_hot: oil_round >= OIL_WARN_C,
+        test,
     }
 }
 
@@ -165,29 +175,24 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn missing_engine_values_are_not_presented_as_zero() {
-        let missing = readings(
-            &state(json!({"rpm":null,"speedKph":null,"oilC":null}), json!({})),
-            Screen::Main,
-        );
-        assert!(!missing.rpm_valid && !missing.speed_valid);
-        assert_eq!(missing.speed_text, "—");
-        assert_eq!(missing.oil_text, "—");
-        let stopped = readings(
-            &state(json!({"rpm":0,"speedKph":0}), json!({})),
-            Screen::Main,
-        );
-        assert!(stopped.rpm_valid && stopped.speed_valid);
-        assert_eq!(stopped.speed_text, "0");
+    fn state(telemetry: Value, config: Value) -> State {
+        crate::testing::state(json!({ "config": config, "telemetry": telemetry }))
     }
 
-    fn state(telemetry: Value, patch: Value) -> Value {
-        let mut config = serde_json::to_value(defaults()).unwrap();
-        if let (Some(c), Some(p)) = (config.as_object_mut(), patch.as_object()) {
-            c.extend(p.clone());
-        }
-        json!({ "config": config, "telemetry": telemetry })
+    #[test]
+    fn a_dash_test_swings_everything_to_full() {
+        let s = state(
+            json!({ "dashTest": true, "speedKph": 30.0, "fuelPct": 40.0 }),
+            json!({ "maxSpeedKph": 260, "maxRpm": 8000 }),
+        );
+        let r = readings(&s, Screen::Main);
+        assert_eq!(r.speed, r.speed_scale.max);
+        assert_eq!(r.rpm, r.rpm_scale.max);
+        assert_eq!((r.fuel, r.oil_ratio), (100, 1.0));
+        assert!(r.test && r.hazards && r.lights && r.high_beam && r.parking_brake);
+        assert!(!r.fuel_low && r.oil_hot);
+        let off = state(json!({ "dashTest": false }), json!({}));
+        assert!(!readings(&off, Screen::Main).test);
     }
 
     #[test]
@@ -209,6 +214,25 @@ mod tests {
         assert_eq!(r.ambient.as_deref(), Some("68°F"));
         assert_eq!(r.oil_text, "194°");
         assert!(!r.oil_hot);
+    }
+
+    #[test]
+    fn range_follows_the_speed_unit_and_rpm_reads_whole() {
+        let s = |unit: &str| {
+            state(
+                json!({ "rangeKm": 100.0, "rpm": 2412.6 }),
+                json!({ "speedUnit": unit }),
+            )
+        };
+        let r = readings(&s("kmh"), Screen::Main);
+        assert_eq!(r.range.as_deref(), Some("100 km"));
+        assert_eq!(r.rpm_text, "2413");
+        assert_eq!(
+            readings(&s("mph"), Screen::Main).range.as_deref(),
+            Some("62 mi")
+        );
+        let none = state(json!({ "rangeKm": -5 }), json!({}));
+        assert_eq!(readings(&none, Screen::Main).range, None);
     }
 
     #[test]

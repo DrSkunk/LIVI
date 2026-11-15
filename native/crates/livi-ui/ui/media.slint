@@ -4,233 +4,11 @@
 
 import { Theme } from "theme.slint";
 import { Focus } from "focus.slint";
-import { MediaSource, MediaText, Press, RoundButton, Spectrum, SourceTabs } from "media_parts.slint";
-import { DabPage, DabState, StationData } from "dab.slint";
+import { MediaGeometry, MediaSource, MediaText, Press, Spectrum, Transport } from "media_parts.slint";
+import { DabPage, DabState, MediaTabs, StationData } from "dab.slint";
 
 export { MediaSource, MediaText, Press, DabState, StationData }
 
-export struct LocalMusicRow {
-    id: string,
-    label: string,
-    kind: string,
-}
-
-component SyncButton inherits Rectangle {
-    in property <string> label;
-    callback clicked();
-    width: sync-label.preferred-width + 32px;
-    height: 40px;
-    border-radius: Theme.radius;
-    background: Theme.panel;
-    sync-label := Text {
-        x: 16px;
-        y: 10px;
-        text: root.label;
-        color: Theme.text;
-        font-size: 15px;
-        font-weight: 700;
-    }
-    TouchArea { clicked => { root.clicked(); } }
-}
-
-component LocalMusicLibrary inherits Rectangle {
-    in property <[LocalMusicRow]> entries;
-    in property <string> folder-name;
-    in property <string> parent-id;
-    in property <string> error;
-    in property <string> eject-device;
-    in property <bool> ejecting;
-    in property <string> sync-phase;
-    in property <string> sync-code;
-    in property <string> sync-verification;
-    in property <string> sync-website;
-    in property <string> sync-last-file;
-    in property <string> sync-error;
-    callback pick(string, string);
-    callback back();
-    callback refresh();
-    callback eject();
-    callback sync-start();
-    callback sync-approve();
-    callback sync-reject();
-    callback sync-stop();
-
-    background: Theme.backdrop;
-    VerticalLayout {
-        padding: 18px;
-        spacing: 10px;
-        HorizontalLayout {
-            height: 44px;
-            spacing: 10px;
-            Rectangle {
-                width: back-label.preferred-width + 32px;
-                height: 40px;
-                border-radius: Theme.radius;
-                background: Theme.panel;
-                back-label := Text {
-                    x: 16px;
-                    y: 10px;
-                    text: root.parent-id == "" ? MediaText.phone-source : MediaText.back;
-                    color: Theme.text;
-                    font-size: 15px;
-                    font-weight: 700;
-                }
-                TouchArea { clicked => { root.back(); } }
-            }
-            Text {
-                text: root.folder-name == "" ? MediaText.local-music : root.folder-name;
-                color: Theme.text;
-                font-size: 18px;
-                font-weight: 700;
-                vertical-alignment: center;
-            }
-            Rectangle {
-                horizontal-stretch: 1;
-            }
-            if root.sync-phase == "idle": SyncButton {
-                label: MediaText.wireless-sync;
-                clicked => { root.sync-start(); }
-            }
-            if root.eject-device != "" || root.ejecting: Rectangle {
-                width: eject-label.preferred-width + 32px;
-                height: 40px;
-                border-radius: Theme.radius;
-                background: Theme.panel;
-                eject-label := Text {
-                    x: 16px;
-                    y: 10px;
-                    text: root.ejecting ? "Ejecting…" : "Eject USB";
-                    color: Theme.primary;
-                    font-size: 15px;
-                    font-weight: 700;
-                }
-                TouchArea {
-                    enabled: !root.ejecting;
-                    clicked => { root.eject(); }
-                }
-            }
-            Rectangle {
-                width: refresh-label.preferred-width + 32px;
-                height: 40px;
-                border-radius: Theme.radius;
-                background: Theme.panel;
-                refresh-label := Text {
-                    x: 16px;
-                    y: 10px;
-                    text: MediaText.refresh;
-                    color: Theme.text;
-                    font-size: 15px;
-                    font-weight: 700;
-                }
-                TouchArea { clicked => { root.refresh(); } }
-            }
-        }
-        if root.error != "": Text {
-            text: root.error;
-            color: Theme.primary;
-            font-size: 14px;
-            wrap: word-wrap;
-        }
-        if root.sync-phase != "idle": VerticalLayout {
-            spacing: 10px;
-            Text {
-                text: root.sync-phase == "starting" ? MediaText.sync-starting
-                    : root.sync-phase == "pairing" ? MediaText.sync-instructions
-                    : root.sync-phase == "pending" ? MediaText.sync-pending
-                    : root.sync-phase == "connected" ? MediaText.sync-connected
-                    : root.sync-error;
-                color: Theme.text;
-                font-size: 16px;
-                wrap: word-wrap;
-            }
-            if root.sync-website != "": Text {
-                text: root.sync-website;
-                color: Theme.text-secondary;
-                font-size: 12px;
-                wrap: word-wrap;
-            }
-            if root.sync-code != "" && root.sync-phase != "pending": Text {
-                text: root.sync-code;
-                color: Theme.text;
-                font-size: 32px;
-                font-weight: 700;
-            }
-            if root.sync-verification != "" && root.sync-phase == "pending": Text {
-                text: root.sync-verification;
-                color: Theme.primary;
-                font-size: 30px;
-                font-weight: 700;
-            }
-            if root.sync-last-file != "" && root.sync-phase == "connected": Text {
-                text: root.sync-last-file;
-                color: Theme.text-secondary;
-                font-size: 14px;
-                overflow: elide;
-            }
-            HorizontalLayout {
-                spacing: 10px;
-                if root.sync-phase == "pending": SyncButton {
-                    label: MediaText.sync-allow;
-                    clicked => { root.sync-approve(); }
-                }
-                if root.sync-phase == "pending": SyncButton {
-                    label: MediaText.sync-reject;
-                    clicked => { root.sync-reject(); }
-                }
-                if root.sync-phase == "error": SyncButton {
-                    label: MediaText.sync-retry;
-                    clicked => { root.sync-start(); }
-                }
-                SyncButton {
-                    label: MediaText.sync-stop;
-                    clicked => { root.sync-stop(); }
-                }
-                Rectangle { horizontal-stretch: 1; }
-            }
-            Rectangle { vertical-stretch: 1; }
-        }
-        if root.sync-phase == "idle": Flickable {
-            content-width: self.width;
-            content-height: max(self.height, items.preferred-height);
-            items := VerticalLayout {
-                width: root.width - 36px;
-                spacing: 6px;
-                for entry in root.entries: Rectangle {
-                    height: 54px;
-                    border-radius: Theme.radius;
-                    border-width: 1px;
-                    border-color: Theme.rule;
-                    background: Theme.panel;
-                    HorizontalLayout {
-                        padding-left: 16px;
-                        padding-right: 16px;
-                        spacing: 12px;
-                        Text {
-                            text: entry.kind == "folder" ? "▸" : entry.kind == "playlist" ? "♫" : "♪";
-                            color: Theme.primary;
-                            font-size: 18px;
-                            vertical-alignment: center;
-                        }
-                        Text {
-                            text: entry.label;
-                            color: Theme.text;
-                            font-size: 16px;
-                            vertical-alignment: center;
-                            overflow: elide;
-                            horizontal-stretch: 1;
-                        }
-                    }
-                    TouchArea { clicked => { root.pick(entry.id, entry.kind); } }
-                }
-                if root.entries.length == 0: Text {
-                    text: MediaText.no-local-music;
-                    color: Theme.text-secondary;
-                    font-size: 16px;
-                }
-            }
-        }
-    }
-}
 
 export component Progress inherits Rectangle {
     in property <bool> focused;
@@ -264,7 +42,6 @@ export component Progress inherits Rectangle {
             text: root.clock(root.dragging ? root.shown-ms : root.elapsed-ms);
             color: root.text-color;
             font-size: 14px;
-            letter-spacing: Theme.tracking;
             vertical-alignment: center;
         }
         track := Rectangle {
@@ -272,17 +49,15 @@ export component Progress inherits Rectangle {
             Rectangle {
                 y: (parent.height - root.bar-height) / 2;
                 height: root.bar-height;
-                border-radius: Theme.comand ? root.bar-height / 2 : root.bar-height / 1.6;
+                border-radius: root.bar-height / 1.6;
                 clip: true;
-                background: Theme.comand ? Theme.groove : Theme.track;
-                border-width: Theme.comand ? 1px : 0;
-                border-color: root.focused && Theme.comand ? Theme.focus-color : Theme.rule;
+                background: Theme.track;
                 drop-shadow-blur: root.focused ? 8px : 0;
                 drop-shadow-color: Theme.highlight.with-alpha(0.35);
                 Rectangle {
                     x: 0;
                     width: parent.width * root.shown;
-                    background: Theme.comand ? @linear-gradient(180deg, Theme.highlight 0%, Theme.primary 100%) : Theme.highlight;
+                    background: Theme.highlight;
                 }
             }
             if root.can-seek: Rectangle {
@@ -301,12 +76,10 @@ export component Progress inherits Rectangle {
                 y: (parent.height - self.height) / 2;
                 x: clamp(parent.width * root.shown - self.width / 2, 0, parent.width - self.width);
                 border-radius: self.height / 2;
-                background: Theme.comand ? Theme.background.mix(Theme.text, 0.98) : Theme.highlight;
-                border-width: Theme.comand ? 3px : 0;
-                border-color: Theme.highlight;
-                drop-shadow-blur: Theme.comand ? 13px : 4px;
-                drop-shadow-offset-y: Theme.comand ? 0 : 1px;
-                drop-shadow-color: Theme.comand ? Theme.highlight.with-alpha(0.58) : #00000059;
+                background: Theme.highlight;
+                drop-shadow-blur: 4px;
+                drop-shadow-offset-y: 1px;
+                drop-shadow-color: #00000059;
             }
             TouchArea {
                 enabled: root.can-seek && root.total-ms > 0;
@@ -333,7 +106,6 @@ export component Progress inherits Rectangle {
             text: "-" + root.clock(root.total-ms - (root.dragging ? root.shown-ms : root.elapsed-ms));
             color: root.text-color;
             font-size: 14px;
-            letter-spacing: Theme.tracking;
             horizontal-alignment: right;
             vertical-alignment: center;
         }
@@ -342,6 +114,7 @@ export component Progress inherits Rectangle {
 
 component PhonePlayer inherits Rectangle {
     in property <int> focus-base;
+    in property <length> tabs-h;
     in property <string> track-title;
     in property <string> artist;
     in property <string> album;
@@ -361,96 +134,78 @@ component PhonePlayer inherits Rectangle {
     callback seek(float);
     callback spectrum-changed(bool);
 
-    out property <bool> art-shown: two-col;
-    property <int> off: focus-base + (two-col ? 1 : 0);
+    geo := MediaGeometry {
+        w: root.width / 1px;
+        h: root.height / 1px;
+    }
+
+    out property <bool> art-shown: geo.two-col;
+    property <int> off: focus-base + (geo.two-col ? 1 : 0);
 
     init => { Focus.media-art = root.art-shown; }
     changed art-shown => { Focus.media-art = root.art-shown; }
 
-    pure function clampf(v: float, lo: float, hi: float) -> float { return min(max(v, lo), hi); }
-
-    property <float> w: root.width / 1px;
-    property <float> h: root.height / 1px;
-    property <float> min-side: min(w, h);
-    property <bool> tiny: h > 0 && h <= 320;
-    property <float> text-scale: tiny ? 0.88 : 1;
-
-    property <float> page-pad-raw: round(clampf(min-side * 0.02, 12, 22));
-    property <float> page-pad: tiny ? min(page-pad-raw, 10) : page-pad-raw;
-    property <float> col-gap: round(clampf(w * 0.025, 16, 28));
-    property <float> ctrl-size: round(clampf(h * 0.095, 50, 82));
-    property <float> ctrl-gap: round(clampf(w * 0.03, 16, 32));
-    property <float> progress-h-raw: round(clampf(h * 0.012, 8, 12));
-    property <float> progress-h: max(6, round(progress-h-raw * (tiny ? 0.85 : 1)));
-
-    property <float> title-px: max(12, round(round(clampf(min-side * 0.07, 18, 48)) * text-scale));
-    property <float> artist-px: max(11, round(round(clampf(min-side * 0.034, 14, 24)) * text-scale));
-    property <float> album-px: max(10, round(round(clampf(min-side * 0.028, 13, 20)) * text-scale));
-    property <float> app-px: max(10, round(12 * text-scale));
-
-    property <float> bottom-dock-h: ctrl-size + 16 + (progress-h + 20);
-    property <float> content-h: max(0, h - page-pad * 2 - bottom-dock-h);
-    property <float> inner-w: max(0, w - page-pad * 2);
-    property <bool> two-col: inner-w >= 120 + 140 + col-gap;
-    property <float> art-allowance: max(140, floor(inner-w - 120 - col-gap));
-    property <float> art-px: round(clampf(min(content-h, art-allowance), 140, 520));
-    property <float> text-side-pad: max(6, round(page-pad * 0.75));
-
     VerticalLayout {
-        padding-top: root.page-pad * 1px;
-        padding-left: root.page-pad * 1px;
-        padding-right: root.page-pad * 1px;
-        padding-bottom: (root.tiny ? 2 : root.page-pad) * 1px;
-        spacing: (root.tiny ? 3 : 4) * 1px;
+        padding-top: geo.page-pad * 1px;
+        padding-left: geo.page-pad * 1px;
+        padding-right: geo.page-pad * 1px;
+        padding-bottom: geo.bottom-pad * 1px;
+        spacing: (geo.tiny ? 3 : 4) * 1px;
 
         Rectangle {
             vertical-stretch: 1;
             HorizontalLayout {
-                spacing: root.col-gap * 1px;
+                spacing: geo.col-gap * 1px;
                 VerticalLayout {
-                    alignment: center;
                     horizontal-stretch: 1;
                     min-width: 120px;
-                    padding-left: root.text-side-pad * 1px;
-                    padding-right: root.two-col ? 0 : root.text-side-pad * 1px;
-                    Text {
-                        text: root.track-title;
-                        color: Theme.text;
-                        font-size: root.title-px * 1px;
-                        font-weight: Theme.comand ? 700 : 800;
-                        letter-spacing: Theme.comand ? 1px : 0.2px;
-                        overflow: elide;
-                    }
-                    if root.two-col: Text {
-                        text: root.artist;
-                        color: Theme.text.with-alpha(0.9);
-                        font-size: root.artist-px * 1px;
-                        overflow: elide;
-                    }
-                    if root.two-col: Text {
-                        text: root.album;
-                        color: Theme.text.with-alpha(0.7);
-                        font-size: root.album-px * 1px;
-                        overflow: elide;
-                    }
-                    Text {
-                        text: root.two-col ? root.app : root.artist;
-                        color: Theme.text.with-alpha(0.55);
-                        font-size: root.app-px * 1px;
-                        overflow: elide;
+                    padding-top: geo.art-inset * 1px;
+                    padding-bottom: geo.art-inset * 1px;
+                    Rectangle { height: root.tabs-h; }
+                    VerticalLayout {
+                        alignment: center;
+                        vertical-stretch: 1;
+                        padding-left: geo.text-side-pad * 1px;
+                        padding-right: geo.two-col ? 0 : geo.text-side-pad * 1px;
+                        Text {
+                            text: root.track-title;
+                            color: Theme.text;
+                            font-size: geo.title-px * 1px;
+                            font-weight: 800;
+                            letter-spacing: 0.2px;
+                            overflow: elide;
+                        }
+                        if geo.two-col: Text {
+                            text: root.artist;
+                            color: Theme.text.with-alpha(0.9);
+                            font-size: geo.artist-px * 1px;
+                            overflow: elide;
+                        }
+                        if geo.two-col: Text {
+                            text: root.album;
+                            color: Theme.text.with-alpha(0.7);
+                            font-size: geo.album-px * 1px;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: geo.two-col ? root.app : root.artist;
+                            color: Theme.text.with-alpha(0.55);
+                            font-size: geo.app-px * 1px;
+                            overflow: elide;
+                        }
                     }
                 }
-                if root.two-col: Rectangle {
-                    width: root.art-px * 1px;
+                if geo.two-col: Rectangle {
+                    width: geo.art-px * 1px;
                     Rectangle {
-                        width: root.art-px * 1px;
-                        height: root.art-px * 1px;
+                        width: geo.art-px * 1px;
+                        height: geo.art-px * 1px;
                         y: (parent.height - self.height) / 2;
-                        border-radius: Theme.comand ? Theme.radius : 34px;
-                        border-width: Focus.main(root.focus-base) ? Theme.ring(3px) : Theme.comand ? 1px : 0;
-                        border-color: Focus.main(root.focus-base) ? Theme.focus-color : Theme.rule;
+                        border-radius: 34px;
+                        border-width: Focus.main(root.focus-base) ? 3px : 0;
+                        border-color: Theme.primary;
                         clip: true;
-                        background: root.show-spectrum ? (Theme.comand ? Theme.panel : transparent) : Theme.comand ? Theme.panel : Theme.surface;
+                        background: root.show-spectrum ? transparent : Theme.surface;
                         if !root.show-spectrum && root.has-artwork: Image {
                             width: parent.width;
                             height: parent.height;
@@ -463,7 +218,7 @@ component PhonePlayer inherits Rectangle {
                             font-size: 12px;
                         }
                         if root.show-spectrum: Spectrum {
-                            x: max(8, round(root.art-px * 0.06)) * 1px;
+                            x: max(8, round(geo.art-px * 0.06)) * 1px;
                             y: self.x + (parent.height - 2 * self.x) * 0.075;
                             width: parent.width - 2 * self.x;
                             height: (parent.height - 2 * self.x) * 0.85;
@@ -481,35 +236,16 @@ component PhonePlayer inherits Rectangle {
         }
 
         VerticalLayout {
-            spacing: (root.tiny ? 3 : 4) * 1px;
-            padding-bottom: root.tiny ? 0 : 8px;
-            HorizontalLayout {
-                alignment: center;
-                spacing: root.ctrl-gap * 1px;
-                RoundButton {
-                    focused: Focus.main(root.off);
-                    flash: Press.prev;
-                    size: root.ctrl-size * 1px;
-                    icon-size: round(root.ctrl-size * 0.46) * 1px;
-                    icon: @image-url("icons/SkipPrevious.svg");
-                    clicked => { root.prev(); }
-                }
-                RoundButton {
-                    focused: Focus.main(root.off + 1);
-                    flash: Press.play;
-                    size: root.ctrl-size * 1px;
-                    icon-size: round(root.ctrl-size * 0.46) * 1px;
-                    icon: root.playing ? @image-url("icons/Pause.svg") : @image-url("icons/PlayArrow.svg");
-                    clicked => { root.play-pause(); }
-                }
-                RoundButton {
-                    focused: Focus.main(root.off + 2);
-                    flash: Press.next;
-                    size: root.ctrl-size * 1px;
-                    icon-size: round(root.ctrl-size * 0.46) * 1px;
-                    icon: @image-url("icons/SkipNext.svg");
-                    clicked => { root.next(); }
-                }
+            spacing: (geo.tiny ? 3 : 4) * 1px;
+            padding-bottom: geo.tiny ? 0 : 8px;
+            Transport {
+                focus-base: root.off;
+                playing: root.playing;
+                size: geo.ctrl-size * 1px;
+                gap: geo.ctrl-gap * 1px;
+                prev => { root.prev(); }
+                play-pause => { root.play-pause(); }
+                next => { root.next(); }
             }
             Progress {
                 focused: root.can-seek && Focus.main(root.off + 3);
@@ -517,7 +253,7 @@ component PhonePlayer inherits Rectangle {
                 can-seek: root.can-seek;
                 total-ms: root.total-ms;
                 elapsed-ms: root.elapsed-ms;
-                bar-height: root.progress-h * 1px;
+                bar-height: geo.progress-h * 1px;
                 seek(f) => { root.seek(f); }
             }
         }
@@ -536,20 +272,6 @@ export component MediaPage inherits Rectangle {
     in property <float> elapsed-ms;
     in property <float> total-ms;
     in property <bool> can-seek;
-    in property <bool> local-music-active;
-    in property <bool> local-music-browsing;
-    in property <string> local-music-parent;
-    in property <string> local-music-folder;
-    in property <[LocalMusicRow]> local-music-entries;
-    in property <string> local-music-error;
-    in property <string> local-music-eject-device;
-    in property <bool> local-music-ejecting;
-    in property <string> music-sync-phase;
-    in property <string> music-sync-code;
-    in property <string> music-sync-verification;
-    in property <string> music-sync-website;
-    in property <string> music-sync-last-file;
-    in property <string> music-sync-error;
     in-out property <bool> show-spectrum;
     in property <[float]> bands;
     callback play-pause();
@@ -557,114 +279,55 @@ export component MediaPage inherits Rectangle {
     callback next();
     callback seek(float);
     callback spectrum-changed(bool);
-    callback local-music();
-    callback local-item(string, string);
-    callback local-back();
-    callback local-refresh();
-    callback local-eject();
-    callback music-sync-start();
-    callback music-sync-approve();
-    callback music-sync-reject();
-    callback music-sync-stop();
 
     property <int> base: DabState.receiver ? 3 : 0;
-    property <bool> dab-shown: DabState.receiver && DabState.view != MediaSource.phone && !root.local-music-active;
-    property <length> tabs-h: DabState.receiver && !root.local-music-active ? 48px : 0;
+    property <bool> dab-shown: DabState.receiver && DabState.view != MediaSource.phone;
+    property <length> tabs-h: DabState.receiver ? tabs.height + (geo.tiny ? 4px : 8px) : 0;
 
-    background: Theme.backdrop;
-
-    Rectangle {
-        x: root.width - self.width - 12px;
-        y: root.tabs-h + 4px;
-        width: button-label.preferred-width + 28px;
-        height: 34px;
-        border-radius: Theme.radius;
-        border-width: 1px;
-        border-color: Theme.rule;
-        background: Theme.panel;
-        button-label := Text {
-            x: 14px;
-            y: 7px;
-            text: root.local-music-active
-                ? (root.local-music-browsing ? MediaText.phone-source : MediaText.browse)
-                : MediaText.local-music;
-            color: Theme.text;
-            font-size: 14px;
-            font-weight: 700;
-        }
-        TouchArea { clicked => { root.local-music(); } }
+    geo := MediaGeometry {
+        w: root.width / 1px;
+        h: root.height / 1px;
     }
-    Rectangle {
-        if DabState.receiver && !root.local-music-active: SourceTabs {
-            y: 0;
-            width: parent.width;
-            height: root.tabs-h;
-            view: DabState.view;
-            focus-base: 0;
-            phone => { DabState.phone(); }
-            dab => { DabState.resume(); }
-            fm => { DabState.resume-fm(); }
-        }
-        if !root.local-music-browsing && !root.dab-shown: PhonePlayer {
-            y: root.tabs-h;
-            width: parent.width;
-            height: parent.height - root.tabs-h;
-            focus-base: root.base;
-            track-title: root.track-title;
-            artist: root.artist;
-            album: root.album;
-            app: root.app;
-            artwork: root.artwork;
-            has-artwork: root.has-artwork;
-            playing: root.playing;
-            progress: root.progress;
-            elapsed-ms: root.elapsed-ms;
-            total-ms: root.total-ms;
-            can-seek: root.can-seek;
-            show-spectrum <=> root.show-spectrum;
-            bands: root.bands;
-            play-pause => { root.play-pause(); }
-            prev => { root.prev(); }
-            next => { root.next(); }
-            seek(f) => { root.seek(f); }
-            spectrum-changed(on) => { root.spectrum-changed(on); }
-        }
-        if !root.local-music-browsing && root.dab-shown: DabPage {
-            y: root.tabs-h;
-            width: parent.width;
-            height: parent.height - root.tabs-h;
-            focus-base: root.base;
-            show-spectrum <=> root.show-spectrum;
-            bands: root.bands;
-            spectrum-changed(on) => { root.spectrum-changed(on); }
-            play-pause => { root.play-pause(); }
-            prev => { root.prev(); }
-            next => { root.next(); }
-        }
-        if root.local-music-browsing: LocalMusicLibrary {
-            y: root.tabs-h;
-            width: parent.width;
-            height: parent.height - root.tabs-h;
-            entries: root.local-music-entries;
-            folder-name: root.local-music-folder;
-            parent-id: root.local-music-parent;
-            error: root.local-music-error;
-            eject-device: root.local-music-eject-device;
-            ejecting: root.local-music-ejecting;
-            sync-phase: root.music-sync-phase;
-            sync-code: root.music-sync-code;
-            sync-verification: root.music-sync-verification;
-            sync-website: root.music-sync-website;
-            sync-last-file: root.music-sync-last-file;
-            sync-error: root.music-sync-error;
-            pick(id, kind) => { root.local-item(id, kind); }
-            back => { root.local-back(); }
-            refresh => { root.local-refresh(); }
-            eject => { root.local-eject(); }
-            sync-start => { root.music-sync-start(); }
-            sync-approve => { root.music-sync-approve(); }
-            sync-reject => { root.music-sync-reject(); }
-            sync-stop => { root.music-sync-stop(); }
-        }
+
+    background: Theme.background;
+
+    if !root.dab-shown: PhonePlayer {
+        width: parent.width;
+        height: parent.height;
+        focus-base: root.base;
+        tabs-h: root.tabs-h;
+        track-title: root.track-title;
+        artist: root.artist;
+        album: root.album;
+        app: root.app;
+        artwork: root.artwork;
+        has-artwork: root.has-artwork;
+        playing: root.playing;
+        progress: root.progress;
+        elapsed-ms: root.elapsed-ms;
+        total-ms: root.total-ms;
+        can-seek: root.can-seek;
+        show-spectrum <=> root.show-spectrum;
+        bands: root.bands;
+        play-pause => { root.play-pause(); }
+        prev => { root.prev(); }
+        next => { root.next(); }
+        seek(f) => { root.seek(f); }
+        spectrum-changed(on) => { root.spectrum-changed(on); }
+    }
+    if root.dab-shown: DabPage {
+        width: parent.width;
+        height: parent.height;
+        focus-base: root.base;
+        tabs-h: root.tabs-h;
+        show-spectrum <=> root.show-spectrum;
+        bands: root.bands;
+        spectrum-changed(on) => { root.spectrum-changed(on); }
+    }
+    tabs := MediaTabs {
+        visible: DabState.receiver;
+        room: geo.left-w * 1px;
+        x: geo.page-pad * 1px + max(0, geo.left-w * 1px - self.width) / 2;
+        y: (geo.page-pad + geo.art-inset) * 1px;
     }
 }

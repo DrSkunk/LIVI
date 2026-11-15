@@ -2,11 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
-use livi_core_proto::config::WindowBounds;
-use livi_core_proto::state::Screen;
-use serde_json::Value;
-
-use super::readings::config;
+use livi_core_proto::config::{ViewArea, WindowBounds};
+use livi_core_proto::state::{Screen, State};
 
 const MIN_SIZE: u32 = 200;
 const MAX_SIZE: u32 = 7680;
@@ -19,6 +16,7 @@ pub struct Secondary {
     pub bounds: Option<WindowBounds>,
     pub kiosk: bool,
     pub dashboard: bool,
+    pub view_area: ViewArea,
 }
 
 pub fn name(screen: Screen) -> &'static str {
@@ -29,8 +27,8 @@ pub fn name(screen: Screen) -> &'static str {
     }
 }
 
-pub fn secondary(state: &Value) -> Vec<Secondary> {
-    let c = config(state);
+pub fn secondary(state: &State) -> Vec<Secondary> {
+    let c = &state.config;
     let size = |v: u32| v.clamp(MIN_SIZE, MAX_SIZE);
     [
         (
@@ -57,26 +55,40 @@ pub fn secondary(state: &Value) -> Vec<Secondary> {
         bounds: bounds.filter(|b| b.width >= MIN_SIZE && b.height >= MIN_SIZE),
         kiosk: *c.kiosk.get(screen),
         dashboard: *c.dashboard.get(screen),
+        view_area: *c.view_area.get(screen),
     })
     .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use livi_core_proto::config::defaults;
-    use serde_json::json;
-
     use super::*;
 
     #[test]
     fn only_active_screens_get_a_window() {
-        let mut c = serde_json::to_value(defaults()).unwrap();
-        c["clusterScreenActive"] = json!(true);
-        c["clusterScreenWidth"] = json!(50);
-        let s = secondary(&json!({ "config": c }));
+        let mut state = State::default();
+        state.config.cluster_screen_active = true;
+        state.config.cluster_screen_width = 50;
+        state.config.aux_screen_active = false;
+        let s = secondary(&state);
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].screen, Screen::Cluster);
         assert_eq!(s[0].width, MIN_SIZE);
         assert_eq!(name(s[0].screen), "cluster");
+    }
+
+    #[test]
+    fn each_window_gets_its_own_view_area() {
+        let mut state = State::default();
+        state.config.cluster_screen_active = true;
+        state.config.aux_screen_active = true;
+        state.config.view_area.cluster.left = 40;
+        state.config.view_area.aux.bottom = 12;
+        state.config.cluster_view_area_left = 300;
+        let s = secondary(&state);
+        assert_eq!(s[0].view_area.left, 40);
+        assert_eq!(s[0].view_area.bottom, 0);
+        assert_eq!(s[1].view_area.bottom, 12);
+        assert_eq!(s[1].view_area.left, 0);
     }
 }

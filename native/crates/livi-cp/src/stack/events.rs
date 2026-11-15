@@ -10,8 +10,7 @@ impl<M: Media> Conn<M> {
         let Some(shared) = self.pair_verify.shared_secret() else {
             return;
         };
-        let write = hkdf_sha512(&shared, b"Events-Salt", b"Events-Write-Encryption-Key");
-        let read = hkdf_sha512(&shared, b"Events-Salt", b"Events-Read-Encryption-Key");
+        let (read, write) = session_keys::events(&shared);
         let (rd, wr) = sock.into_split();
         self.event = Some(EventConn {
             read: rd,
@@ -39,7 +38,11 @@ impl<M: Media> Conn<M> {
                 return;
             }
         }
-        let (messages, rest) = rtsp::parse(&ev.plain);
+        let Ok((messages, rest)) = rtsp::parse(&ev.plain) else {
+            println!("[cpStack] event message too large, event channel dropped");
+            self.event = None;
+            return;
+        };
         ev.plain = rest;
         for msg in messages {
             if msg.method.starts_with("RTSP/") || msg.method.starts_with("HTTP/") {
@@ -107,36 +110,54 @@ impl<M: Media> Conn<M> {
         .await;
     }
 
-    pub(super) async fn send_night_mode(&mut self, night: bool) {
+    async fn send_night_mode(&mut self, night: bool) {
         self.send_event_command(&dict([
             ("type", Value::String("setNightMode".into())),
             ("params", dict([("nightMode", Value::Bool(night))])),
         ]))
         .await;
-        self.send_appearance(self.main_uuid(), night).await;
     }
 
-    pub(super) async fn send_cluster_appearance(&mut self, night: bool) {
-        if self.ctx.config.borrow().info.cluster.is_none() {
+    pub(super) async fn send_surface(&mut self, surface: Surface, night: bool) {
+        if surface == Surface::MainMap {
+            self.send_night_mode(night).await;
             return;
         }
-        self.send_appearance(self.alt_uuid(), night).await;
+        let uuid = if surface.on_cluster() {
+            if self.told(|info| info.cluster.is_none()) {
+                return;
+            }
+            self.alt_uuid()
+        } else {
+            self.main_uuid()
+        };
+        self.send_event_command(&dict([
+            ("type", Value::String(surface.update().into())),
+            (
+                "params",
+                dict([
+                    ("uuid", Value::String(uuid)),
+                    ("appearanceMode", Value::Int(u64::from(night))),
+                    ("appearanceSetting", Value::Int(self.appearance_setting)),
+                ]),
+            ),
+        ]))
+        .await;
     }
 
-    pub(super) async fn send_appearance(&mut self, uuid: String, night: bool) {
-        for kind in ["uiAppearanceUpdate", "mapAppearanceUpdate"] {
-            self.send_event_command(&dict([
-                ("type", Value::String(kind.into())),
-                (
-                    "params",
-                    dict([
-                        ("uuid", Value::String(uuid.clone())),
-                        ("appearanceMode", Value::Int(u64::from(night))),
-                        ("appearanceSetting", Value::Int(APPEARANCE_AUTOMATIC)),
-                    ]),
-                ),
-            ]))
-            .await;
+    pub(super) async fn send_surfaces(&mut self) {
+        for surface in Surface::ALL {
+            if let Some(night) = self.appearance[surface as usize] {
+                self.send_surface(surface, night).await;
+            }
+        }
+    }
+
+    pub(super) async fn follow_appearance_setting(&mut self) {
+        let setting = self.ctx.config.borrow().info.appearance_setting;
+        if setting != self.appearance_setting {
+            self.appearance_setting = setting;
+            self.send_surfaces().await;
         }
     }
 
@@ -173,12 +194,19 @@ impl<M: Media> Conn<M> {
         self.force_keyframe(&self.alt_uuid()).await;
     }
 
+    pub(super) fn told<T>(&self, read: impl FnOnce(&InfoConfig) -> T) -> T {
+        match &self.told_info {
+            Some(info) => read(info),
+            None => read(&self.ctx.config.borrow().info),
+        }
+    }
+
     pub(super) fn main_uuid(&self) -> String {
-        info::display_uuids(&self.ctx.config.borrow().info).0
+        self.told(|info| info::display_uuids(info).0)
     }
 
     pub(super) fn alt_uuid(&self) -> String {
-        info::display_uuids(&self.ctx.config.borrow().info).1
+        self.told(|info| info::display_uuids(info).1)
     }
 
     pub(super) fn wanted_cluster_url(&self) -> String {

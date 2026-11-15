@@ -6,18 +6,16 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use iap2_link::LinkConfig;
-use iap2_mfi::{NcmCoprocessor, NoCoprocessor};
 use livi_bt_host::sdp::Service;
 use livi_core_proto::helper::HelperSockets;
-use livi_runtime::bringup::{AskOnAir, CpConfig, run_accessory};
-use livi_runtime::driver::spawn_link_stream;
-use livi_runtime::hfp::Hfp;
-use livi_runtime::ident::{Identity, Transport};
-use livi_runtime::livi_sock::{Broadcaster, SharedTag, pump_artwork, pump_events_for};
-use livi_runtime::mfi_async::SharedCoprocessor;
-use livi_runtime::sco::ScoSink;
-use livi_runtime::state::HelperState;
+use livi_helper_stack::bringup::{AskOnAir, CpConfig};
+use livi_helper_stack::driver::spawn_link_stream;
+use livi_helper_stack::hfp::Hfp;
+use livi_helper_stack::ident::{Identity, Transport};
+use livi_helper_stack::livi_sock::{Broadcaster, run_bluetooth};
+use livi_helper_stack::mfi_async::SharedCoprocessor;
+use livi_helper_stack::sco::ScoSink;
+use livi_helper_stack::state::HelperState;
 use livi_wifi::Channel;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
@@ -26,7 +24,6 @@ use crate::bt_dongle::{Arrival, Dongle, Profiles, Radio};
 use crate::link::LinkPresence;
 
 const AP_WAIT: Duration = Duration::from_secs(15);
-const MFI_RETRY: Duration = Duration::from_secs(2);
 
 pub struct Radios {
     pub name: String,
@@ -43,7 +40,8 @@ pub fn wireless_config(base: &CpConfig) -> CpConfig {
     CpConfig {
         ap_mac: livi_link_host::ap::mac(),
         ssid: livi_link_host::ap::ssid().unwrap_or_else(|| base.ssid.clone()),
-        wifi_iface: livi_runtime::net::iface_facing(livi_link_host::link::LINK_NAME)
+        wifi_iface: livi_link_host::link::name()
+            .and_then(|name| livi_helper_stack::net::iface_facing(&name))
             .unwrap_or_default(),
         channel: livi_link_host::ap::status_field("channel")
             .and_then(|c| c.parse().ok())
@@ -71,19 +69,6 @@ pub async fn wireless_sessions(
     dongle: Dongle,
 ) {
     while let Some(session) = arrivals.recv().await {
-        if state.carkit_claims(&session.peer) {
-            println!(
-                "[helper] {} is on the cable, its Bluetooth link goes",
-                session.peer
-            );
-            if let Err(e) = dongle.disconnect(&session.peer) {
-                eprintln!(
-                    "[helper] {} stays on the dongle's bluetooth: {e}",
-                    session.peer
-                );
-            }
-            continue;
-        }
         if !tokio::task::spawn_blocking(|| livi_link_host::ap::ready(AP_WAIT))
             .await
             .unwrap_or(false)
@@ -91,105 +76,35 @@ pub async fn wireless_sessions(
             eprintln!("[helper] the dongle's access point is not up, not starting a session");
             continue;
         }
+        let base = cp.clone();
+        let resolved = tokio::task::spawn_blocking(move || wireless_config(&base))
+            .await
+            .unwrap_or_else(|_| cp.clone());
         let cp = CpConfig {
             on_cable: Some(dongle.on_cable(state.clone())),
-            ..wireless_config(&cp)
+            ..resolved
         };
         let identity = Identity {
             bt_mac: session.local,
             ..identity.clone()
         };
         println!(
-            "[helper] phone connected mac={} over the dongle, ap {} channel {}",
+            "[helper] {} is on the dongle, ap {} channel {}",
             session.peer,
             cp.ap_mac.clone().unwrap_or_default(),
             cp.channel
         );
-        let cfg = LinkConfig {
-            max_outgoing: 4,
-            control_version: 2,
-            ..LinkConfig::default()
-        };
-        let (channel, art_rx) = spawn_link_stream(session.stream, cfg, false);
-        let (tx, rx) = tokio::sync::mpsc::channel(64);
-        tokio::spawn(run_accessory(
-            channel,
+        let peer = session.peer.to_string();
+        run_bluetooth(
+            |cfg| spawn_link_stream(session.stream, cfg, false),
             auth.clone(),
             identity,
             cp,
-            tx,
-            state.vehicle_feed(),
-        ));
-        let ident: SharedTag = Default::default();
-        tokio::spawn(pump_events_for(
-            rx,
             bcast.clone(),
-            "bt",
-            None,
-            ident.clone(),
-        ));
-        tokio::spawn(pump_artwork(art_rx, bcast.clone(), ident));
+            state.clone(),
+            peer,
+        );
     }
-}
-
-pub async fn identify_on_link(link: Arc<LinkPresence>, mut auth: SharedCoprocessor) {
-    use livi_runtime::AsyncAuth;
-    loop {
-        link.wait_until(true).await;
-        let mut reported = false;
-        let major = loop {
-            if !link.is_present() {
-                break None;
-            }
-            match auth.protocol_major().await {
-                Ok(major) => break Some(major),
-                Err(e) => {
-                    if !reported {
-                        eprintln!("[helper] MFi coprocessor not answering yet: {e}");
-                        reported = true;
-                    }
-                    tokio::time::sleep(MFI_RETRY).await;
-                }
-            }
-        };
-        let Some(major) = major else { continue };
-        let kind = if major == 2 {
-            "2.0 (RSA, SHA-1)"
-        } else {
-            "3.0 (ECDSA, SHA-256)"
-        };
-        println!("[helper] MFi coprocessor: auth protocol major {major} — {kind}");
-        link.wait_until(false).await;
-    }
-}
-
-pub fn follow_link(
-    link: Arc<LinkPresence>,
-    auth: SharedCoprocessor,
-    own_files: bool,
-    bcast: Broadcaster,
-    dongle: Dongle,
-) {
-    let (up_auth, down_auth) = (auth.clone(), auth);
-    let (arrived, left) = (bcast.clone(), bcast);
-    tokio::spawn(link.resolve(
-        move || {
-            if !own_files {
-                up_auth.replace(Box::new(NcmCoprocessor::new(&livi_link_host::link::addr(
-                    livi_net::port::MFI,
-                ))));
-            }
-            arrived.push_json("{\"type\":\"link\",\"up\":true}".into());
-        },
-        move || {
-            if !own_files {
-                down_auth.replace(Box::new(NoCoprocessor));
-            }
-            dongle.end();
-            println!("[helper] the dongle went");
-            left.push_json("{\"type\":\"link\",\"up\":false}".into());
-        },
-    ));
 }
 
 fn start_android_auto(
@@ -199,16 +114,7 @@ fn start_android_auto(
     wired: WiredPhones,
     state: Arc<HelperState>,
 ) {
-    let sessions = events.clone();
-    tokio::spawn(livi_aa::server::run(
-        radios.port,
-        radios.sockets.sessions.clone(),
-        move |socket, peer| {
-            sessions.push_json(format!(
-            "{{\"event\":\"aa-session\",\"socket\":\"{socket}\",\"peer\":\"{peer}\",\"transport\":\"wifi\"}}"
-        ));
-        },
-    ));
+    crate::aa::serve_wifi(radios.port, radios.sockets.sessions.clone(), events.clone());
     let cfg = AaConfig {
         ssid: radios.name.clone(),
         passphrase: radios.passphrase.clone(),

@@ -65,15 +65,15 @@ pub fn schema() -> Node {
             .display_value()
             .page(Label::new("settings.carType", "Fuel Type")),
             Node::select(
-                Label::new("settings.steeringWheelPosition", "Steering wheel position"),
+                Label::new("settings.steeringWheelPosition", "Steering Wheel Position"),
                 "hand",
                 vec![
                     choice(
-                        Label::new("settings.lhdr", "LHD"),
+                        Label::new("settings.lhdr", "Left-Hand Drive"),
                         OptionValue::Number(HAND_LHD),
                     ),
                     choice(
-                        Label::new("settings.rhdr", "RHD"),
+                        Label::new("settings.rhdr", "Right-Hand Drive"),
                         OptionValue::Number(HAND_RHD),
                     ),
                 ],
@@ -82,7 +82,7 @@ pub fn schema() -> Node {
             .display_value()
             .page(Label::new(
                 "settings.steeringWheelPosition",
-                "Steering wheel position",
+                "Steering Wheel Position",
             )),
             Node::number(Label::new("settings.maxSpeed", "Max Speed"), "maxSpeedKph")
                 .icon("maxSpeed")
@@ -159,43 +159,6 @@ pub fn schema() -> Node {
                 "carPlayVehicleClimate",
             )
             .icon("carPlayVehicleClimate"),
-            Node::checkbox(
-                Label::new("settings.carPlayHlsVideo", "Video in the car"),
-                "carPlayHlsVideo",
-            )
-            .icon("media"),
-            Node::checkbox(
-                Label::new(
-                    "settings.canTelemetryEnabled",
-                    "Enable CAN telemetry",
-                ),
-                "haltechCanEnabled",
-            )
-            .icon("haltechCan"),
-            Node::route("telemetry", Label::new("settings.canTelemetry", "CAN Telemetry"), vec![
-                Node::select(
-                    Label::new("settings.canTelemetryBackend", "CAN backend"),
-                    "canTelemetryBackend",
-                    vec![
-                        text_choice("Haltech V2 (passive, 1 Mbit/s)", "haltech_v2"),
-                        text_choice("Haltech OBD-II (active, read-only Service 01)", "haltech_obd2"),
-                    ],
-                ).display_value().page(Label::new("settings.canTelemetryBackend", "CAN backend")),
-                Node::select(
-                    Label::new("settings.obd2Bitrate", "OBD-II verified bus bitrate"),
-                    "obd2Bitrate",
-                    vec![number_choice("500 kbit/s", 500000.0), number_choice("1 Mbit/s", 1000000.0)],
-                ).display_value().page(Label::new("settings.obd2Bitrate", "OBD-II verified bus bitrate")),
-                Node::checkbox(
-                    Label::new("settings.obd2BusValidated", "OBD-II: I verified bitrate, wiring and ECU port assignment; allow diagnostic requests"),
-                    "obd2BusValidated",
-                ),
-                Node::custom(
-                    Label::new("settings.obd2Diagnostics", "OBD-II status and live values"),
-                    "obd2BusValidated",
-                    CustomPage::Obd2Info,
-                ),
-            ]).icon("haltechCan"),
             Node::custom(
                 Label::new("settings.carData", "Car Data"),
                 "carType",

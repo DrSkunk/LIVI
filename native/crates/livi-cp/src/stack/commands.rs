@@ -146,13 +146,12 @@ impl<M: Media> Conn<M> {
                 if self.event.is_none() {
                     return;
                 }
-                let (w, h) = {
-                    let cfg = self.ctx.config.borrow();
+                let (w, h) = self.told(|info| {
                     (
-                        cfg.info.main.width_pixels as f64,
-                        cfg.info.main.height_pixels as f64,
+                        info.main.width_pixels as f64,
+                        info.main.height_pixels as f64,
                     )
-                };
+                });
                 let contacts: Vec<Contact> = touches
                     .iter()
                     .map(|t| Contact {
@@ -261,18 +260,13 @@ impl<M: Media> Conn<M> {
             StackCmd::VideoPlay(playing) => self.play_video_here(playing).await,
             StackCmd::VideoSeek(to) => self.seek_video_here(to),
             StackCmd::VideoClose => self.close_video_here().await,
-            StackCmd::NightMode(night) => {
-                self.night_mode = Some(night);
-                self.send_night_mode(night).await;
-                if let Some(cluster) = self.cluster_night_mode {
-                    self.send_cluster_appearance(cluster).await;
+            StackCmd::Appearance(surface, night) => {
+                self.appearance[surface as usize] = Some(night);
+                self.send_surface(surface, night).await;
+                if surface == Surface::ClusterUi {
+                    let answers = self.ui_sync_state.set_dark(night);
+                    self.to_ui_sync(answers);
                 }
-            }
-            StackCmd::ClusterNightMode(night) => {
-                self.cluster_night_mode = Some(night);
-                self.send_cluster_appearance(night).await;
-                let answers = self.ui_sync_state.set_dark(night);
-                self.to_ui_sync(answers);
             }
             StackCmd::LimitedUi(limited) => {
                 self.limited_ui = Some(limited);
@@ -298,7 +292,7 @@ impl<M: Media> Conn<M> {
                 }
             }
             StackCmd::ClusterActive(active) => {
-                if self.ctx.config.borrow().info.cluster.is_none() {
+                if self.told(|info| info.cluster.is_none()) {
                     return;
                 }
                 self.cluster_want = active;

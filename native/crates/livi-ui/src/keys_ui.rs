@@ -9,7 +9,7 @@ use livi_core_client::Client;
 use livi_core_proto::input::Input;
 use livi_core_proto::message::Action;
 use livi_ui_model::keys::{
-    Context, Focused, HELD_GAP, Outcome, Zone, bound_to, decide, held_factor, released,
+    Context, Focused, HELD_GAP, MirrorKey, Outcome, Zone, bound_to, decide, held_factor, released,
 };
 use livi_ui_model::media::pressed;
 #[cfg(not(target_os = "android"))]
@@ -17,8 +17,8 @@ use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
 use slint::{ComponentHandle, Model};
 
 use crate::{
-    AppWindow, ClockFace, DabState, DashState, Focus, FocusZone, MediaSource, MiniDspState, Page,
-    PhoneState, RowKind, ScreenKind, SettingsState,
+    AppWindow, DabState, DashState, Focus, FocusZone, MediaSource, Page, PhoneState, RowKind,
+    ScreenKind, SettingsState,
 };
 
 const SEEK_STEP_MS: f32 = 15_000.0;
@@ -41,11 +41,6 @@ enum Target {
     ColorSlider(i32),
     PageSlider,
     CalSlider(i32),
-    JoinSsid,
-    JoinSecurity(usize),
-    JoinPsk,
-    JoinShow,
-    JoinConnect,
     Artwork,
     Prev,
     PlayPause,
@@ -53,14 +48,7 @@ enum Target {
     Progress,
     Source(MediaSource),
     Favorite,
-    Tune(i32),
     Station(usize),
-    Games(usize),
-    ClockStyle(ClockFace),
-    DspRefresh,
-    DspStep(bool, i32),
-    DspSlider(bool),
-    DspPreset(usize),
 }
 
 thread_local! {
@@ -114,19 +102,6 @@ fn settings_targets(s: &SettingsState) -> Vec<Target> {
         ScreenKind::Calibration => {
             out.extend((0..s.get_cal_knobs().row_count() as i32).map(Target::CalSlider))
         }
-        ScreenKind::Join => {
-            if s.get_join_ask_ssid() {
-                out.push(Target::JoinSsid);
-            }
-            if s.get_join_ask_security() {
-                let options = s.get_join_security_options().row_count();
-                out.extend((0..options).map(Target::JoinSecurity));
-            }
-            if s.get_join_ask_psk() {
-                out.extend([Target::JoinPsk, Target::JoinShow]);
-            }
-            out.push(Target::JoinConnect);
-        }
         ScreenKind::Pending => {}
     }
     out
@@ -147,16 +122,7 @@ fn targets(ui: &AppWindow) -> Vec<Target> {
             }
             if d.get_receiver() && d.get_view() != MediaSource::Phone {
                 if d.get_art_shown() {
-                    out.push(Target::Artwork);
-                }
-                out.extend([
-                    Target::Prev,
-                    Target::PlayPause,
-                    Target::Next,
-                    Target::Favorite,
-                ]);
-                if d.get_tunable() {
-                    out.extend([Target::Tune(-1), Target::Tune(1)]);
+                    out.extend([Target::Artwork, Target::Favorite]);
                 }
                 if d.get_band_shown() {
                     out.extend((0..d.get_stations().row_count()).map(Target::Station));
@@ -172,30 +138,6 @@ fn targets(ui: &AppWindow) -> Vec<Target> {
             }
             out
         }
-        Page::Games => (0..crate::games_ui::targets(ui))
-            .map(Target::Games)
-            .collect(),
-        Page::Clock => [ClockFace::Classic, ClockFace::Amber, ClockFace::Digital]
-            .into_iter()
-            .map(Target::ClockStyle)
-            .collect(),
-        Page::Minidsp => {
-            let mut out = vec![Target::DspRefresh];
-            if crate::minidsp_ui::ready() {
-                for bass in [false, true] {
-                    out.extend([
-                        Target::DspStep(bass, -1),
-                        Target::DspSlider(bass),
-                        Target::DspStep(bass, 1),
-                    ]);
-                }
-                let presets = ui.global::<MiniDspState>().get_presets().row_count();
-                out.extend((0..presets).map(Target::DspPreset));
-            } else if crate::minidsp_ui::has_empty_state() {
-                out.push(Target::DspRefresh);
-            }
-            out
-        }
         _ => Vec::new(),
     }
 }
@@ -206,10 +148,9 @@ fn kind(t: Target) -> Focused {
         | Target::ColorSlider(_)
         | Target::PageSlider
         | Target::CalSlider(_)
-        | Target::DspSlider(_)
         | Target::Progress => Focused::Slider,
         Target::Number => Focused::Number,
-        Target::Text | Target::ColorHex | Target::JoinSsid | Target::JoinPsk => Focused::Text,
+        Target::Text | Target::ColorHex => Focused::Text,
         _ => Focused::Plain,
     }
 }
@@ -315,9 +256,6 @@ fn activate(ui: &AppWindow, target: Target) {
             }
         }
         Target::ColorReset => s.invoke_color_reset(),
-        Target::JoinSecurity(i) => s.invoke_join_security_pick(i as i32),
-        Target::JoinShow => s.set_join_show(!s.get_join_show()),
-        Target::JoinConnect => s.invoke_join_connect(),
         Target::NumberMinus => adjust(ui, Target::Number, -1),
         Target::NumberPlus => adjust(ui, Target::Number, 1),
         Target::Artwork => {
@@ -332,20 +270,9 @@ fn activate(ui: &AppWindow, target: Target) {
         Target::Source(MediaSource::Dab) => d.invoke_resume(),
         Target::Source(MediaSource::Fm) => d.invoke_resume_fm(),
         Target::Favorite => d.invoke_toggle_favorite(),
-        Target::Games(i) => crate::games_ui::activate(ui, i),
-        Target::ClockStyle(face) => ui.invoke_clock_style_picked(face),
-        Target::Tune(by) => d.invoke_tune(by),
         Target::Station(i) => {
             if let Some(st) = d.get_stations().row_data(i) {
                 d.invoke_pick(st.id);
-            }
-        }
-        Target::DspRefresh => ui.global::<MiniDspState>().invoke_refresh(),
-        Target::DspStep(bass, by) => ui.global::<MiniDspState>().invoke_nudge(bass, by),
-        Target::DspPreset(i) => {
-            let m = ui.global::<MiniDspState>();
-            if let Some(p) = m.get_presets().row_data(i) {
-                m.invoke_pick(p.index);
             }
         }
         _ => {}
@@ -393,7 +320,6 @@ fn adjust(ui: &AppWindow, target: Target, delta: i32) {
             HELD.set(Some((started, now, v)));
             s.invoke_number_set(v);
         }
-        Target::DspSlider(bass) => ui.global::<MiniDspState>().invoke_nudge(bass, delta),
         Target::Progress => {
             let total = ui.get_total_ms();
             if total > 0.0 {
@@ -426,7 +352,7 @@ fn apply(ui: &AppWindow, client: &Client, code: &str, outcome: Outcome) -> bool 
         Outcome::Pass => return false,
         Outcome::Ignore => {}
         Outcome::ToCore(code) => {
-            let name = bound_to(&client.state()["config"], &code);
+            let name = bound_to(&client.mirror().json["config"], &code);
             if let Some(p) = name.as_deref().and_then(pressed) {
                 crate::media_ui::pressed_feedback(ui, p);
             }
@@ -434,7 +360,7 @@ fn apply(ui: &AppWindow, client: &Client, code: &str, outcome: Outcome) -> bool 
         }
         Outcome::CycleSession => {
             client.act(Action::NextDevice);
-            let name = livi_ui_model::overlay::cycled(&client.state());
+            let name = livi_ui_model::overlay::cycled(&client.mirror().state);
             if let Some(name) = name {
                 crate::overlay_ui::phone(ui, &name);
             }
@@ -504,7 +430,6 @@ fn context(ui: &AppWindow, repeat: bool) -> Context {
         projection: page == Page::Projection,
         streaming: ui.get_phone() == PhoneState::Streaming,
         telemetry: page == Page::Telemetry,
-        nav_only: page == Page::Clock && list.is_empty(),
         settings_depth: if page == Page::Settings {
             crate::settings_ui::depth()
         } else {
@@ -527,9 +452,20 @@ pub fn key(ui: &AppWindow, client: &Client, code: &str, down: bool, repeat: bool
         }
         return true;
     }
-    let state = client.state();
-    let config = state["config"].clone();
-    drop(state);
+    let config = client.mirror().json["config"].clone();
+    if down && crate::video_ui::mirror_on_screen(ui) {
+        match livi_ui_model::keys::mirror_key(code, &config, ui.get_mirror_shown()) {
+            MirrorKey::Leave => {
+                crate::video_ui::leave_mirror(ui);
+                return true;
+            }
+            MirrorKey::Show => {
+                crate::video_ui::wake_mirror(ui);
+                return true;
+            }
+            MirrorKey::Pass => {}
+        }
+    }
     if !down {
         if let Some(code) = released(code, &config) {
             client.input(Input::Key { code, down: false });
@@ -603,6 +539,9 @@ pub fn wire(ui: &AppWindow, client: &Client) {
             }
             winit::event::WindowEvent::CursorMoved { position, .. } => {
                 crate::cursor_ui::moved(&ui, *position);
+                if crate::video_ui::mirror_on_screen(&ui) {
+                    crate::video_ui::wake_mirror(&ui);
+                }
                 ui.invoke_wake_nav();
                 EventResult::Propagate
             }
@@ -614,10 +553,6 @@ pub fn wire(ui: &AppWindow, client: &Client) {
         }
     });
 }
-
-#[cfg(test)]
-#[path = "clock_ui_tests.rs"]
-mod clock_ui_tests;
 
 pub fn text_done(ui: &AppWindow) {
     ui.global::<Focus>().set_editing(false);

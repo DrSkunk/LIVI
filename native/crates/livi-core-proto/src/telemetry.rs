@@ -31,7 +31,10 @@
 //! | lights, highBeam, hazards           | ✓    | ✓            | ·               | ·             |
 //! | parkingBrake                        | ✓    | ✓            | ·               | ·             |
 //! | nightMode                           | ·    | ✓            | ✓               | ✓             |
-//! | clusterNightMode                    | ·    | ·            | ✓               | ✓             |
+//! | mainUiNightMode, mainMapNightMode   | ·    | ·            | ✓               | ✓             |
+//! | clusterUiNightMode                  | ·    | ·            | ✓               | ✓             |
+//! | clusterMapNightMode                 | ·    | ·            | ✓               | ✓             |
+//! | appearanceSetting                   | ·    | ·            | ✓               | ✓             |
 //! | darkMode                            | ✓    | ·            | ·               | ·             |
 //! | path                                | ✓    | ·            | ·               | ·             |
 //! | volume                              | ✓    | ·            | ·               | ✓             |
@@ -170,11 +173,23 @@ pub struct TelemetrySnapshot {
     pub ambient_lux: Option<f64>,
     /// The dimmer of the panel lights, 0 to 100.
     pub dimmer_pct: Option<f64>,
-    /// Day or night for Android Auto and CarPlay, LIVI's own look follows `darkMode`.
+    /// Day or night for Android Auto and CarPlay, LIVI's own look follows `darkMode`. It sets the
+    /// four below at once, those of them in the same push apply after it. LIVI's appearance
+    /// setting at Day or Night sets it too. Any of the five turns that setting to Auto.
     pub night_mode: Option<bool>,
-    /// Day or night for the CarPlay cluster, it follows `nightMode` while absent or null. A
-    /// change of LIVI's appearance setting sets `nightMode` and clears this one.
-    pub cluster_night_mode: Option<bool>,
+    /// Day or night for the UI on the main screen. Each of the four is saved as the setting of the
+    /// same name and the phone starts with it. A map is never darker than its UI: a UI takes its
+    /// map along, a dark map darkens its UI, and only a dark UI keeps a light map.
+    pub main_ui_night_mode: Option<bool>,
+    /// The map on the main screen, sent to the phone as its night mode.
+    pub main_map_night_mode: Option<bool>,
+    /// The UI on the cluster.
+    pub cluster_ui_night_mode: Option<bool>,
+    /// The map on the cluster.
+    pub cluster_map_night_mode: Option<bool>,
+    /// How carplay treats the four above, `auto`, `user` or `always`, saved as the setting of the
+    /// same name, `user` when never set.
+    pub appearance_setting: Option<String>,
     /// LIVI's own look, dark or light. A push sets the Dark Mode setting, a change of that
     /// setting shows up here.
     pub dark_mode: Option<bool>,
@@ -193,6 +208,8 @@ pub struct TelemetrySnapshot {
     /// Only LIVI's own receiver sends it, a push replaces it whole.
     pub gnss: Option<GnssInfo>,
     pub tire_pressure: Option<TirePressure>,
+    pub telltales: Option<Telltales>,
+    pub dash_test: Option<bool>,
     /// No receiver uses it, it is for tooling and diagnostics.
     pub can: Option<CanFrame>,
     pub climate: Option<Climate>,
@@ -215,6 +232,33 @@ pub struct TirePressure {
     pub front_right_kpa: Option<f64>,
     pub rear_left_kpa: Option<f64>,
     pub rear_right_kpa: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Telltales {
+    pub brake: Option<bool>,
+    pub seat_belt: Option<bool>,
+    pub airbag: Option<bool>,
+    pub side_airbag: Option<bool>,
+    pub oil_pressure: Option<bool>,
+    pub coolant: Option<bool>,
+    pub charging: Option<bool>,
+    pub abs: Option<bool>,
+    pub esc: Option<bool>,
+    pub tyre_pressure: Option<bool>,
+    pub engine: Option<bool>,
+    pub brake_wear: Option<bool>,
+    pub preheat: Option<bool>,
+    pub choke: Option<bool>,
+    pub rear_fog: Option<bool>,
+    pub passenger_airbag_off: Option<bool>,
+    pub windscreen_defrost: Option<bool>,
+    pub rear_defrost: Option<bool>,
+    pub position: Option<bool>,
+    pub parking_lamps: Option<bool>,
+    pub front_fog: Option<bool>,
+    pub auto_high_beam: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -305,6 +349,11 @@ mod tests {
                 driver_target_c: Some(21.5),
                 ..Default::default()
             }),
+            dash_test: Some(true),
+            telltales: Some(Telltales {
+                passenger_airbag_off: Some(true),
+                ..Default::default()
+            }),
             ..Default::default()
         };
         let named = serde_json::to_value(&snapshot).unwrap();
@@ -320,6 +369,8 @@ mod tests {
             (&json!(1), &json!([2]))
         );
         assert_eq!(named["climate"]["driverTargetC"], 21.5);
+        assert_eq!(named["telltales"]["passengerAirbagOff"], true);
+        assert_eq!(named["dashTest"], true);
         let unknown = serde_json::from_value::<Climate>(json!({ "seatCooling": 1 }));
         assert!(
             unknown.is_err(),

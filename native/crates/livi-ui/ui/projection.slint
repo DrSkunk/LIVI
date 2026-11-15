@@ -3,7 +3,7 @@
 // Additional terms: see NOTICE
 
 import { Theme } from "theme.slint";
-import { ViewAreaMask, MaskData } from "mask.slint";
+import { ViewArea, ViewAreaMask, MaskData } from "mask.slint";
 import { VideoControls } from "video_controls.slint";
 
 export enum TouchPhase { down, move, up, cancel }
@@ -12,17 +12,24 @@ export component ProjectionPage inherits Rectangle {
     in property <int> stream-width: 1280;
     in property <int> stream-height: 720;
     in property <bool> streaming;
+    in property <bool> waiting;
     in property <MaskData> mask;
+    in property <ViewArea> view-area;
     in property <image> idle-icon;
     in property <bool> video-shown;
     in property <bool> video-playing;
     in property <float> video-elapsed-ms;
     in property <float> video-total-ms;
     in property <bool> video-can-seek;
+    in property <bool> mirrored;
+    in property <bool> held;
+    in-out property <bool> mirror-shown;
+    in-out property <int> mirror-idle;
     callback touch(TouchPhase, float, float);
     callback video-play-pause();
     callback video-seek(float);
     callback video-close();
+    callback mirror-leave();
 
     background: root.streaming ? transparent : Theme.backdrop;
 
@@ -33,7 +40,7 @@ export component ProjectionPage inherits Rectangle {
         y: (root.height - self.height) / 2;
 
         TouchArea {
-            enabled: root.streaming && !root.video-shown;
+            enabled: root.streaming && !root.video-shown && !root.mirrored;
             pointer-event(e) => {
                 if (e.kind == PointerEventKind.down) {
                     root.touch(TouchPhase.down, self.mouse-x / self.width, self.mouse-y / self.height);
@@ -55,16 +62,38 @@ export component ProjectionPage inherits Rectangle {
         mask: root.mask;
     }
 
-    if root.streaming && root.video-shown: VideoControls {
-        width: root.width;
-        height: root.height;
+    if root.streaming && root.held: Rectangle {
+        background: Theme.background;
+
+        Image {
+            source: @image-url("icons/TvOffOutlined.svg");
+            width: min(root.width, root.height) * 0.15;
+            height: self.width;
+            colorize: Theme.text-secondary;
+        }
+    }
+
+    if root.streaming && (root.video-shown || root.mirrored): VideoControls {
+        x: root.view-area.left * 1phx;
+        y: root.view-area.top * 1phx;
+        width: max(1px, root.width - (root.view-area.left + root.view-area.right) * 1phx);
+        height: max(1px, root.height - (root.view-area.top + root.view-area.bottom) * 1phx);
         playing: root.video-playing;
         elapsed-ms: root.video-elapsed-ms;
         total-ms: root.video-total-ms;
         can-seek: root.video-can-seek;
+        mirrored: root.mirrored && !root.video-shown;
+        shown <=> root.mirror-shown;
+        idle <=> root.mirror-idle;
         play-pause => { root.video-play-pause(); }
         seek(f) => { root.video-seek(f); }
-        close => { root.video-close(); }
+        close => {
+            if (root.video-shown) {
+                root.video-close();
+            } else {
+                root.mirror-leave();
+            }
+        }
     }
 
     if !root.streaming: Image {
@@ -72,5 +101,6 @@ export component ProjectionPage inherits Rectangle {
         width: min(root.width, root.height) * 0.15;
         height: self.width;
         colorize: Theme.text-secondary;
+        opacity: root.waiting ? 0.6 + 0.4 * sin(animation-tick() / 1600ms * 360deg) : 1;
     }
 }

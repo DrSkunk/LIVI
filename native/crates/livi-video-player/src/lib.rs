@@ -6,16 +6,28 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use gstreamer_base as gst_base;
+use livi_output_proto::VideoCodec;
 use std::sync::{Arc, Once};
 
-#[cfg(target_os = "android")]
-mod android_view;
 mod camera;
+#[cfg(in_process)]
+mod in_process_view;
 mod url_player;
-#[cfg(target_os = "android")]
-pub use android_view::{Views, set_surface, set_views};
+#[cfg_attr(
+    all(target_os = "macos", feature = "window-view"),
+    path = "view/mac.rs"
+)]
+#[cfg_attr(in_process, path = "view/in_process.rs")]
+#[cfg_attr(
+    not(any(all(target_os = "macos", feature = "window-view"), in_process)),
+    path = "view/none.rs"
+)]
+mod view;
 pub use camera::{CameraPlayer, direction, watch_cameras};
+#[cfg(in_process)]
+pub use in_process_view::{Views, set_surface, set_views};
 pub use url_player::UrlPlayer;
+use view::WindowView;
 
 pub type Say = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -70,7 +82,7 @@ pub fn log_bus_messages(pipeline: &gst::Pipeline) {
             }
             _ => {}
         }
-        gst::BusSyncReply::Pass
+        gst::BusSyncReply::Drop
     });
 }
 
@@ -210,146 +222,9 @@ fn install_decoder_probes(dec: &gst::Element, decoder_name: &str, say: &Say) {
     });
 }
 
-#[cfg(all(target_os = "macos", feature = "window-view"))]
-unsafe extern "C" {
-    fn livi_attach_view(parent: usize, rank: i32, out_view: *mut *mut core::ffi::c_void) -> usize;
-    fn livi_remove_view(view: *mut core::ffi::c_void);
-    fn livi_set_view_hidden(view: *mut core::ffi::c_void, hidden: bool);
-    fn livi_set_content_region(
-        view: *mut core::ffi::c_void,
-        sink: *mut core::ffi::c_void,
-        crop_l: f64,
-        crop_t: f64,
-        vis_w: f64,
-        vis_h: f64,
-        tier_w: f64,
-        tier_h: f64,
-    );
-}
-
 const RANK_FRAMES: i32 = 0;
 const RANK_URL: i32 = 1;
 const RANK_CAMERA: i32 = 2;
-
-#[derive(Default)]
-struct WindowView {
-    #[cfg(all(target_os = "macos", feature = "window-view"))]
-    view: core::sync::atomic::AtomicPtr<core::ffi::c_void>,
-    #[cfg(target_os = "android")]
-    view: core::sync::atomic::AtomicU64,
-}
-
-impl WindowView {
-    #[cfg(all(target_os = "macos", feature = "window-view"))]
-    fn attach(&self, handle: usize, rank: i32, sink: Option<&gst::Element>) {
-        use gstreamer_video::prelude::VideoOverlayExtManual;
-        if handle == 0 {
-            return;
-        }
-        let mut view = core::ptr::null_mut();
-        let overlay = unsafe { livi_attach_view(handle, rank, &mut view) };
-        self.view.store(view, core::sync::atomic::Ordering::Release);
-        if overlay == 0 {
-            return;
-        }
-        if let Some(o) = sink.and_then(|s| s.dynamic_cast_ref::<gstreamer_video::VideoOverlay>()) {
-            unsafe { o.set_window_handle(overlay) };
-        }
-    }
-
-    #[cfg(target_os = "android")]
-    fn attach(&self, handle: usize, rank: i32, sink: Option<&gst::Element>) {
-        if handle == 0 {
-            return;
-        }
-        if let Some(view) = sink.and_then(|s| android_view::open(rank, s)) {
-            self.view.store(view, core::sync::atomic::Ordering::Release);
-        }
-    }
-
-    #[cfg(target_os = "android")]
-    fn shown_view(&self) -> Option<u64> {
-        Some(self.view.load(core::sync::atomic::Ordering::Acquire)).filter(|&v| v != 0)
-    }
-
-    #[cfg(not(any(
-        all(target_os = "macos", feature = "window-view"),
-        target_os = "android"
-    )))]
-    fn attach(&self, _handle: usize, _rank: i32, _sink: Option<&gst::Element>) {}
-
-    fn set_visible(&self, visible: bool) {
-        #[cfg(all(target_os = "macos", feature = "window-view"))]
-        unsafe {
-            livi_set_view_hidden(self.ptr(), !visible)
-        };
-        #[cfg(target_os = "android")]
-        if let Some(view) = self.shown_view() {
-            android_view::show(view, visible);
-        }
-        #[cfg(not(any(
-            all(target_os = "macos", feature = "window-view"),
-            target_os = "android"
-        )))]
-        let _ = visible;
-    }
-
-    fn set_region(
-        &self,
-        crop_l: f64,
-        crop_t: f64,
-        vis_w: f64,
-        vis_h: f64,
-        tier_w: f64,
-        tier_h: f64,
-    ) {
-        #[cfg(all(target_os = "macos", feature = "window-view"))]
-        {
-            let view = self.ptr();
-            if !view.is_null() {
-                let sink = core::ptr::null_mut();
-                unsafe {
-                    livi_set_content_region(
-                        view, sink, crop_l, crop_t, vis_w, vis_h, tier_w, tier_h,
-                    )
-                }
-            }
-        }
-        #[cfg(target_os = "android")]
-        if let Some(view) = self.shown_view() {
-            android_view::place(view, [crop_l, crop_t, vis_w, vis_h, tier_w, tier_h]);
-        }
-        #[cfg(not(any(
-            all(target_os = "macos", feature = "window-view"),
-            target_os = "android"
-        )))]
-        let _ = (crop_l, crop_t, vis_w, vis_h, tier_w, tier_h);
-    }
-
-    #[cfg(all(target_os = "macos", feature = "window-view"))]
-    fn ptr(&self) -> *mut core::ffi::c_void {
-        self.view.load(core::sync::atomic::Ordering::Acquire)
-    }
-
-    fn remove(&self) {
-        #[cfg(all(target_os = "macos", feature = "window-view"))]
-        {
-            let view = self
-                .view
-                .swap(core::ptr::null_mut(), core::sync::atomic::Ordering::AcqRel);
-            if !view.is_null() {
-                unsafe { livi_remove_view(view) };
-            }
-        }
-        #[cfg(target_os = "android")]
-        {
-            let view = self.view.swap(0, core::sync::atomic::Ordering::AcqRel);
-            if view != 0 {
-                android_view::close(view);
-            }
-        }
-    }
-}
 
 pub struct Player {
     pipeline: gst::Pipeline,
@@ -359,7 +234,7 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(codec: &str, handle: usize, codec_data: &[u8]) -> Option<Self> {
+    pub fn new(codec: VideoCodec, handle: usize, codec_data: &[u8]) -> Option<Self> {
         ensure_init();
 
         let sw_only = std::env::var_os("LIVI_GST_SWDEC").is_some();
@@ -385,7 +260,7 @@ impl Player {
             .and_then(|e| e.downcast::<gst_app::AppSrc>().ok());
         if let Some(src) = &appsrc
             && !codec_data.is_empty()
-            && (codec == "h265" || codec == "h264")
+            && matches!(codec, VideoCodec::H264 | VideoCodec::H265)
         {
             src.set_caps(Some(&length_prefixed_caps(codec, codec_data)));
         }
@@ -398,7 +273,7 @@ impl Player {
 
         let player = Self {
             glshader: pipeline.by_name("cal"),
-            view: WindowView::default(),
+            view: WindowView::new(),
             appsrc,
             pipeline,
         };
@@ -410,7 +285,7 @@ impl Player {
 
         force_sinks_realtime(&player.pipeline);
         if let Some(dec) = player.pipeline.by_name("dec") {
-            if cfg!(target_os = "macos") && decoder == "avdec_h265" {
+            if cfg!(target_vendor = "apple") && decoder == "avdec_h265" {
                 dec.set_property_from_str("thread-type", "frame");
                 dec.set_property("max-threads", 1i32);
                 eprintln!(
@@ -434,7 +309,12 @@ impl Player {
         Some(player)
     }
 
-    fn parse(codec: &str, decoder: &str, with_cal: bool, handle: usize) -> Option<gst::Pipeline> {
+    fn parse(
+        codec: VideoCodec,
+        decoder: &str,
+        with_cal: bool,
+        handle: usize,
+    ) -> Option<gst::Pipeline> {
         let describe = |cal: bool| {
             livi_video::codec::pipeline_desc(
                 codec,
@@ -444,7 +324,7 @@ impl Player {
                 } else {
                     ""
                 },
-                std::env::var("LIVI_GST_SINK").ok().as_deref(),
+                livi_video::codec::sink_override().as_deref(),
             )
         };
 
@@ -545,8 +425,8 @@ fn with_variable_rate(mut caps: gst::Caps) -> gst::Caps {
     caps
 }
 
-fn length_prefixed_caps(codec: &str, codec_data: &[u8]) -> gst::Caps {
-    let (media, stream_format) = if codec == "h265" {
+fn length_prefixed_caps(codec: VideoCodec, codec_data: &[u8]) -> gst::Caps {
+    let (media, stream_format) = if codec == VideoCodec::H265 {
         ("video/x-h265", "hvc1")
     } else {
         ("video/x-h264", "avc")
@@ -582,7 +462,7 @@ fn render_gpu() -> Option<livi_video::codec::RenderGpu> {
 }
 
 #[cfg(target_os = "android")]
-fn media_codecs(codec: &str) -> Vec<String> {
+fn media_codecs(codec: VideoCodec) -> Vec<String> {
     let Some(caps) = livi_video::codec::caps_for(codec)
         .to_str()
         .ok()
@@ -601,7 +481,7 @@ fn media_codecs(codec: &str) -> Vec<String> {
     decoders.into_iter().map(|f| f.name().to_string()).collect()
 }
 
-fn candidates(codec: &str, sw_only: bool) -> Vec<String> {
+fn candidates(codec: VideoCodec, sw_only: bool) -> Vec<String> {
     #[cfg(target_os = "android")]
     if !sw_only {
         let mut names = media_codecs(codec);
@@ -640,7 +520,7 @@ fn usable(name: &str) -> bool {
         || dec.property::<Option<String>>("device-path").as_deref() == Some(node.as_str())
 }
 
-pub fn probe(codec: &str) -> (bool, bool) {
+pub fn probe(codec: VideoCodec) -> (bool, bool) {
     ensure_init();
     let exists = |name: &str| gst::ElementFactory::find(name).is_some();
 

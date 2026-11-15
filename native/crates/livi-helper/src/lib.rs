@@ -3,11 +3,13 @@
 // Additional terms: see NOTICE
 
 pub mod aa;
+#[cfg(target_os = "linux")]
+pub mod bluez;
 #[cfg(not(target_os = "linux"))]
 pub mod bt_dongle;
 #[cfg(not(target_os = "linux"))]
 pub mod dongle;
-pub mod embedded;
+pub mod in_process;
 pub mod link;
 pub mod mfi;
 pub mod wired;
@@ -15,9 +17,9 @@ pub mod wired;
 pub mod wireless;
 
 use livi_core_proto::helper::HelperStart;
-use livi_runtime::bringup::CpConfig;
-use livi_runtime::ident::{Identity, Theme, Transport};
-use livi_runtime::vehicle::{Fuels, Plugs};
+use livi_helper_stack::bringup::CpConfig;
+use livi_helper_stack::ident::{Identity, Theme, Transport};
+use livi_helper_stack::vehicle::{Fuels, Plugs};
 use livi_wifi::{Band, Channel};
 
 pub const DEFAULT_NAME: &str = "LIVI";
@@ -26,7 +28,7 @@ pub const DEFAULT_CHANNEL: u32 = 36;
 pub const SOURCE_VERSION: &str = "950.7.1";
 pub const AVAILABLE_CURRENT_MA: u16 = 500;
 
-pub(crate) fn or(value: &str, default: &str) -> String {
+pub fn or(value: &str, default: &str) -> String {
     if value.is_empty() {
         default.to_string()
     } else {
@@ -52,7 +54,7 @@ pub fn carplay(start: &HelperStart, transport: Transport) -> (Identity, CpConfig
             channel,
         ),
         airplay_port: start.airplay_port.map_or(0, u32::from),
-        source_version: SOURCE_VERSION.to_string(),
+        source_version: or(&s.source_version, SOURCE_VERSION),
         public_key: start.pairing_id.clone(),
         transport,
         av_iface: None,
@@ -77,6 +79,7 @@ pub fn carplay(start: &HelperStart, transport: Transport) -> (Identity, CpConfig
     (identity, cp)
 }
 
+#[cfg_attr(not(usb_host), allow(dead_code))]
 pub(crate) fn short(serial: &str) -> &str {
     &serial[..8.min(serial.len())]
 }

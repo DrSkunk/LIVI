@@ -2,11 +2,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
+pub mod aa_events;
 pub mod config;
+pub mod features;
 pub mod frame;
 pub mod gnss;
 pub mod helper;
+pub mod helper_events;
+pub mod helper_requests;
 pub mod icon;
+pub mod ids;
 pub mod input;
 pub mod message;
 pub mod patch;
