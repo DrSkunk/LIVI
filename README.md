@@ -27,7 +27,7 @@ It runs on Linux desktops and embedded boards as well as on macOS and Android. A
 
 ## Local Music
 
-On LIVI OS, choose **Local Music** from the existing Media page to browse and play music alongside the normal CarPlay and Android Auto media controls. The library scans `/data/livi/music` and USB volumes mounted under `/run/livi-media`; USB music remains read-only. MP3, FLAC, WAV/WAVE, AAC/M4A, Ogg, Opus, and relative-path M3U/M3U8 playlists are supported when their codecs are available. Refresh after adding files.
+On LIVI OS, choose **Local Music** from the existing Media page to browse and play music alongside the normal CarPlay and Android Auto media controls. The library scans `/data/livi/music` and USB volumes mounted under `/run/livi-media`; USB music remains read-only. MP3, FLAC, WAV/WAVE, AAC/M4A, Ogg, Opus, and relative-path M3U/M3U8 playlists are supported when their codecs are available. USB sticks show up and disappear on their own when plugged in or pulled; refresh after copying new files to internal storage.
 
 Open a USB source (or a folder inside it) and choose **Eject USB** before unplugging. This stops and joins local playback, deactivates and closes its host audio stream, and waits for serialized library scans before invoking `sudo -n /usr/libexec/livi-media-eject DEVICE`. `DEVICE` is the kernel basename, e.g. `sda1` (partition) or `sdb` (whole-device filesystem), not a `/dev/` path. Only currently mounted read-only USB sources are offered; internal music cannot be ejected. All local playback stops, even if a playlist spans sources. On failure, the library shows the helper error; do not unplug until eject succeeds. Eject requires the LIVI OS helper and its sudo policy.
 
