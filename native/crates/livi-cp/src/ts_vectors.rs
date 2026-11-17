@@ -6,15 +6,15 @@ use serde_json::Value as Json;
 
 use crate::bplist::{self, Value, dict};
 use crate::control_cipher::ControlCipher;
-use crate::crypto::{
-    aes_ctr128, chacha_seal, ed25519_sign, hkdf_sha512, nonce_label, nonce64, sha1, sha256,
-};
 use crate::hid::{Contact, KnobState, knob_report, touch_device, touch_report};
 use crate::identity::hex;
 use crate::info::{DisplayConfig, Icon, InfoConfig, Insets, build};
 use crate::rtsp::{Response, build_response, parse};
 use crate::srp::SrpServer;
 use crate::tlv8;
+use livi_crypto::{
+    aes_ctr128, chacha_seal, ed25519_sign, hkdf_sha512, nonce_label, nonce64, sha1, sha256,
+};
 
 fn vectors() -> Json {
     serde_json::from_str(include_str!("ts_vectors.json")).expect("valid vector file")
@@ -60,6 +60,8 @@ fn info_config() -> InfoConfig {
                 right: 10,
             }),
             safe_area_draw_outside: Some(true),
+            ui_night: true,
+            map_night: true,
             ..Default::default()
         },
         cluster: Some(DisplayConfig {
@@ -68,6 +70,8 @@ fn info_config() -> InfoConfig {
             fps: Some(30),
             width_physical_mm: Some(150),
             initial_url: Some("maps:/car/instrumentcluster".into()),
+            ui_night: true,
+            map_night: true,
             ..Default::default()
         }),
         entertainment_sample_rate: 44100,
@@ -80,6 +84,7 @@ fn info_config() -> InfoConfig {
         }],
         right_hand_drive: true,
         theme_displays: None,
+        appearance_setting: 1,
     }
 }
 
@@ -93,7 +98,7 @@ fn tlv8_matches() {
 
 #[test]
 fn rtsp_matches() {
-    let (reqs, _) = parse(b"GET /info RTSP/1.0\r\nCSeq: 5\r\n\r\n");
+    let (reqs, _) = parse(b"GET /info RTSP/1.0\r\nCSeq: 5\r\n\r\n").unwrap();
     let res = Response {
         headers: vec![
             (

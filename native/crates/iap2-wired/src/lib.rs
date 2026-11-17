@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
+mod error;
+pub use error::Error;
+
 mod carkit;
 pub use carkit::{CarkitChannel, LOCKDOWN_SERVICE, open_carkit, pair_record_path};
 
@@ -10,3 +13,6 @@ pub mod usbmuxd;
 
 #[cfg(target_os = "macos")]
 pub mod mac_network;
+
+#[cfg(target_os = "ios")]
+pub mod remote;

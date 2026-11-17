@@ -8,12 +8,19 @@ use std::time::{Duration, Instant};
 use livi_core_proto::state::{DabScan, DabSignal, DabStation, FmStation};
 use livi_dab::{CHANNELS, Event, Receiver};
 use livi_fm::Rds;
-use livi_media::gst_host::{AudioCodec, aac_raw_key};
+use livi_media::output::{AudioCodec, aac_raw_key};
 use livi_rtlsdr::RtlSdr;
 use tokio::sync::mpsc;
 
 use super::audio::Format;
-use super::{Band, Tuning, dab, fm};
+use super::{Band, dab, fm};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Tuning {
+    pub(super) gain: Option<i32>,
+    pub(super) ppm: i32,
+    pub(super) deemphasis_us: u32,
+}
 
 const DAB_BLOCK: usize = 256 * 1024;
 /// About 17 ms of FM, so the audio leaves in small, even steps.
@@ -28,21 +35,10 @@ const SCAN_LABELS: Duration = Duration::from_secs(8);
 const SCAN_STABLE: Duration = Duration::from_millis(1200);
 
 pub enum Cmd {
-    Scan(Band, Tuning),
-    Play {
-        frequency: u32,
-        service: u32,
-        tuning: Tuning,
-    },
-    PlayFm {
-        khz: u32,
-        tuning: Tuning,
-    },
-    SeekFm {
-        from: u32,
-        up: bool,
-        tuning: Tuning,
-    },
+    Scan(Band),
+    Play { frequency: u32, service: u32 },
+    PlayFm { khz: u32 },
+    SeekFm { from: u32, up: bool },
     Stop,
     Tuning(Tuning),
 }
@@ -182,8 +178,7 @@ struct Thread {
     looked: Option<Instant>,
 }
 
-pub fn run(cmds: std_mpsc::Receiver<Cmd>, events: mpsc::UnboundedSender<Radio>) {
-    let tuning = Tuning::default();
+pub fn run(cmds: std_mpsc::Receiver<Cmd>, events: mpsc::UnboundedSender<Radio>, tuning: Tuning) {
     let mut t = Thread {
         events,
         sdr: None,
@@ -383,8 +378,7 @@ impl Thread {
                 }
                 false
             }
-            Cmd::Scan(band, tuning) => {
-                self.tuning = tuning;
+            Cmd::Scan(band) => {
                 let restart = self.use_band(band);
                 match band {
                     Band::Dab => {
@@ -409,27 +403,20 @@ impl Thread {
                 }
                 restart
             }
-            Cmd::Play {
-                frequency,
-                service,
-                tuning,
-            } => {
-                self.tuning = tuning;
+            Cmd::Play { frequency, service } => {
                 let restart = self.use_band(Band::Dab);
                 self.mode = Mode::Play { service, frequency };
                 self.dab.select(Some(service));
                 self.tune(frequency);
                 restart
             }
-            Cmd::SeekFm { from, up, tuning } => {
-                self.tuning = tuning;
+            Cmd::SeekFm { from, up } => {
                 let restart = self.use_band(Band::Fm);
                 self.fm.set_audio(false);
                 self.seek_to(fm::seek_next(from, up), up, from);
                 restart
             }
-            Cmd::PlayFm { khz, tuning } => {
-                self.tuning = tuning;
+            Cmd::PlayFm { khz } => {
                 let restart = self.use_band(Band::Fm);
                 self.mode = Mode::FmPlay { khz };
                 self.fm.set_audio(true);

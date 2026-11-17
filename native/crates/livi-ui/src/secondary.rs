@@ -7,6 +7,8 @@ use std::cell::RefCell;
 use livi_core_client::Client;
 use livi_core_proto::state::{Front, Screen};
 use livi_ui_model::dashboard::screens::{Secondary, name};
+#[cfg(not(target_os = "android"))]
+use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
 use slint::{ComponentHandle, LogicalPosition, LogicalSize};
 
 use crate::dashboard_ui::{DashView, fill};
@@ -52,6 +54,7 @@ fn open(main: &AppWindow, client: &Client, spec: &Secondary) -> Option<Secondary
     crate::dashboard_ui::wire(&w.global::<DashState>(), client);
     w.set_window_title(title(spec.screen).into());
     w.set_has_dashboard(spec.dashboard);
+    w.set_view_area(crate::view_area(spec.view_area));
     copy_theme(main, &w);
     set_window_texts(&w);
     w.global::<DashState>().set_clock(main.get_clock());
@@ -75,9 +78,28 @@ fn open(main: &AppWindow, client: &Client, spec: &Secondary) -> Option<Secondary
             eprintln!("[ui] the {screen} window has no native handle for the video");
         }
     });
+    forward_keys(window);
     w.show().ok()?;
     Some(w)
 }
+
+#[cfg(not(target_os = "android"))]
+fn forward_keys(window: &slint::Window) {
+    window.on_winit_window_event(|_, event| {
+        let winit::event::WindowEvent::KeyboardInput { event, .. } = event else {
+            return EventResult::Propagate;
+        };
+        let winit::keyboard::PhysicalKey::Code(physical) = event.physical_key else {
+            return EventResult::Propagate;
+        };
+        let down = event.state == winit::event::ElementState::Pressed;
+        crate::key(&format!("{physical:?}"), down, event.repeat);
+        EventResult::PreventDefault
+    });
+}
+
+#[cfg(target_os = "android")]
+fn forward_keys(_: &slint::Window) {}
 
 pub fn follow(main: &AppWindow, client: &Client, wanted: Vec<Secondary>) {
     OPEN.with_borrow_mut(|open| {
@@ -95,6 +117,7 @@ pub fn follow(main: &AppWindow, client: &Client, wanted: Vec<Secondary>) {
                 Some(o) if o.spec == spec => {}
                 Some(o) => {
                     o.window.set_has_dashboard(spec.dashboard);
+                    o.window.set_view_area(crate::view_area(spec.view_area));
                     if let Some(t) = o.fullscreen.as_mut() {
                         t.apply(o.window.window(), spec.kiosk);
                     }

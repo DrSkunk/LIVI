@@ -379,7 +379,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config_file::tests::TempDir;
+    use crate::files::config_file::tests::TempDir;
     use crate::games::library::{self, tests::dirs};
 
     fn fixture(tmp: &TempDir) -> Dirs {

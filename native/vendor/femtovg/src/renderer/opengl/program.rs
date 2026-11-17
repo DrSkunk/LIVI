@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use glow::HasContext;
 
-use crate::{renderer::ShaderType, ErrorKind};
+use crate::{ErrorKind, renderer::ShaderType};
 
 const GLSL_VERSION: &str = "#version 100";
 
@@ -62,7 +62,11 @@ pub struct Program {
 }
 
 impl Program {
-    pub fn new(context: &Rc<glow::Context>, shaders: &[Shader], attrib_locations: &[&str]) -> Result<Self, ErrorKind> {
+    pub fn new(
+        context: &Rc<glow::Context>,
+        shaders: &[Shader],
+        attrib_locations: &[&str],
+    ) -> Result<Self, ErrorKind> {
         let program = Self {
             context: context.clone(),
             id: unsafe { context.create_program().unwrap() },
@@ -117,7 +121,10 @@ impl Program {
         }
     }
 
-    fn uniform_location(&self, name: &str) -> Option<<glow::Context as glow::HasContext>::UniformLocation> {
+    fn uniform_location(
+        &self,
+        name: &str,
+    ) -> Option<<glow::Context as glow::HasContext>::UniformLocation> {
         unsafe { self.context.get_uniform_location(self.id, name) }
     }
 }
@@ -137,6 +144,7 @@ pub struct MainProgram {
     loc_viewsize: <glow::Context as glow::HasContext>::UniformLocation,
     loc_tex: Option<<glow::Context as glow::HasContext>::UniformLocation>,
     loc_glyphtex: Option<<glow::Context as glow::HasContext>::UniformLocation>,
+    loc_cliptex: Option<<glow::Context as glow::HasContext>::UniformLocation>,
     loc_frag: Option<<glow::Context as glow::HasContext>::UniformLocation>,
 }
 
@@ -147,23 +155,67 @@ impl MainProgram {
         shader_type: ShaderType,
         with_glyph_texture: bool,
     ) -> Result<Self, ErrorKind> {
+        Self::build(
+            context,
+            antialias,
+            shader_type,
+            with_glyph_texture,
+            (false, false),
+        )
+    }
+
+    /// The program of a draw under a clip shape, a coverage mask or both -
+    /// `clips`, in that order: no other program evaluates one.
+    pub(crate) fn with_clip(
+        context: &Rc<glow::Context>,
+        antialias: bool,
+        shader_type: ShaderType,
+        with_glyph_texture: bool,
+        clips: (bool, bool),
+    ) -> Result<Self, ErrorKind> {
+        Self::build(context, antialias, shader_type, with_glyph_texture, clips)
+    }
+
+    fn build(
+        context: &Rc<glow::Context>,
+        antialias: bool,
+        shader_type: ShaderType,
+        with_glyph_texture: bool,
+        (with_clip_shape, with_clip_mask): (bool, bool),
+    ) -> Result<Self, ErrorKind> {
         let shader_defs = if antialias { "#define EDGE_AA 1" } else { "" };
         let select_shader_type = format!(
-            "#define SELECT_SHADER {}\n{}",
+            "#define SELECT_SHADER {}\n{}\n{}\n{}",
             shader_type.to_u8(),
             if with_glyph_texture {
                 "#define ENABLE_GLYPH_TEXTURE"
             } else {
                 ""
+            },
+            if with_clip_shape {
+                "#define CLIP_SHAPE"
+            } else {
+                ""
+            },
+            if with_clip_mask {
+                "#define CLIP_MASK"
+            } else {
+                ""
             }
         );
-        let vert_shader_src = format!("{}\n{}\n{}", GLSL_VERSION, shader_defs, include_str!("main-vs.glsl"));
+        let vert_shader_src = format!(
+            "{}\n{}\n{}",
+            GLSL_VERSION,
+            shader_defs,
+            include_str!("main-vs.glsl")
+        );
         let frag_shader_src = format!(
-            "{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}",
             GLSL_VERSION,
             shader_defs,
             select_shader_type,
-            include_str!("main-fs.glsl")
+            include_str!("main-fs.glsl"),
+            include_str!("filters.glsl")
         );
 
         let vert_shader = Shader::new(context, &vert_shader_src, glow::VERTEX_SHADER)?;
@@ -174,6 +226,7 @@ impl MainProgram {
         let loc_viewsize = program.uniform_location("viewSize").unwrap();
         let loc_tex = program.uniform_location("tex");
         let loc_glyphtex = program.uniform_location("glyphtex");
+        let loc_cliptex = program.uniform_location("cliptex");
         let loc_frag = program.uniform_location("frag");
 
         Ok(Self {
@@ -182,6 +235,7 @@ impl MainProgram {
             loc_viewsize,
             loc_tex,
             loc_glyphtex,
+            loc_cliptex,
             loc_frag,
         })
     }
@@ -198,15 +252,23 @@ impl MainProgram {
         }
     }
 
+    pub(crate) fn set_cliptex(&self, tex: i32) {
+        unsafe {
+            self.context.uniform_1_i32(self.loc_cliptex.as_ref(), tex);
+        }
+    }
+
     pub(crate) fn set_view(&self, view: [f32; 2]) {
         unsafe {
-            self.context.uniform_2_f32_slice(Some(&self.loc_viewsize), &view);
+            self.context
+                .uniform_2_f32_slice(Some(&self.loc_viewsize), &view);
         }
     }
 
     pub(crate) fn set_config(&self, config: &[f32]) {
         unsafe {
-            self.context.uniform_4_f32_slice(self.loc_frag.as_ref(), config);
+            self.context
+                .uniform_4_f32_slice(self.loc_frag.as_ref(), config);
         }
     }
 

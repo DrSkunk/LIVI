@@ -16,23 +16,31 @@ const ETHERTYPE_IPV6: [u8; 2] = [0x86, 0xdd];
 const ASK_EVERY: Duration = Duration::from_secs(2);
 const IDLE: Duration = Duration::from_millis(200);
 
+#[derive(Debug, thiserror::Error)]
+pub enum AttachError {
+    #[error("list devices: {0}")]
+    List(nusb::Error),
+    #[error("no LIVI Link on the bus")]
+    NoLink,
+    #[error("open the LIVI Link: {0}")]
+    Open(nusb::Error),
+    #[error("{0}")]
+    Bridge(String),
+}
+
 pub struct UsbNet {
     _bridge: NcmBridge,
 }
 
-pub fn attach(tunnel: Arc<Tunnel>) -> Result<UsbNet, String> {
+pub fn attach(tunnel: Arc<Tunnel>) -> Result<UsbNet, AttachError> {
     let info = nusb::list_devices()
         .wait()
-        .map_err(|e| format!("list devices: {e}"))?
+        .map_err(AttachError::List)?
         .find(crate::is_livi_link)
-        .ok_or("no LIVI Link on the bus")?;
+        .ok_or(AttachError::NoLink)?;
     let serial = info.serial_number().unwrap_or("").to_owned();
-    let device = info
-        .open()
-        .wait()
-        .map_err(|e| format!("open the LIVI Link: {e}"))?;
-    let bridge = NcmBridge::over(&device, IFNAME, |host| {
-        let mac = host.unwrap_or_else(|| made_up_mac(&serial));
+    let device = info.open().wait().map_err(AttachError::Open)?;
+    let bridge = NcmBridge::over(&device, &serial, IFNAME, |mac| {
         let owner = tunnel.clone();
         Net {
             mac,
@@ -42,17 +50,10 @@ pub fn attach(tunnel: Arc<Tunnel>) -> Result<UsbNet, String> {
             port: Mutex::new(None),
             asked: Mutex::new(None),
         }
-    })?;
+    })
+    .map_err(|e| AttachError::Bridge(e.to_string()))?;
     println!("[link] the LIVI Link {serial} is on USB, asking for an address");
     Ok(UsbNet { _bridge: bridge })
-}
-
-fn made_up_mac(serial: &str) -> Mac {
-    let mut mac = [0x02, 0, 0, 0, 0, 0];
-    for (i, b) in serial.bytes().enumerate() {
-        mac[1 + i % 5] ^= b;
-    }
-    mac
 }
 
 fn xid() -> u32 {
@@ -100,16 +101,20 @@ impl Net {
             None => self.tunnel.join(v4).map(|p| port.replace(p).is_none()),
         };
         match joined {
-            Ok(false) => {}
-            Ok(true) => println!(
-                "[link] {}/{} from {} and {} on the LIVI Link",
-                lease.address,
-                lease.prefix,
-                lease.server,
-                self.tunnel.address()
-            ),
+            Ok(false) => crate::link::served_by(Some(lease.server)),
+            Ok(true) => {
+                crate::link::served_by(Some(lease.server));
+                println!(
+                    "[link] {}/{} from {} and {} on the LIVI Link",
+                    lease.address,
+                    lease.prefix,
+                    lease.server,
+                    self.tunnel.address()
+                );
+            }
             Err(e) => {
                 eprintln!("[link] no interface for the LIVI Link: {e}");
+                crate::link::served_by(None);
                 *port = None;
                 *self.net.lock().unwrap() = Net4::new(self.mac, xid());
             }

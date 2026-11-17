@@ -9,9 +9,8 @@ use std::rc::Rc;
 use livi_core_client::Client;
 use livi_core_proto::config::DEFAULT_ROM_DIRECTORY;
 use livi_core_proto::message::Action;
-use livi_core_proto::state::{GameRun, Games};
+use livi_core_proto::state::{GameRun, Games, State};
 use livi_ui_model::games;
-use serde_json::Value;
 use slint::{ComponentHandle, Image, Model, ModelRc, SharedPixelBuffer, VecModel};
 
 use crate::media::Pixels;
@@ -46,7 +45,7 @@ fn load(path: &str) -> Option<Pixels> {
 }
 
 impl CoverReader {
-    pub fn read(&mut self, state: &Value) -> GamesView {
+    pub fn read(&mut self, state: &State) -> GamesView {
         let games = games::read(state);
         let wanted: Vec<&str> = games
             .library

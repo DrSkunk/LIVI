@@ -73,6 +73,7 @@ impl Projection {
             self.apply_when_idle();
         }
         if telemetry != self.telemetry_seen {
+            let allowed = self.cp_telemetry.video_allowed();
             self.cp_telemetry
                 .follow(&self.telemetry_seen, &telemetry, &self.cp);
             self.aa_telemetry
@@ -81,6 +82,9 @@ impl Projection {
                 self.reversing = reversing;
             }
             self.telemetry_seen = telemetry;
+            if self.cp_telemetry.video_allowed() != allowed {
+                self.publish();
+            }
         }
         self.camera_follows(camera);
     }
@@ -105,8 +109,7 @@ impl Projection {
             }
             self.push_level(kind, if prev > to { RAMP_DOWN_MS } else { RAMP_UP_MS });
         }
-        self.cp
-            .send(CpCmd::InitialNightMode(cfg.appearance_mode.night_mode()));
+        self.cp.send(CpCmd::NightModes(cfg.night_modes()));
         self.bindings = cfg.bindings.clone();
         self.stream_volumes_to_phone();
         let level = self.level(AudioKind::Media);

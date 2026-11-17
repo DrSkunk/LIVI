@@ -3,27 +3,20 @@
 // Additional terms: see NOTICE
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
+use livi_base::fs::{SHARED, write_atomic};
+use livi_base::time::unix_ms;
+use livi_core_proto::ids::{Ids, norm_mac};
 use livi_core_proto::state::{DeviceStatus, DeviceView, Protocol};
 use livi_cp::helper_sock::HelperSock;
-use livi_session_io::line::LineSock;
+use livi_session_io::line::{Feed, LineSock};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 const IAP_PROFILE_UUID: &str = "00000000-deca-fade-deca-deafdecacafe";
 pub const HFP_AG_UUID: &str = "0000111f-0000-1000-8000-00805f9b34fb";
 const BT_MAJOR_AUDIO: u32 = 0x04;
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Ids {
-    pub bt_mac: Option<String>,
-    pub wifi_mac: Option<String>,
-    pub usb_udid: Option<String>,
-    pub usb_serial: Option<String>,
-    pub instance_id: Option<String>,
-    pub ip: Option<String>,
-}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,6 +78,7 @@ impl Entry {
             usb_serial: s.usb_serial.clone(),
             instance_id: s.instance_id.clone(),
             ip: self.current_ip.clone(),
+            ..Default::default()
         }
     }
 
@@ -102,6 +96,10 @@ impl Entry {
         .next()
         .cloned()
         .unwrap_or_default()
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.stored.name.as_deref()
     }
 
     pub fn bt_mac(&self) -> Option<&str> {
@@ -135,35 +133,9 @@ impl Entry {
     }
 }
 
-pub fn norm_mac(v: &str) -> String {
-    let hex: String = v.chars().filter(char::is_ascii_hexdigit).collect();
-    if hex.len() != 12 {
-        return v.to_lowercase();
-    }
-    let hex = hex.to_lowercase();
-    (0..6)
-        .map(|i| &hex[i * 2..i * 2 + 2])
-        .collect::<Vec<_>>()
-        .join(":")
-}
-
 fn real_name(v: Option<&str>) -> Option<String> {
     let name = v?.trim();
     (!name.is_empty() && !name.eq_ignore_ascii_case("android")).then(|| name.to_string())
-}
-
-fn now_ms() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0.0, |d| d.as_millis() as f64)
-}
-
-fn same_mac(a: &Option<String>, b: &Option<String>) -> bool {
-    matches!((a, b), (Some(a), Some(b)) if norm_mac(a) == norm_mac(b))
-}
-
-fn same(a: &Option<String>, b: &Option<String>) -> bool {
-    matches!((a, b), (Some(a), Some(b)) if a == b)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -252,25 +224,14 @@ impl Registry {
         let Ok(text) = serde_json::to_string_pretty(&stored) else {
             return;
         };
-        let tmp = self.path.with_extension("json.tmp");
-        let written = std::fs::write(&tmp, text).and_then(|()| std::fs::rename(&tmp, &self.path));
-        if let Err(e) = written {
+        if let Err(e) = write_atomic(&self.path, text, SHARED) {
             eprintln!("[devices] {} not saved: {e}", self.path.display());
         }
     }
 
     fn find_all(&self, ids: &Ids) -> Vec<usize> {
         (0..self.entries.len())
-            .filter(|&i| {
-                let e = &self.entries[i];
-                let s = &e.stored;
-                same_mac(&ids.bt_mac, &s.bt_mac)
-                    || same_mac(&ids.wifi_mac, &s.wifi_mac)
-                    || same(&ids.usb_udid, &s.usb_udid)
-                    || same(&ids.usb_serial, &s.usb_serial)
-                    || same(&ids.instance_id, &s.instance_id)
-                    || same(&ids.ip, &e.current_ip)
-            })
+            .filter(|&i| ids.overlaps(&self.entries[i].ids()))
             .collect()
     }
 
@@ -359,7 +320,7 @@ impl Registry {
         let protocol = match seen.protocol {
             Some(Protocol::Androidauto) => "androidauto",
             Some(Protocol::Carplay) => "carplay",
-            None => s.protocol.as_deref().unwrap_or("carplay"),
+            Some(Protocol::Airplay) | None => s.protocol.as_deref().unwrap_or("carplay"),
         };
         s.protocol = Some(protocol.into());
         if seen.wired {
@@ -367,7 +328,7 @@ impl Registry {
         } else {
             e.present.wifi = true;
         }
-        s.last_seen = Some(now_ms());
+        s.last_seen = Some(unix_ms().floor());
         self.persist();
     }
 
@@ -379,7 +340,7 @@ impl Registry {
             if ids.ip.is_some() {
                 e.current_ip.clone_from(&ids.ip);
             }
-            e.stored.last_seen = Some(now_ms());
+            e.stored.last_seen = Some(unix_ms().floor());
         }
     }
 
@@ -484,6 +445,7 @@ fn wake_uuid(protocol: Option<Protocol>) -> Option<String> {
     match protocol? {
         Protocol::Carplay => Some(IAP_PROFILE_UUID.into()),
         Protocol::Androidauto => Some(HFP_AG_UUID.into()),
+        Protocol::Airplay => None,
     }
 }
 
@@ -507,6 +469,7 @@ impl Paging {
         match protocol {
             Some(Protocol::Carplay) => self.carplay,
             Some(Protocol::Androidauto) => self.android_auto,
+            Some(Protocol::Airplay) => false,
             None => self.carplay || self.android_auto,
         }
     }
@@ -547,6 +510,8 @@ pub struct Devices {
     pub helper: HelperSock,
     sent: Option<Targets>,
     leaving: bool,
+    ap_ready: bool,
+    held: bool,
 }
 
 impl Devices {
@@ -557,11 +522,30 @@ impl Devices {
             helper,
             sent: None,
             leaving: false,
+            ap_ready: true,
+            held: false,
         }
+    }
+
+    pub fn ap_ready(&mut self, ready: bool) -> bool {
+        let opened = ready && !self.ap_ready;
+        self.ap_ready = ready;
+        if opened && self.held {
+            println!("[devices] the access point is up, paging starts");
+        }
+        self.held = false;
+        opened
     }
 
     pub fn page(&mut self, targets: Targets, again: bool) {
         if self.leaving || (!again && self.sent.as_ref() == Some(&targets)) {
+            return;
+        }
+        if !self.ap_ready {
+            if !targets.is_empty() && !self.held {
+                println!("[devices] paging waits for the access point");
+            }
+            self.held = true;
             return;
         }
         if !targets.is_empty() {
@@ -606,8 +590,16 @@ impl Shared {
         Self(LineSock::new(path, "shared sock"))
     }
 
+    pub fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<Feed> {
+        self.0
+            .subscribe(Duration::from_secs(2), |event| event.get("event").is_some())
+    }
+
     pub async fn request(&self, line: String, within: Duration) -> Result<Value, String> {
-        self.0.request(&line, within).await
+        self.0
+            .request(&line, within)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     pub async fn wake(self, mac: String, protocol: Option<Protocol>) {
@@ -723,7 +715,7 @@ fn class_of(d: &Value) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config_file::tests::TempDir;
+    use crate::files::config_file::tests::TempDir;
 
     fn seen(bt: &str, wifi: &str, name: &str, wired: bool) -> Seen {
         let opt = |v: &str| (!v.is_empty()).then(|| v.to_string());
@@ -740,11 +732,26 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn paging_waits_for_the_access_point() {
+        let dir = TempDir::new();
+        let mut d = Devices::new(
+            &dir.0.join("devices.json"),
+            HelperSock::new(dir.0.join("cp-bt.sock")),
+            Shared::new(dir.0.join("shared.sock")),
+        );
+        let targets = vec![("AA:BB:CC:DD:EE:01".to_string(), None)];
+        assert!(!d.ap_ready(false));
+        d.page(targets.clone(), false);
+        assert_eq!(d.sent, None);
+        assert!(d.ap_ready(true));
+        d.page(targets.clone(), true);
+        assert_eq!(d.sent, Some(targets));
+        assert!(!d.ap_ready(true));
+    }
+
     #[test]
-    fn macs_are_written_one_way() {
-        assert_eq!(norm_mac("AA-BB-CC-DD-EE-FF"), "aa:bb:cc:dd:ee:ff");
-        assert_eq!(norm_mac("aabbccddeeff"), "aa:bb:cc:dd:ee:ff");
-        assert_eq!(norm_mac("XYZ"), "xyz");
+    fn a_bare_android_is_no_name() {
         assert_eq!(real_name(Some(" Android ")), None);
         assert_eq!(real_name(Some("Pixel")), Some("Pixel".into()));
     }

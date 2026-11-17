@@ -10,7 +10,7 @@ use serde_json::{Map, Value};
 use crate::config::{Config, WifiBand};
 use crate::theme::Cluster;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct State {
     pub front: PerScreen<Front>,
@@ -212,11 +212,63 @@ pub struct ControllerView {
     pub connected: bool,
 }
 
+impl State {
+    pub fn refresh(&mut self, section: &str, value: &Value) -> Result<(), String> {
+        fn read<'a, T: Deserialize<'a>>(value: &'a Value) -> Result<T, String> {
+            T::deserialize(value).map_err(|e| e.to_string())
+        }
+        match section {
+            "front" => self.front = read(value)?,
+            "sessions" => self.sessions = read(value)?,
+            "nowPlaying" => self.now_playing = read(value)?,
+            "localMusic" => self.local_music = read(value)?,
+            "videoPlayback" => self.video_playback = read(value)?,
+            "navigation" => self.navigation = read(value)?,
+            "system" => self.system = read(value)?,
+            "devices" => self.devices = read(value)?,
+            "cameras" => self.cameras = read(value)?,
+            "mfi" => self.mfi = read(value)?,
+            "telemetry" => self.telemetry = read(value)?,
+            "update" => self.update = read(value)?,
+            "cluster" => self.cluster = read(value)?,
+            "dab" => self.dab = read(value)?,
+            "games" => self.games = read(value)?,
+            "minidsp" => self.minidsp = read(value)?,
+            "network" => self.network = read(value)?,
+            "fm" => self.fm = read(value)?,
+            "config" => self.config = read(value)?,
+            _ => return Err(format!("unknown section {section}")),
+        }
+        Ok(())
+    }
+
+    pub fn filled(partial: Value) -> Value {
+        let mut full = serde_json::to_value(State::default()).unwrap_or(Value::Null);
+        overlay(&mut full, partial);
+        full
+    }
+}
+
+fn overlay(base: &mut Value, top: Value) {
+    match (base, top) {
+        (Value::Object(base), Value::Object(top)) => {
+            for (key, value) in top {
+                match base.get_mut(&key) {
+                    Some(slot) => overlay(slot, value),
+                    None => {
+                        base.insert(key, value);
+                    }
+                }
+            }
+        }
+        (base, top) => *base = top,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Dab {
     pub receiver: Option<String>,
-    pub stations: Vec<DabStation>,
     pub last_station: Option<u32>,
     pub scan: Option<DabScan>,
     pub active: bool,
@@ -226,6 +278,8 @@ pub struct Dab {
     pub signal: DabSignal,
     pub error: Option<String>,
     pub gains_db: Vec<f64>,
+    /// Last, so comparing two states stops at a changed small field before the logos.
+    pub stations: Vec<DabStation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -249,7 +303,6 @@ pub struct DabStation {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Fm {
-    pub stations: Vec<FmStation>,
     pub last_station: Option<u32>,
     pub scan: Option<DabScan>,
     pub active: bool,
@@ -259,6 +312,8 @@ pub struct Fm {
     pub text: Option<String>,
     pub signal: FmSignal,
     pub error: Option<String>,
+    /// Last, so comparing two states stops at a changed small field before the logos.
+    pub stations: Vec<FmStation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -689,6 +744,8 @@ pub struct VideoPlayback {
 #[serde(rename_all = "camelCase")]
 pub struct Sessions {
     pub active: Option<Protocol>,
+    pub video: bool,
+    pub held: bool,
     pub position: u32,
     pub total: u32,
 }
@@ -698,6 +755,7 @@ pub struct Sessions {
 pub enum Protocol {
     Carplay,
     Androidauto,
+    Airplay,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -708,9 +766,10 @@ pub enum Screen {
     Aux,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Front {
+    #[default]
     Livi,
     Projection,
     Cluster,
@@ -768,6 +827,49 @@ mod tests {
     }
 
     #[test]
+    fn every_section_reads_back_what_the_core_wrote() {
+        let mut written = State::default();
+        written.sessions.total = 2;
+        written.config.language = "de".into();
+        written.video_playback = Some(VideoPlayback::default());
+        let Value::Object(sections) = serde_json::to_value(&written).unwrap() else {
+            panic!("a state is an object");
+        };
+        let mut read = State::default();
+        for (section, value) in &sections {
+            read.refresh(section, value).unwrap();
+        }
+        assert_eq!(read, written);
+    }
+
+    #[test]
+    fn a_broken_section_is_refused_and_the_rest_kept() {
+        let mut state = State::default();
+        assert!(
+            state
+                .refresh("sessions", &serde_json::json!({ "total": "two" }))
+                .is_err()
+        );
+        assert!(state.refresh("weather", &Value::Null).is_err());
+        assert_eq!(state, State::default());
+    }
+
+    #[test]
+    fn a_partial_state_is_filled_with_the_defaults() {
+        let filled = State::filled(serde_json::json!({
+            "config": { "language": "de" },
+            "sessions": { "active": "carplay" }
+        }));
+        let state: State = serde_json::from_value(filled).unwrap();
+        assert_eq!(state.config.language, "de");
+        assert_eq!(
+            state.config.projection_width,
+            crate::config::defaults().projection_width
+        );
+        assert_eq!(state.sessions.active, Some(Protocol::Carplay));
+    }
+
+    #[test]
     fn per_screen_addresses_each_screen() {
         let mut fronts = PerScreen {
             main: Front::Livi,
@@ -813,16 +915,18 @@ mod tests {
     fn sessions_name_the_protocol_as_the_ui_does() {
         let sessions = Sessions {
             active: Some(Protocol::Androidauto),
+            video: true,
+            held: false,
             position: 1,
             total: 2,
         };
         assert_eq!(
             serde_json::to_string(&sessions).unwrap(),
-            r#"{"active":"androidauto","position":1,"total":2}"#
+            r#"{"active":"androidauto","video":true,"held":false,"position":1,"total":2}"#
         );
         assert_eq!(
             serde_json::to_string(&Sessions::default()).unwrap(),
-            r#"{"active":null,"position":0,"total":0}"#
+            r#"{"active":null,"video":false,"held":false,"position":0,"total":0}"#
         );
     }
 }

@@ -68,6 +68,12 @@ impl Projection {
         }
     }
 
+    pub(super) fn main_video_shown(&mut self) {
+        if let Some(link) = self.active().map(|s| s.link) {
+            self.video_up(link);
+        }
+    }
+
     pub(super) fn auto_activate(&mut self, index: u32) {
         if self.active().is_none() {
             self.activate(index);
@@ -127,9 +133,7 @@ impl Projection {
             return;
         };
         let closed = self.sessions.remove(i);
-        self.devices
-            .registry
-            .clear_presence(&registry_ids(&closed.device));
+        self.devices.registry.clear_presence(&closed.device);
         if self.sessions.is_empty() {
             self.next_index = 1;
             if let Some(done) = self.bye.take() {
@@ -156,19 +160,14 @@ impl Projection {
         self.changed();
     }
 
-    pub(super) fn close_on_transport(&mut self, ids: &Ids, transport: Transport) {
-        if let Some(i) = self.by_identity(ids)
-            && self.sessions[i].transport == transport
-        {
-            self.tell(self.sessions[i].link, Do::Close);
-        }
-    }
-
     pub(super) fn on_active_changed(&mut self, next: Option<usize>, had_prev: bool) {
         self.attention = None;
         self.activity(|a| *a = Activity::default());
         match next {
             Some(i) => {
+                if !matches!(self.sessions[i].link, Link::Ap(_)) {
+                    self.sessions[i].video = false;
+                }
                 let (level, ramp) = (self.sessions[i].duck_level, self.sessions[i].duck_ramp_ms);
                 self.duck(level, ramp);
                 if !had_prev {
@@ -182,6 +181,7 @@ impl Projection {
                 self.clusters.dispose();
                 self.duck_level = 1.0;
                 self.duck_ramp_ms = RAMP_UP_MS;
+                self.duck_beside(1.0, RAMP_UP_MS);
             }
         }
     }
@@ -190,7 +190,15 @@ impl Projection {
         let owner = self.active().map(|s| s.link);
         if owner != self.video_owner {
             if let Some(old) = self.video_owner {
-                self.tell(old, Do::VideoActive(false));
+                let heard = matches!(owner, Some(Link::Ap(_)));
+                self.tell(
+                    old,
+                    if heard {
+                        Do::ScreenOff
+                    } else {
+                        Do::VideoActive(false)
+                    },
+                );
             }
             self.video_owner = owner;
             if let Some(new) = owner {
@@ -220,12 +228,11 @@ impl Projection {
         }
     }
 
-    pub(super) fn session_of(&self, ids: &devices::Ids) -> Option<(u32, bool)> {
-        let ids = session_ids(ids);
+    pub(super) fn session_of(&self, ids: &Ids) -> Option<(u32, bool)> {
         if !ids.any() {
             return None;
         }
-        let i = self.sessions.iter().position(|s| s.device.overlaps(&ids))?;
+        let i = self.sessions.iter().position(|s| s.device.overlaps(ids))?;
         Some((i as u32 + 1, self.sessions[i].active))
     }
 
@@ -248,9 +255,16 @@ impl Projection {
     }
 
     pub(super) fn select_device(&mut self, id: &str) {
+        if let Some(link) = ap::link_of(id) {
+            if let Some(index) = self.by_link(link).map(|s| s.index) {
+                println!("[core] picked {id}, session #{index}");
+                self.activate(index);
+            }
+            return;
+        }
         let ids = match self.devices.registry.by_id(id) {
             Some(e) => e.ids(),
-            None => devices::Ids {
+            None => Ids {
                 bt_mac: Some(id.to_string()),
                 wifi_mac: Some(id.to_string()),
                 usb_udid: Some(id.to_string()),
@@ -258,7 +272,7 @@ impl Projection {
                 ..Default::default()
             },
         };
-        match self.by_identity(&session_ids(&ids)) {
+        match self.by_identity(&ids) {
             Some(i) => {
                 println!("[core] picked {id}, session #{}", self.sessions[i].index);
                 let index = self.sessions[i].index;
@@ -278,10 +292,14 @@ impl Projection {
     }
 
     pub(super) fn forget_device(&mut self, id: &str) {
+        if let Some(link) = ap::link_of(id) {
+            self.tell(link, Do::Close);
+            return;
+        }
         let Some(gone) = self.devices.registry.forget(id) else {
             return;
         };
-        if let Some(i) = self.by_identity(&session_ids(&gone.ids())) {
+        if let Some(i) = self.by_identity(&gone.ids()) {
             let session = self.sessions[i].link;
             println!(
                 "[core] forget {id} ends session #{}",
@@ -293,6 +311,7 @@ impl Projection {
                 match session {
                     Link::Cp(id) => cp.send(CpCmd::Close { id }),
                     Link::Aa(id) => aa.send(AaCmd::Close { id }),
+                    Link::Ap(_) => {}
                 }
             });
         }
@@ -303,14 +322,20 @@ impl Projection {
     }
 
     pub(super) fn publish(&mut self) {
-        let list = devices::views(&self.devices.registry, &|ids| self.session_of(ids));
+        let mut list = devices::views(&self.devices.registry, &|ids| self.session_of(ids));
+        list.extend(self.ap_views());
+        list.sort_by_key(|v| v.session.unwrap_or(u32::MAX));
         let targets = self.targets();
         self.devices.page(targets, false);
         let main = self.front_main();
         let (cluster, aux) = (self.wants.cluster, self.wants.aux);
         let position = self.sessions.iter().position(|s| s.active);
+        let active = position.map(|i| self.sessions[i].link.protocol());
+        let video = position.is_some_and(|i| self.sessions[i].video);
         let sessions = Sessions {
-            active: position.map(|i| self.sessions[i].link.protocol()),
+            active,
+            video,
+            held: video && active == Some(Protocol::Airplay) && !self.cp_telemetry.video_allowed(),
             position: position.map_or(0, |i| i as u32 + 1),
             total: self.sessions.len() as u32,
         };
@@ -318,7 +343,10 @@ impl Projection {
             .active()
             .map(|s| {
                 (
-                    s.now_playing.clone(),
+                    match s.link {
+                        Link::Ap(id) => self.ap_now_playing(id, &s.now_playing),
+                        _ => s.now_playing.clone(),
+                    },
                     s.video_playback,
                     s.navigation.clone(),
                 )
@@ -328,7 +356,20 @@ impl Projection {
             &mut navigation,
             nav_text::Language::of(&self.config_seen.language),
         );
+        let (asked, video) = (self.wants.main, sessions.video);
         self.hub.update(|s| {
+            if s.front.main != main {
+                println!(
+                    "[core] main screen {:?} -> {main:?} (asked {asked:?}, video {video})",
+                    s.front.main
+                );
+            }
+            if s.front.cluster != cluster {
+                println!("[core] cluster screen {:?} -> {cluster:?}", s.front.cluster);
+            }
+            if s.front.aux != aux {
+                println!("[core] aux screen {:?} -> {aux:?}", s.front.aux);
+            }
             s.front.main = main;
             s.front.cluster = cluster;
             s.front.aux = aux;

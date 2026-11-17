@@ -10,8 +10,8 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use livi_host_proto::readiness::PresentedOutput;
 use livi_media::compositor::CompositorControl;
+use livi_output_proto::readiness::PresentedOutput;
 use tokio::sync::{oneshot, watch};
 
 const LIMIT: usize = 16 * 1024;

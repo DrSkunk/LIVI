@@ -7,10 +7,13 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use livi_base::hex::rgb;
+use livi_base::num::round_half_up;
 use livi_core_proto::config::{Config, TouchCalibration};
 use livi_core_proto::input::{Input, Phase, Point};
 use livi_core_proto::state::{Display, Screen};
-use livi_host_proto::readiness::PresentedOutput;
+use livi_output_proto::ctrl::{Command, Region, TouchCal};
+use livi_output_proto::readiness::PresentedOutput;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
@@ -46,15 +49,29 @@ fn env_in(cfg: &Config, ctrl: &Path, overridden: impl Fn(&str) -> bool) -> Vec<(
         ));
     }
     let screens = [
-        ("MAIN", &cfg.display_mode.main, &cfg.display_connector.main),
+        (
+            "MAIN",
+            &cfg.display_mode.main,
+            &cfg.display_connector.main,
+            cfg.display_rotation.main,
+        ),
         (
             "CLUSTER",
             &cfg.display_mode.cluster,
             &cfg.display_connector.cluster,
+            cfg.display_rotation.cluster,
         ),
-        ("AUX", &cfg.display_mode.aux, &cfg.display_connector.aux),
+        (
+            "AUX",
+            &cfg.display_mode.aux,
+            &cfg.display_connector.aux,
+            cfg.display_rotation.aux,
+        ),
     ];
-    for (role, mode, connector) in screens {
+    for (role, mode, connector, rotation) in screens {
+        if rotation != 0 {
+            env.push((format!("LIVI_{role}_ROTATION"), rotation.to_string()));
+        }
         let key = if role == "MAIN" {
             "LIVI_DISPLAY_MODE".to_string()
         } else {
@@ -117,20 +134,21 @@ fn touch_panel_of(line: &str) -> Option<(&str, &str)> {
     (!name.is_empty()).then_some((connector, name))
 }
 
+fn ctrl_line(cmd: Command) -> String {
+    format!("{cmd}\n")
+}
+
 fn touch_calibration_lines(entries: &BTreeMap<String, TouchCalibration>) -> String {
-    let mut out = format!("touchcals {}\n", entries.len());
+    let mut out = ctrl_line(Command::TouchCals(entries.len()));
     for (name, c) in entries {
-        let display = if c.display.is_empty() {
-            "-"
-        } else {
-            &c.display
-        };
-        let matrix: Vec<String> = c.matrix.iter().map(f64::to_string).collect();
-        out.push_str(&format!(
-            "touchcal {} {display} {} {name}\n",
-            u8::from(c.enabled),
-            matrix.join(" ")
-        ));
+        out.push_str(&ctrl_line(Command::TouchCal {
+            name: name.clone(),
+            cal: TouchCal {
+                enabled: c.enabled,
+                display: c.display.clone(),
+                matrix: c.matrix,
+            },
+        }));
     }
     out
 }
@@ -226,10 +244,6 @@ enum Cmd {
     State(String, String),
 }
 
-fn round_half_up(v: f64) -> f64 {
-    (v + 0.5).floor()
-}
-
 #[derive(Clone)]
 pub struct CompositorControl {
     tx: mpsc::UnboundedSender<Cmd>,
@@ -315,29 +329,36 @@ impl CompositorControl {
         tier_w: f64,
         tier_h: f64,
     ) {
-        let n = |v: f64| round_half_up(v) as i64;
-        let line = format!(
-            "videocfg {tag} {screen} {} {} {} {} {} {}\n",
-            n(crop_l),
-            n(crop_t),
-            n(vis_w),
-            n(vis_h),
-            n(tier_w),
-            n(tier_h)
-        );
+        let n = |v: f64| round_half_up(v) as i64 as f64;
+        let line = ctrl_line(Command::Place {
+            tag: tag.to_string(),
+            screen: screen.to_string(),
+            region: Region {
+                crop_l: n(crop_l),
+                crop_t: n(crop_t),
+                vis_w: n(vis_w),
+                vis_h: n(vis_h),
+                tier_w: n(tier_w),
+                tier_h: n(tier_h),
+            },
+        });
         let _ = self.tx.send(Cmd::State(format!("cfg:{tag}"), line));
     }
 
     pub fn videoshow(&self, tag: &str, visible: bool) {
-        let line = format!("videoshow {tag} {}\n", u8::from(visible));
+        let line = ctrl_line(Command::Show {
+            tag: tag.to_string(),
+            shown: visible,
+        });
         let _ = self.tx.send(Cmd::State(format!("show:{tag}"), line));
     }
 
     pub fn screen(&self, role: &str, on: bool, size: Option<(u32, u32)>) {
-        let size = size
-            .filter(|(w, h)| *w > 0 && *h > 0)
-            .map_or(String::new(), |(w, h)| format!(" {w} {h}"));
-        let line = format!("screen {role} {}{size}\n", u8::from(on));
+        let line = ctrl_line(Command::Screen {
+            role: role.to_string(),
+            on,
+            size,
+        });
         let _ = self.tx.send(Cmd::State(format!("screen:{role}"), line));
     }
 
@@ -349,31 +370,44 @@ impl CompositorControl {
     }
 
     pub fn aspect(&self, role: &str, size: Option<(u32, u32)>) {
-        let (w, h) = size.filter(|(w, h)| *w > 0 && *h > 0).unwrap_or((0, 0));
         let _ = self.tx.send(Cmd::State(
             format!("aspect:{role}"),
-            format!("aspect {role} {w} {h}\n"),
+            ctrl_line(Command::Aspect {
+                role: role.to_string(),
+                size,
+            }),
         ));
     }
 
     pub fn mode(&self, role: &str, mode: &str) {
-        let mode = if mode.is_empty() { "-" } else { mode };
         let _ = self.tx.send(Cmd::State(
             format!("mode:{role}"),
-            format!("mode {role} {mode}\n"),
+            ctrl_line(Command::Mode {
+                role: role.to_string(),
+                mode: (!mode.is_empty()).then(|| mode.to_string()),
+            }),
+        ));
+    }
+
+    pub fn rotation(&self, role: &str, degrees: u16) {
+        let _ = self.tx.send(Cmd::State(
+            format!("rotation:{role}"),
+            ctrl_line(Command::Rotation {
+                role: role.to_string(),
+                degrees,
+            }),
         ));
     }
 
     pub fn backdrop(&self, hex: &str) {
-        let (r, g, b) = rgb(hex);
         let _ = self.tx.send(Cmd::State(
             "__backdrop__".into(),
-            format!("backdrop {r} {g} {b}\n"),
+            ctrl_line(Command::Backdrop(rgb(hex).unwrap_or_default())),
         ));
     }
 
     pub fn gamma(&self, gamma: f64, contrast: f64, r: f64, g: f64, b: f64) {
-        let line = format!("gamma {gamma} {contrast} {r} {g} {b}\n");
+        let line = ctrl_line(Command::Gamma([gamma, contrast, r, g, b]));
         let _ = self.tx.send(Cmd::State("__gamma__".into(), line));
     }
 
@@ -392,16 +426,10 @@ impl CompositorControl {
 }
 
 fn fullscreen_line(role: &str, on: bool) -> String {
-    format!("fullscreen {role} {}\n", u8::from(on))
-}
-
-fn rgb(hex: &str) -> (u8, u8, u8) {
-    let h = hex.trim().trim_start_matches('#');
-    if h.len() != 6 || !h.chars().all(|c| c.is_ascii_hexdigit()) {
-        return (0, 0, 0);
-    }
-    let n = u32::from_str_radix(h, 16).unwrap_or(0);
-    ((n >> 16) as u8, (n >> 8) as u8, n as u8)
+    ctrl_line(Command::Fullscreen {
+        role: role.to_string(),
+        on,
+    })
 }
 
 pub fn backdrop_hex(cfg: &Config) -> String {
@@ -549,7 +577,7 @@ impl Actor {
             return;
         }
         let (tag, done) = self.queue.remove(0);
-        self.outbox.push(format!("claim {tag}\n"));
+        self.outbox.push(ctrl_line(Command::Claim(tag.clone())));
         self.flush().await;
         self.in_flight = Some(tag);
         self.claim_deadline = Some(tokio::time::Instant::now() + CLAIM_TIMEOUT);
@@ -558,7 +586,7 @@ impl Actor {
 
     async fn abort_in_flight(&mut self) {
         if let Some(tag) = self.in_flight.take() {
-            self.outbox.push(format!("unclaim {tag}\n"));
+            self.outbox.push(ctrl_line(Command::Unclaim(tag.clone())));
             self.flush().await;
         }
         self.end_claim().await;
@@ -1095,8 +1123,6 @@ mod tests {
         assert_eq!(backdrop_hex(&cfg), "#ece7de");
         cfg.background_color_light = Some("#ffffff".into());
         assert_eq!(backdrop_hex(&cfg), "#ffffff");
-        assert_eq!(rgb("#ff8000"), (255, 128, 0));
-        assert_eq!(rgb("nope"), (0, 0, 0));
     }
 
     #[test]

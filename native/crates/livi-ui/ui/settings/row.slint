@@ -67,13 +67,14 @@ export component RowFrame inherits Rectangle {
     in property <bool> focused;
     in property <bool> dimmed;
     in property <bool> alert;
-    in property <color> icon-tint: Theme.text-secondary;
+    in property <color> icon-tint: Theme.icon-dim;
     in property <bool> has-badge;
     in property <string> badge-initials;
     in property <color> badge-color;
     in property <bool> badge-has-logo;
     in property <image> badge-logo;
     out property <bool> active: touch.pressed || touch.has-hover || root.focused;
+    out property <bool> lit: root.active && (root.clickable || root.focused);
     callback clicked();
 
     property <length> corner: Theme.comand ? Theme.radius : 10px;
@@ -136,6 +137,24 @@ export component RowFrame inherits Rectangle {
         border-color: Theme.focus-color;
     }
 
+    if !Theme.comand: Rectangle {
+        background: !root.lit ? transparent : touch.pressed ? Theme.lit-pressed : Theme.lit;
+        border-top-left-radius: root.border-top-left-radius;
+        border-top-right-radius: root.border-top-right-radius;
+        border-bottom-left-radius: root.border-bottom-left-radius;
+        border-bottom-right-radius: root.border-bottom-right-radius;
+        animate background { duration: 120ms; }
+    }
+
+    if !Theme.comand && root.focused: Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: 3px;
+        height: parent.height * 0.5;
+        border-radius: 1.5px;
+        background: Theme.primary;
+    }
+
     touch := TouchArea {
         enabled: root.enabled && root.clickable;
         clicked => { root.clicked(); }
@@ -152,7 +171,7 @@ export component RowFrame inherits Rectangle {
                 width: Metrics.row-icon;
                 height: Metrics.row-icon;
                 source: root.icon;
-                colorize: root.icon-tint;
+                colorize: root.lit ? Theme.primary : root.icon-tint;
             }
             if root.has-badge: StationBadge {
                 size: Metrics.row-icon + 4px;
@@ -169,8 +188,9 @@ export component RowFrame inherits Rectangle {
             padding-right: Metrics.row-pad;
             Text {
                 text: root.label;
-                color: root.alert ? #f44336 : root.active && (root.clickable || root.focused) ? Theme.primary : Theme.comand ? Theme.text : Theme.text-secondary;
-                font-size: Metrics.row-font;
+                color: root.alert ? #f44336 : Theme.comand ? (root.active && (root.clickable || root.focused) ? Theme.primary : Theme.text) : Theme.text.with-alpha(0.92);
+                font-size: Theme.comand ? Metrics.row-font : Metrics.row-font + 1px;
+                font-weight: Theme.comand ? 400 : 500;
                 letter-spacing: Theme.comand ? 0.8px : 0;
                 vertical-alignment: center;
                 overflow: elide;
@@ -181,10 +201,10 @@ export component RowFrame inherits Rectangle {
 
     if !root.last && !Theme.comand: Rectangle {
         x: Metrics.row-inset;
-        y: parent.height - 2px;
-        width: parent.width - Metrics.row-inset - Metrics.row-inset-r;
-        height: 2px;
-        background: Theme.divider;
+        y: parent.height - 1px;
+        width: parent.width - Metrics.row-inset;
+        height: 1px;
+        background: Theme.hairline;
     }
     if !root.last && Theme.comand: Rectangle {
         property <bool> lit: root.active && (root.clickable || root.focused);
@@ -198,14 +218,14 @@ export component RowFrame inherits Rectangle {
 
 export component Chevron inherits Rectangle {
     in property <bool> active;
-    width: Metrics.icon-px;
+    width: Metrics.icon-px * 0.7 + 3px;
     Image {
-        x: root.active ? -3px : 0;
-        width: Metrics.icon-px;
-        height: Metrics.icon-px;
+        x: root.active ? 3px : 0;
+        width: Metrics.icon-px * 0.7;
+        height: Metrics.icon-px * 0.7;
         source: @image-url("../icons/ArrowForwardIosOutlined.svg");
-        colorize: root.active ? Theme.primary : Theme.text;
-        animate x { duration: 300ms; easing: ease-in-out; }
+        colorize: root.active ? Theme.primary : Theme.text.with-alpha(0.3);
+        animate x { duration: 200ms; easing: ease-out; }
     }
 }
 
@@ -222,7 +242,7 @@ export component SettingsRow inherits RowFrame {
 
     icon: root.data.icon;
     has-icon: root.data.has-icon;
-    icon-tint: root.data.icon-active ? Theme.highlight : Theme.text-secondary;
+    icon-tint: root.data.icon-active ? Theme.highlight : Theme.icon-dim;
     has-badge: root.data.has-badge;
     badge-initials: root.data.badge-initials;
     badge-color: root.data.badge-color;
@@ -348,6 +368,6 @@ export component SettingsRow inherits RowFrame {
         }
     }
     if root.data.kind == RowKind.route || root.data.kind == RowKind.value || root.data.kind == RowKind.custom: Chevron {
-        active: root.active;
+        active: root.lit;
     }
 }

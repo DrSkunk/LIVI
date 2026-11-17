@@ -192,11 +192,15 @@ fn show_join(s: &SettingsState, v: &JoinView, t: &Strings) {
 }
 
 pub(super) fn render_screen(c: &mut Controller, s: &SettingsState, state: &Value) {
-    if c.model.screen(&c.stack, state, &c.strings).is_none() {
-        c.stack.clear();
-    }
-    let Some(screen) = c.model.screen(&c.stack, state, &c.strings) else {
-        return;
+    let screen = match c.model.screen(&c.stack, state, &c.strings) {
+        Some(screen) => screen,
+        None => {
+            c.stack.clear();
+            let Some(screen) = c.model.screen(&c.stack, state, &c.strings) else {
+                return;
+            };
+            screen
+        }
     };
     if c.join.as_mut().is_some_and(|j| j.follow(state)) {
         c.join = None;

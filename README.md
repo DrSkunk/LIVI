@@ -10,7 +10,7 @@ LIVI is an open-source Apple CarPlay and Android Auto head unit built in Rust wi
 >
 > Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)
 
-It runs on Linux desktops and embedded boards as well as on macOS and Android (experimental). A native zero-copy GStreamer pipeline handles hardware-decoded video and low-latency audio. Multitouch and D-Pad navigation are built in, and it works even on very small embedded and OEM displays.
+It runs on Linux desktops and embedded boards as well as on macOS and Android. A native zero-copy GStreamer pipeline handles hardware-decoded video and low-latency audio. Multitouch and D-Pad navigation are built in, and it works even on very small embedded and OEM displays.
 
 ## Project Status
 
@@ -23,6 +23,7 @@ It runs on Linux desktops and embedded boards as well as on macOS and Android (e
 
 - **Apple CarPlay** (wired & wireless) on Linux, Mac and Android
 - **Android Auto** (wired & wireless) on Linux, Mac and Android - wireless on Mac requires a LIVI Link
+- **AirPlay** audio and Screen Mirroring on Linux, Mac and Android
 
 ## Local Music
 
@@ -275,7 +276,10 @@ livi-core telemetry set gps.lat=53.5912 gps.lng=10.015
 livi-core telemetry set speedKph=90 rpm=2500 --every-ms 1000
 
 # Light main screen, dark CarPlay cluster
-livi-core telemetry set nightMode=false clusterNightMode=true
+livi-core telemetry set nightMode=false clusterUiNightMode=true clusterMapNightMode=true
+
+# Dark UI, light map
+livi-core telemetry set nightMode=true mainMapNightMode=false
 
 # LIVI's own UI
 livi-core telemetry set darkMode=false nightMode=true
@@ -292,7 +296,7 @@ curl -d '{"gear":"R"}' http://livi.local:4000/telemetry
 ```
 
 <p align="center">
-  <img src="docs/media/telemetry.png" alt="Telemetry Dashboard" width="70%" />
+  <img src="docs/media/dash.png" alt="Telemetry Dashboard" width="70%" />
 </p>
 
 ## Climate
@@ -362,9 +366,7 @@ mirrored to `state/gps.json` for external tools.
 On a Raspberry Pi 5, `/dev/ttyAMA0` on GPIO 14/15 (PIN 8/10) does not exist until `dtoverlay=uart0` is set in `config.txt`.
 
 <p align="center">
-  <img src="docs/media/gps/gps_hw.png" alt="GPS module info" width="42%" align="top" />
-  &emsp;
-  <img src="docs/media/gps/gps_info.png" alt="GPS data info" width="42%" align="top" />
+  <img src="docs/media/gps/gps.png" alt="Connected devices" width="70%" />
 </p>
 
 ## DAB+ and FM
@@ -450,26 +452,6 @@ Settings remains available, and feature availability (such as an active camera) 
   <img src="docs/media/multi-display/main.png" alt="Main Screen" width="34%" align="top" />
 </p>
 
-## View and Safe Area
-
-Stream resolution, view area insets, and safe area can be configured independently for the main and cluster streams. This is supported for Android Auto as well as CarPlay.
-
-### Main Stream
-
-Video: 1280x720 - View Area: 0/0/100/0 (T/B/L/R) - Safe Area: 100/100/100/100 (T/B/L/R) - Draw Outside: true
-
-<p align="center">
-  <img src="docs/media/area/main_safe_area_view_area_aa.png" alt="Safe area main stream Android Auto" width="70%" />
-</p>
-
-### Cluster Stream
-
-Video: 1920x1080 - View Area: 0/0/0/0 (T/B/L/R) - Safe Area: 120/20/500/500 (T/B/L/R)
-
-<p align="center">
-  <img src="docs/media/area/dash_safe_area_aa.png" alt="Safe area cluster stream Android Auto" width="70%" />
-</p>
-
 ## Images
 
 <p align="center">
@@ -533,10 +515,10 @@ In that case:
 
 After this, the app will launch normally and future updates will work without additional steps.
 
-## Android (arm64) – Experimental
+## Android (arm64)
 
-> [!WARNING]
-> The Android port is experimental. It is tested on AOSP Android 17 and on a Pixel 8 with latest GrapheneOS.
+> [!NOTE]
+> Tested on AOSP Android 17 and on a Pixel 8 with latest GrapheneOS. If LIVI does not run on your device, please open an issue.
 
 Install `LIVI-*-android-arm64.apk` on Android 10 or newer.
 
@@ -554,9 +536,9 @@ Install `LIVI-*-android-arm64.apk` on Android 10 or newer.
 
 Make sure the following packages and tools are installed on your system before building. The lists below cover both building and running, including everything native CarPlay needs:
 
-- **Rust** (via [rustup](https://rustup.rs), which installs the version pinned in `rust-toolchain.toml`): builds everything, the UI included.
+- **Rust** (via [rustup](https://rustup.rs), the latest stable release, `rustup update stable` keeps it current): builds everything, the UI included.
 - **build-essential** (Linux: includes `gcc`, `g++`, `make`, etc.)
-- **libgstreamer1.0-dev** + **libgstreamer-plugins-base1.0-dev** (required to build the `livi-gst-host` binary)
+- **libgstreamer1.0-dev** + **libgstreamer-plugins-base1.0-dev** (required to build the `livi-output` binary)
 - **libssl-dev** (Linux only: native CarPlay links OpenSSL)
 - **pkg-config**, **cmake** (AWS-LC build), **libwayland-dev** + **libxkbcommon-dev** (Linux only: the embedded Wayland compositor links both)
 - **libfontconfig1-dev** (Linux only: the UI looks up fonts through fontconfig)
@@ -630,7 +612,7 @@ See [CREDITS](CREDITS.md) for acknowledgements and prior art.
 
 ## Disclaimer
 
-_Apple and CarPlay are trademarks of Apple Inc. Android and Android Auto are trademarks of Google LLC. This project is not affiliated with or endorsed by Apple or Google. All product names, logos, and brands are the property of their respective owners._
+_Apple, AirPlay and CarPlay are trademarks of Apple Inc. Android and Android Auto are trademarks of Google LLC. This project is not affiliated with or endorsed by Apple or Google. All product names, logos, and brands are the property of their respective owners._
 
 ## License
 

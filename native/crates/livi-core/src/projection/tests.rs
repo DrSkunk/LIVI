@@ -5,13 +5,15 @@
 use livi_core_proto::config::{AppearanceMode, defaults};
 use livi_core_proto::input::Point;
 use livi_core_proto::state::Maneuver;
+use livi_cp::airplay::{AirplayCommand, AirplayRemote, AirplaySender};
 use livi_cp::stack::AudioProfile;
 use livi_media::compositor::CompositorControl;
-use livi_media::gst_host::GstHost;
+use livi_media::output::Output;
 use serde_json::json;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::*;
-use crate::config_file::tests::TempDir;
+use crate::files::config_file::tests::TempDir;
 
 struct Rig {
     dir: TempDir,
@@ -114,7 +116,7 @@ impl Rig {
         let (tx, cmds) = mpsc::unbounded_channel();
         let (aa_tx, mut aa) = mpsc::unbounded_channel();
         let (crop, aa_crop) = watch::channel(None);
-        let gst = GstHost::new(dir.0.join("gst.sock"));
+        let gst = Output::new(dir.0.join("gst.sock"));
         let ctrl = CompositorControl::connect(dir.0.join("ctrl"));
         let plane = MainPlane::new(gst.clone(), ctrl.clone());
         let clusters = ClusterPlanes::new(gst, ctrl);
@@ -159,7 +161,7 @@ impl Rig {
         };
         assert_eq!(
             rig.drain(),
-            [CpCmd::InitialNightMode(None), CpCmd::ClusterActive(false)]
+            [CpCmd::NightModes([true; 4]), CpCmd::ClusterActive(false)]
         );
         rig
     }
@@ -194,11 +196,7 @@ impl Rig {
             wired,
             controller_id: None,
         });
-        self.p.on_event(CpEvent::VideoCodec {
-            id,
-            cluster: false,
-            codec: livi_cp::stack::ScreenCodec::H264,
-        });
+        self.p.main_video_shown();
     }
 
     fn device(&mut self, id: SessionId, wired: bool, bt: &str, wifi: &str) {
@@ -236,6 +234,7 @@ impl Rig {
     }
 
     fn meta(&mut self, id: SessionId, event: Value) {
+        let event = serde_json::from_value(event).expect("a helper event");
         self.p.on_event(CpEvent::Metadata { id, event });
     }
 
@@ -307,15 +306,11 @@ async fn a_session_without_video_keeps_the_ui_in_front() {
     assert_eq!(rig.front(), Front::Livi);
     rig.p.on_event(CpEvent::VideoCodec {
         id: 1,
-        cluster: true,
-        codec: livi_cp::stack::ScreenCodec::H264,
-    });
-    assert_eq!(rig.front(), Front::Livi);
-    rig.p.on_event(CpEvent::VideoCodec {
-        id: 1,
         cluster: false,
         codec: livi_cp::stack::ScreenCodec::H264,
     });
+    assert_eq!(rig.front(), Front::Livi, "the codec alone shows nothing");
+    rig.p.main_video_shown();
     assert_eq!(rig.front(), Front::Projection);
 }
 
@@ -454,7 +449,7 @@ async fn levels_follow_the_config_and_the_ducking() {
         [
             volume(1, AudioKind::Alert, 0.5, RAMP_DOWN_MS),
             volume(1, AudioKind::Call, 1.0, RAMP_UP_MS),
-            CpCmd::InitialNightMode(Some(true)),
+            CpCmd::NightModes([true; 4]),
             stream_volumes(cfg.audio_volume, 0.5, 1.0, cfg.voice_assistant_volume),
         ]
     );
@@ -556,31 +551,77 @@ async fn buttons_and_touch_go_to_the_active_phone() {
 }
 
 #[tokio::test]
-async fn media_keys_go_to_the_radio_while_it_is_the_source() {
+async fn the_player_started_last_stops_the_other() {
     let mut rig = Rig::new();
     let (tx, mut radio) = mpsc::unbounded_channel();
     rig.p.radio = Some(tx);
     rig.connect(1, true);
     rig.drain();
+    while radio.try_recv().is_ok() {}
 
+    rig.p.follow_players(true, false);
+    rig.p.follow_players(true, true);
+    assert_eq!(
+        rig.drain(),
+        [stack(1, StackCmd::Media(media_button::PAUSE))]
+    );
+    assert!(radio.try_recv().is_err());
+
+    rig.p.follow_players(false, true);
+    rig.p.follow_players(true, true);
+    assert_eq!(radio.try_recv(), Ok(crate::radio::RadioAsk::Stop));
+    assert!(rig.drain().is_empty());
+}
+
+#[tokio::test]
+async fn the_phone_ducks_the_radio_too() {
+    let mut rig = Rig::new();
+    let (tx, mut radio) = mpsc::unbounded_channel();
+    rig.p.radio = Some(tx);
+    rig.connect(1, true);
+    while radio.try_recv().is_ok() {}
+    rig.p.on_event(CpEvent::Duck {
+        id: 1,
+        level: 0.3,
+        duration_ms: 200,
+    });
+    assert_eq!(
+        radio.try_recv(),
+        Ok(crate::radio::RadioAsk::Duck {
+            level: 0.3,
+            ramp_ms: 200
+        })
+    );
+    rig.p.on_event(CpEvent::Duck {
+        id: 9,
+        level: 0.1,
+        duration_ms: 0,
+    });
+    assert!(radio.try_recv().is_err(), "only the phone in front ducks");
+}
+
+#[tokio::test]
+async fn carplay_keeps_the_media_keys_while_the_radio_plays() {
+    let mut rig = Rig::new();
+    let (tx, mut radio) = mpsc::unbounded_channel();
+    rig.p.radio = Some(tx);
+    rig.connect(1, true);
+    rig.drain();
+    while radio.try_recv().is_ok() {}
+
+    rig.p.input(press("KeyN"));
+    assert_eq!(rig.drain(), [stack(1, StackCmd::Media(media_button::NEXT))]);
+
+    rig.hub.update(|s| {
+        s.dab.active = true;
+        s.dab.playing = true;
+    });
     rig.p.input(press("KeyN"));
     assert_eq!(rig.drain(), [stack(1, StackCmd::Media(media_button::NEXT))]);
     assert!(
         radio.try_recv().is_err(),
-        "the phone keeps the keys while it is the source"
+        "the iPhone steers the radio as its own source"
     );
-
-    rig.hub.update(|s| s.dab.active = true);
-    rig.p.input(press("KeyP"));
-    rig.p.input(Input::Key {
-        code: "KeyP".into(),
-        down: false,
-    });
-    rig.p.input(press("KeyN"));
-    assert!(rig.drain().is_empty(), "nothing reaches the phone");
-    assert_eq!(radio.try_recv(), Ok(crate::radio::RadioAsk::Resume(None)));
-    assert_eq!(radio.try_recv(), Ok(crate::radio::RadioAsk::Step(1)));
-    assert!(radio.try_recv().is_err(), "the release does nothing");
 }
 
 #[tokio::test]
@@ -698,7 +739,7 @@ async fn keys_follow_the_bindings() {
         assert_eq!(rig.drain(), [stack(1, cmd)], "{code}");
     }
     rig.p.input(press("KeyC"));
-    assert_eq!(rig.hub.watch().borrow().cluster.layout, "livi.navFull");
+    assert_eq!(rig.hub.watch().borrow().cluster.layout, "livi.clusterOnly");
     rig.p.input(press("KeyS"));
     rig.p.input(press("KeyW"));
     assert!(rig.drain().is_empty());
@@ -714,7 +755,7 @@ async fn the_dashboard_offers_the_layouts_as_arranged() {
     let shown = rig.hub.watch().borrow().cluster.shown.clone();
     assert_eq!(
         shown,
-        ["livi.navFull", "livi.clusterFull", "livi.clusterOnly"]
+        ["livi.strip", "livi.clusterOnly", "livi.clusterFull"]
     );
 
     rig.p
@@ -722,7 +763,7 @@ async fn the_dashboard_offers_the_layouts_as_arranged() {
     let patch = rig.patches.try_recv().unwrap();
     assert_eq!(
         patch["dashboardLayouts"]["livi.clusterOnly"],
-        serde_json::json!({ "on": true, "pos": 3 })
+        serde_json::json!({ "on": true, "pos": 2 })
     );
     rig.p
         .arrange_dashboard(rig.p.cluster.moved("livi.clusterOnly", 9));
@@ -785,9 +826,9 @@ async fn the_cluster_follows_the_phone_and_tells_it_livis_own_choice() {
     let cluster = |rig: &Rig| rig.hub.watch().borrow().cluster.clone();
     rig.p.on_event(CpEvent::Cluster {
         id: 1,
-        choice: PhoneChoice::Layout("livi.clusterFull".into()),
+        choice: PhoneChoice::Layout("livi.navMini".into()),
     });
-    assert_eq!(cluster(&rig).layout, "livi.clusterFull");
+    assert_eq!(cluster(&rig).layout, "livi.navMini");
     let dark = PhoneChoice::Appearance(Appearance::Dark);
     rig.p.on_event(CpEvent::Cluster {
         id: 1,
@@ -801,18 +842,18 @@ async fn the_cluster_follows_the_phone_and_tells_it_livis_own_choice() {
 
     rig.p.on_event(CpEvent::Cluster {
         id: 9,
-        choice: PhoneChoice::Layout("livi.navMini".into()),
+        choice: PhoneChoice::Layout("livi.strip".into()),
     });
     assert_eq!(
         cluster(&rig).layout,
-        "livi.clusterFull",
+        "livi.navMini",
         "only the session in front counts"
     );
 
     rig.p.input(press("KeyT"));
-    assert_eq!(cluster(&rig).layout, "livi.clusterOnly");
+    assert_eq!(cluster(&rig).layout, "livi.clusterFull");
     let to_phone = StackCmd::ClusterLayout(ui_sync::Layout {
-        id: "livi.clusterOnly".into(),
+        id: "livi.clusterFull".into(),
         palette: "default".into(),
         active: vec![("map".into(), "map".into())],
     });
@@ -843,44 +884,6 @@ async fn next_device_goes_round_the_phones() {
     assert_eq!(rig.sessions(), (Some(Protocol::Carplay), 2, 2));
     rig.p.activate_next();
     assert!(rig.p.sessions[0].active);
-}
-
-#[tokio::test]
-async fn the_helper_ends_sessions_whose_transport_went() {
-    let mut rig = Rig::new();
-    rig.device(1, false, "AA:BB", "cc:dd");
-    rig.device(2, true, "EE:FF", "");
-    rig.p.on_event(CpEvent::Presence {
-        id: 2,
-        wired: true,
-        presence: Presence::Device {
-            bt_mac: String::new(),
-            wifi_mac: String::new(),
-            ip: String::new(),
-            usb_udid: "u2".into(),
-            name: String::new(),
-            model: String::new(),
-        },
-    });
-    rig.drain();
-    rig.p
-        .on_event(CpEvent::HelperPresence(HelperPresence::Wifi {
-            wifi_mac: "CC:DD".into(),
-            ip: String::new(),
-            connected: false,
-        }));
-    assert_eq!(rig.drain(), [CpCmd::Close { id: 1 }]);
-    rig.p
-        .on_event(CpEvent::HelperPresence(HelperPresence::DeviceGone {
-            usb_udid: "u2".into(),
-        }));
-    assert_eq!(rig.drain(), [CpCmd::Close { id: 2 }]);
-    rig.p
-        .on_event(CpEvent::HelperPresence(HelperPresence::DeviceGone {
-            usb_udid: "zz".into(),
-        }));
-    rig.p.on_event(CpEvent::HelperConnected);
-    assert!(rig.drain().is_empty());
 }
 
 #[tokio::test]
@@ -1015,15 +1018,15 @@ async fn now_playing_follows_the_phone_in_front() {
     rig.device(2, false, "AA:BB", "cc:dd");
     rig.meta(
         1,
-        json!({ "type": "nowplaying", "title": "One", "artist": "A", "appName": "Music",
-                "durationMs": 1000, "elapsedMs": 10, "playing": 1 }),
+        json!({ "type": "nowplaying", "title": "One", "artist": "A", "app": "Music",
+                "durationMs": 1000, "elapsedMs": 10, "playing": true }),
     );
     rig.meta(
         1,
-        json!({ "type": "nowplaying", "elapsedMs": 20, "playing": 0, "album": 5 }),
+        json!({ "type": "nowplaying", "elapsedMs": 20, "playing": false }),
     );
-    rig.meta(1, json!({ "type": "albumart", "dataB64": "AAAA" }));
-    rig.meta(1, json!({ "type": "albumart", "dataB64": "" }));
+    rig.meta(1, json!({ "type": "nowplaying", "artwork": "AAAA" }));
+    rig.meta(1, json!({ "type": "nowplaying", "artwork": "" }));
     rig.meta(2, json!({ "type": "nowplaying", "title": "Two" }));
     rig.meta(9, json!({ "type": "nowplaying", "title": "Nobody" }));
     assert_eq!(
@@ -1056,10 +1059,11 @@ async fn navigation_follows_the_phone_in_front_and_clears_at_the_end() {
     rig.meta(
         1,
         json!({ "type": "navigation", "status": 1, "orderType": 2, "roadName": "Main St",
-                "afterRoadName": "Side St", "destinationName": "Home",
+"destinationName": "Home",
                 "timeToDestination": 600, "distanceToDestination": 5000,
-                "remainDistance": 200, "maneuverType": 1, "turnSide": 0,
-                "junctionType": 1, "turnAngle": -90, "etaEpoch": 1_800_000_000,
+                "remainDistance": 200, "etaEpoch": 1_800_000_000,
+                "turn": { "maneuverType": 1, "turnSide": 0, "junctionType": 1,
+                          "turnAngle": -90, "afterRoadName": "Side St" },
                 "maneuvers": [
                     { "index": 0, "maneuverType": 1, "afterRoadName": "Side St" },
                     { "index": 1, "maneuverType": 12 }
@@ -1230,7 +1234,6 @@ fn listed(rig: &Rig) -> Vec<livi_core_proto::state::DeviceView> {
 #[tokio::test]
 async fn the_phones_seen_make_the_device_list() {
     use livi_core_proto::state::DeviceStatus;
-    use livi_cp::manager::DeviceIds;
 
     let mut rig = Rig::new();
     rig.connect(1, false);
@@ -1260,12 +1263,12 @@ async fn the_phones_seen_make_the_device_list() {
 
     rig.p
         .on_event(CpEvent::HelperPresence(HelperPresence::Device {
-            ids: DeviceIds {
+            ids: Ids {
                 bt_mac: Some("aa:bb:cc:dd:ee:03".into()),
                 usb_udid: Some("u3".into()),
-                name: Some("Cable".into()),
                 ..Default::default()
             },
+            name: Some("Cable".into()),
         }));
     let cable = listed(&rig)
         .into_iter()
@@ -1366,7 +1369,7 @@ async fn the_phone_hands_the_screen_back() {
 }
 
 #[tokio::test]
-async fn telemetry_reaches_carplay_and_only_a_config_change_sets_the_night_mode_again() {
+async fn only_the_config_sets_the_night_modes() {
     let mut rig = Rig::new();
     let cfg = rig.p.config_seen.clone();
     let snap = |v: Value| v.as_object().cloned().unwrap_or_default();
@@ -1376,7 +1379,8 @@ async fn telemetry_reaches_carplay_and_only_a_config_change_sets_the_night_mode_
         .on_state(cfg.clone(), snap(json!({ "nightMode": true, "ts": 2 })));
     assert_eq!(
         rig.drain(),
-        [CpCmd::NightMode(true), CpCmd::ClusterNightMode(true)]
+        [],
+        "telemetry reaches carplay through the config"
     );
 
     let mut day = cfg.clone();
@@ -1389,21 +1393,10 @@ async fn telemetry_reaches_carplay_and_only_a_config_change_sets_the_night_mode_
         cfg.call_volume,
         cfg.voice_assistant_volume,
     );
-    assert_eq!(
-        rig.drain(),
-        [CpCmd::InitialNightMode(Some(false)), levels.clone()]
-    );
+    assert_eq!(rig.drain(), [CpCmd::NightModes([true; 4]), levels.clone()]);
 
     rig.p.on_event(CpEvent::Spawned { id: 1 });
-    assert_eq!(
-        rig.drain(),
-        [
-            CpCmd::NightMode(true),
-            CpCmd::ClusterNightMode(true),
-            levels
-        ],
-        "a new session hears the volumes"
-    );
+    assert_eq!(rig.drain(), [levels], "a new session hears the volumes");
 }
 
 fn aa(id: AaId, cmd: SessionCmd) -> AaCmd {
@@ -1424,11 +1417,7 @@ impl Rig {
             peer: String::new(),
         });
         self.p.on_aa(AaEvent::Connected { id });
-        self.p.on_aa(AaEvent::VideoCodec {
-            id,
-            cluster: false,
-            codec: livi_aa_stack::discovery::VideoCodec::H264,
-        });
+        self.p.main_video_shown();
     }
 }
 
@@ -1912,7 +1901,7 @@ fn aa_device(id: AaId, model: &str, instance: &str) -> AaEvent {
 }
 
 fn helper(ev: Value) -> AaEvent {
-    AaEvent::Helper(ev)
+    AaEvent::Helper(serde_json::from_value(ev).expect("a helper event"))
 }
 
 #[tokio::test]
@@ -2027,4 +2016,115 @@ async fn the_one_connected_phone_is_taken_for_an_unnamed_android_auto_session() 
     ]));
     assert_eq!(rig.p.hands_free.bt_by_instance.len(), 1);
     assert_eq!(rig.io_drain().len(), 2);
+}
+
+#[tokio::test]
+async fn an_iphone_mac_is_not_taken_for_an_unnamed_android_auto_session() {
+    let mut rig = Rig::new();
+    rig.connect(1, false);
+    rig.device(1, false, "AA:00:00:00:00:07", "");
+    rig.aa_connect(5, false);
+    rig.p.on_aa(aa_device(5, "Pixel", "inst5"));
+    rig.io_drain();
+
+    rig.p
+        .on_back(Back::Phones(vec!["AA:00:00:00:00:07".into()]));
+    assert!(rig.p.hands_free.bt_by_instance.is_empty());
+    let mut ids: Vec<String> = listed(&rig).into_iter().map(|d| d.id).collect();
+    ids.sort();
+    assert_eq!(ids, ["aa:00:00:00:00:07", "inst5"]);
+
+    rig.p.on_event(CpEvent::Disconnected { id: 1 });
+    rig.p
+        .on_back(Back::Phones(vec!["AA:00:00:00:00:07".into()]));
+    assert!(rig.p.hands_free.bt_by_instance.is_empty());
+}
+
+fn airplay(rig: &mut Rig, id: u64, name: &str) -> UnboundedReceiver<AirplayCommand> {
+    let (remote, commands) = AirplayRemote::channel();
+    rig.p.on_ap(ApEvent::Started {
+        id,
+        close: Arc::new(Notify::new()),
+        peer: AirplaySender {
+            name: Some(name.into()),
+            model: None,
+        },
+        remote,
+    });
+    commands
+}
+
+#[tokio::test]
+async fn the_mirror_picture_waits_for_park() {
+    let mut rig = Rig::new();
+    let _commands = airplay(&mut rig, 1, "LaPhone");
+    rig.p.video_up(Link::Ap(1));
+    let cfg = rig.p.config_seen.clone();
+    let car = |v: Value| v.as_object().cloned().unwrap();
+    let held = |rig: &Rig| rig.hub.watch().borrow().sessions.held;
+    assert!(!held(&rig), "no gear known yet");
+    rig.p.on_state(cfg.clone(), car(json!({ "gear": "D" })));
+    assert!(held(&rig));
+    rig.p.on_state(cfg.clone(), car(json!({ "gear": "P" })));
+    assert!(!held(&rig));
+}
+
+#[tokio::test]
+async fn media_keys_reach_the_airplay_sender() {
+    let mut rig = Rig::new();
+    let mut commands = airplay(&mut rig, 1, "LaPhone");
+    rig.p.media(MediaControl::PlayPause);
+    rig.p.on_ap(ApEvent::NowPlaying {
+        id: 1,
+        patch: NowPlayingPatch {
+            playing: Some(true),
+            ..Default::default()
+        },
+    });
+    rig.p.media(MediaControl::PlayPause);
+    rig.p.media(MediaControl::Next);
+    rig.p.media(MediaControl::Prev);
+    rig.p.key("KeyN", true);
+    rig.p.key("KeyN", false);
+    rig.p.seek(61_500);
+    let mut sent = Vec::new();
+    while let Ok(c) = commands.try_recv() {
+        sent.push(c);
+    }
+    assert_eq!(
+        sent,
+        [
+            AirplayCommand::Play,
+            AirplayCommand::Pause,
+            AirplayCommand::Next,
+            AirplayCommand::Prev,
+            AirplayCommand::Next,
+            AirplayCommand::Seek(61.5)
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_mirror_shows_what_carplay_on_the_same_phone_plays() {
+    let mut rig = Rig::new();
+    rig.connect(1, false);
+    rig.p.on_event(CpEvent::Presence {
+        id: 1,
+        wired: false,
+        presence: Presence::Device {
+            bt_mac: "aa:bb:cc:dd:ee:01".into(),
+            wifi_mac: String::new(),
+            ip: String::new(),
+            usb_udid: String::new(),
+            name: "LaPhone".into(),
+            model: String::new(),
+        },
+    });
+    rig.meta(1, json!({ "type": "nowplaying", "title": "Car" }));
+    airplay(&mut rig, 7, "laphone");
+    rig.p.ap_video_shown();
+    assert_eq!(rig.sessions().0, Some(Protocol::Airplay));
+    assert_eq!(rig.now_playing().title.as_deref(), Some("Car"));
+    rig.meta(1, json!({ "type": "nowplaying", "title": "Next" }));
+    assert_eq!(rig.now_playing().title.as_deref(), Some("Next"));
 }

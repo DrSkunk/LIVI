@@ -3,7 +3,7 @@
 // Additional terms: see NOTICE
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::time::Duration;
 
 use livi_wifi::{Channel, OnAir, Security};
@@ -13,6 +13,16 @@ use crate::link;
 const TIMEOUT: Duration = Duration::from_secs(3);
 const POLL: Duration = Duration::from_millis(500);
 const WATCH_SILENCE: Duration = Duration::from_secs(15);
+
+#[derive(Debug, thiserror::Error)]
+pub enum TalkError {
+    #[error("dongle: {0}")]
+    Io(#[from] io::Error),
+    #[error("the dongle closed the link")]
+    Closed,
+    #[error("{command}: {reason}")]
+    Refused { command: String, reason: String },
+}
 
 fn ask(command: &str) -> Option<HashMap<String, String>> {
     let mut stream = link::connect(livi_net::port::CONTROL, TIMEOUT).ok()?;
@@ -34,27 +44,6 @@ fn fields(answer: impl BufRead) -> HashMap<String, String> {
     fields
 }
 
-pub(crate) fn order(command: &str) -> Result<(), String> {
-    let mut stream =
-        link::connect(livi_net::port::CONTROL, TIMEOUT).map_err(|e| format!("dongle: {e}"))?;
-    stream
-        .set_read_timeout(Some(TIMEOUT))
-        .map_err(|e| format!("dongle: {e}"))?;
-    writeln!(stream, "{command}").map_err(|e| format!("dongle: {e}"))?;
-    let mut answer = String::new();
-    BufReader::new(&stream)
-        .read_line(&mut answer)
-        .map_err(|e| format!("dongle: {e}"))?;
-    answered(&answer)
-}
-
-fn answered(answer: &str) -> Result<(), String> {
-    match answer.trim() {
-        "ok" => Ok(()),
-        other => Err(other.trim_start_matches("error ").to_string()),
-    }
-}
-
 pub fn status() -> Option<HashMap<String, String>> {
     ask("status")
 }
@@ -63,38 +52,34 @@ pub fn rates() -> Option<HashMap<String, String>> {
     ask("rates")
 }
 
-pub fn talk(commands: &[String], within: Duration) -> Result<HashMap<String, String>, String> {
-    let stream =
-        link::connect(livi_net::port::CONTROL, TIMEOUT).map_err(|e| format!("dongle: {e}"))?;
-    stream
-        .set_read_timeout(Some(within))
-        .map_err(|e| format!("dongle: {e}"))?;
+pub fn talk(commands: &[String], within: Duration) -> Result<HashMap<String, String>, TalkError> {
+    let stream = link::connect(livi_net::port::CONTROL, TIMEOUT)?;
+    stream.set_read_timeout(Some(within))?;
     exchange(stream, commands)
 }
 
 fn exchange(
     stream: impl Read + Write,
     commands: &[String],
-) -> Result<HashMap<String, String>, String> {
+) -> Result<HashMap<String, String>, TalkError> {
     let mut reader = BufReader::new(stream);
     let mut fields = HashMap::new();
     for command in commands {
-        writeln!(reader.get_mut(), "{command}").map_err(|e| format!("dongle: {e}"))?;
+        writeln!(reader.get_mut(), "{command}")?;
         loop {
             let mut line = String::new();
-            if reader
-                .read_line(&mut line)
-                .map_err(|e| format!("dongle: {e}"))?
-                == 0
-            {
-                return Err("the dongle closed the link".into());
+            if reader.read_line(&mut line)? == 0 {
+                return Err(TalkError::Closed);
             }
             let line = line.trim_end();
             if line == "ok" {
                 break;
             }
             if let Some(reason) = line.strip_prefix("error ") {
-                return Err(format!("{command}: {reason}"));
+                return Err(TalkError::Refused {
+                    command: command.clone(),
+                    reason: reason.to_string(),
+                });
             }
             if let Some((key, value)) = line.split_once(' ') {
                 fields.insert(key.to_string(), value.trim().to_string());
@@ -172,7 +157,10 @@ pub fn mac() -> Option<String> {
 }
 
 pub fn bt_mac() -> Option<[u8; 6]> {
-    let text = status_field("btmac")?;
+    address(&status_field("btmac")?)
+}
+
+pub fn address(text: &str) -> Option<[u8; 6]> {
     let mut out = [0u8; 6];
     let mut parts = text.trim().split(':');
     for byte in &mut out {
@@ -184,6 +172,17 @@ pub fn bt_mac() -> Option<[u8; 6]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_address_reads_in_the_order_it_is_written() {
+        assert_eq!(
+            address("38:BA:B0:A0:E6:6F"),
+            Some([0x38, 0xba, 0xb0, 0xa0, 0xe6, 0x6f])
+        );
+        assert_eq!(address("38:BA:B0:A0:E6"), None);
+        assert_eq!(address("38:BA:B0:A0:E6:6F:11"), None);
+        assert_eq!(address("not an address"), None);
+    }
 
     fn status_of(text: &str) -> HashMap<String, String> {
         fields(text.as_bytes())
@@ -248,10 +247,10 @@ mod tests {
         assert_eq!(fields.get("mac").map(String::as_str), Some("aa:bb"));
 
         let refused = exchange(wire("ok\nerror bad ssid\nok\n"), &cmds);
-        assert_eq!(refused, Err("set ssid Car: bad ssid".to_string()));
+        assert_eq!(refused.unwrap_err().to_string(), "set ssid Car: bad ssid");
         assert_eq!(
-            exchange(wire("ok\n"), &cmds),
-            Err("the dongle closed the link".to_string())
+            exchange(wire("ok\n"), &cmds).unwrap_err().to_string(),
+            "the dongle closed the link"
         );
     }
 
@@ -261,16 +260,6 @@ mod tests {
         assert_eq!(answer.get("deauth").map(String::as_str), Some("2"));
         assert!(!answer.contains_key("state"));
         assert!(fields("error hostapd is gone\n".as_bytes()).is_empty());
-    }
-
-    #[test]
-    fn an_order_is_done_on_ok_and_names_what_went_wrong_otherwise() {
-        assert_eq!(answered("ok\n"), Ok(()));
-        assert_eq!(
-            answered("error not an address\n").unwrap_err(),
-            "not an address"
-        );
-        assert!(answered("").is_err());
     }
 
     #[test]

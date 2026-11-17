@@ -14,15 +14,15 @@ import { Nav, Page, PhoneState, SidebarClock, TabData } from "nav.slint";
 import { MediaPage, MediaSource, MediaText, Press, DabState, StationData, LocalMusicRow } from "media.slint";
 import { ProjectionPage, TouchPhase } from "projection.slint";
 import { SettingsView, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData } from "settings/view.slint";
-import { Dashboard, DashState, GaugeData, CapData, TrailData, LabelData } from "dashboard.slint";
+import { Dashboard, DashState, GaugeData, CapData, TrailData, LabelData, LaneData, LaneArrowData, LampData } from "dashboard.slint";
 import { LevelOverlay, PhoneOverlay, OverlayState } from "overlays.slint";
-import { MaskData } from "mask.slint";
+import { MaskData, ViewArea } from "mask.slint";
 import { TouchCalibration, TouchCalibrationState } from "touch_calibration.slint";
 import { GamesPage, GamesState, GamesText, GameData, ControllerData } from "games.slint";
 import { MiniDspPage, MiniDspState, DspPhase, DspPresetData, DspControlData } from "minidsp.slint";
 import { ClockFace, ClockPage, ClockText } from "clock.slint";
 
-export { Theme, Focus, FocusZone, Page, PhoneState, SidebarClock, TabData, TouchPhase, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData, MediaSource, MediaText, Press, DabState, StationData, LocalMusicRow, DashState, GaugeData, CapData, TrailData, LabelData, OverlayState, MaskData, TouchCalibrationState, MiniDspState, DspPhase, DspPresetData, DspControlData, GamesState, GamesText, GameData, ControllerData, ClockFace, ClockText }
+export { Theme, Focus, FocusZone, Page, PhoneState, TabData, TouchPhase, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData, MediaSource, MediaText, Press, DabState, StationData, DashState, GaugeData, CapData, TrailData, LabelData, LaneData, LaneArrowData, LampData, OverlayState, MaskData, ViewArea, TouchCalibrationState, SidebarClock, LocalMusicRow, MiniDspState, DspPhase, DspPresetData, DspControlData, GamesState, GamesText, GameData, ControllerData, ClockFace, ClockText }
 
 export component AppWindow inherits Window {
     in-out property <Page> page: Page.media;
@@ -42,10 +42,15 @@ export component AppWindow inherits Window {
     in property <int> stream-width: 1280;
     in property <int> stream-height: 720;
     in property <MaskData> main-mask;
+    in property <ViewArea> view-area;
     in property <bool> video-shown;
     in property <bool> video-playing;
     in property <float> video-elapsed-ms;
     in property <float> video-total-ms;
+    in property <bool> mirrored;
+    in property <bool> held;
+    in-out property <bool> mirror-shown: true;
+    in-out property <int> mirror-idle;
     in property <bool> camera-found;
     in property <string> no-camera: "No camera found";
 
@@ -82,6 +87,7 @@ export component AppWindow inherits Window {
     callback video-play-pause();
     callback video-seek(float);
     callback video-close();
+    callback mirror-leave();
     callback play-pause();
     callback prev();
     callback next();
@@ -141,16 +147,25 @@ export component AppWindow inherits Window {
     min-height: 200px;
     background: transparent;
 
-    out property <length> content-left: self.safe-area-insets.left;
-    out property <length> content-top: self.safe-area-insets.top;
-    out property <length> content-width: self.width - self.safe-area-insets.left - self.safe-area-insets.right;
-    out property <length> content-height: self.height - self.safe-area-insets.top - self.safe-area-insets.bottom;
+    in property <bool> keep-safe-area: true;
+    property <length> inset-left: root.keep-safe-area ? self.safe-area-insets.left : 0px;
+    property <length> inset-top: root.keep-safe-area ? self.safe-area-insets.top : 0px;
+    property <length> inset-right: root.keep-safe-area ? self.safe-area-insets.right : 0px;
+    property <length> inset-bottom: root.keep-safe-area ? self.safe-area-insets.bottom : 0px;
+    out property <length> content-left: root.inset-left;
+    out property <length> content-top: root.inset-top;
+    out property <length> content-width: self.width - root.inset-left - root.inset-right;
+    out property <length> content-height: self.height - root.inset-top - root.inset-bottom;
+    property <length> area-left: root.content-left + root.view-area.left * 1phx;
+    property <length> area-top: root.content-top + root.view-area.top * 1phx;
+    property <length> area-width: max(1px, root.content-width - (root.view-area.left + root.view-area.right) * 1phx);
+    property <length> area-height: max(1px, root.content-height - (root.view-area.top + root.view-area.bottom) * 1phx);
 
-    changed content-height => { Ui.height = self.content-height; }
-    changed content-width => { Ui.width = self.content-width; }
+    changed area-height => { Ui.height = self.area-height; }
+    changed area-width => { Ui.width = self.area-width; }
     init => {
-        Ui.height = self.content-height;
-        Ui.width = self.content-width;
+        Ui.height = self.area-height;
+        Ui.width = self.area-width;
         root.wake-nav();
     }
 
@@ -159,13 +174,14 @@ export component AppWindow inherits Window {
         y: root.content-top;
         width: root.content-width;
         height: root.content-height;
+        view-area: root.view-area;
     }
 
     HorizontalLayout {
-        x: root.content-left;
-        y: root.content-top;
-        width: root.content-width;
-        height: root.content-height;
+        x: root.nav-hidden ? root.content-left : root.area-left;
+        y: root.nav-hidden ? root.content-top : root.area-top;
+        width: root.nav-hidden ? root.content-width : root.area-width;
+        height: root.nav-hidden ? root.content-height : root.area-height;
         if !root.right-hand && !root.nav-hidden: Nav {
             tabs: root.tabs;
             active: root.page;
@@ -184,12 +200,14 @@ export component AppWindow inherits Window {
                 width: parent.width;
                 height: parent.height;
                 streaming: root.phone == PhoneState.streaming;
+                waiting: root.phone == PhoneState.connected;
                 idle-icon: root.projection-icon;
                 stream-width: root.stream-width;
                 stream-height: root.stream-height;
                 mask: root.main-mask;
+                view-area: root.view-area;
                 video-shown: root.video-shown;
-                video-playing: root.video-playing;
+                video-playing: root.video-shown ? root.video-playing : root.playing;
                 video-elapsed-ms: root.video-total-ms > 0 ? root.video-elapsed-ms : root.elapsed-ms;
                 video-total-ms: root.video-total-ms > 0 ? root.video-total-ms : root.total-ms;
                 video-can-seek: root.video-total-ms > 0 || root.can-seek;
@@ -203,6 +221,11 @@ export component AppWindow inherits Window {
                     }
                 }
                 video-close => { root.video-close(); }
+                mirrored: root.mirrored;
+                held: root.held;
+                mirror-shown <=> root.mirror-shown;
+                mirror-idle <=> root.mirror-idle;
+                mirror-leave => { root.mirror-leave(); }
             }
             if root.page == Page.media: MediaPage {
                 width: parent.width;
@@ -296,14 +319,14 @@ export component AppWindow inherits Window {
     }
 
     LevelOverlay {
-        window-width: root.content-width;
-        x: root.content-left + (root.content-width - self.width) / 2;
-        y: root.content-top + 16px;
+        window-width: root.area-width;
+        x: root.area-left + (root.area-width - self.width) / 2;
+        y: root.area-top + 16px;
     }
     PhoneOverlay {
-        window-width: root.content-width;
-        x: root.content-left + root.content-width - self.width - 16px;
-        y: root.content-top + 16px;
+        window-width: root.area-width;
+        x: root.area-left + root.area-width - self.width - 16px;
+        y: root.area-top + 16px;
     }
     if TouchCalibrationState.active: TouchCalibration {
         width: root.width;
@@ -313,6 +336,7 @@ export component AppWindow inherits Window {
 
 export component SecondaryWindow inherits Window {
     in property <bool> has-dashboard;
+    in property <ViewArea> view-area;
     in property <string> window-title;
     title: root.window-title;
     in property <string> empty-label: "No content on this screen";
@@ -322,8 +346,11 @@ export component SecondaryWindow inherits Window {
     if root.has-dashboard: Dashboard {
         width: root.width;
         height: root.height;
+        view-area: root.view-area;
     }
     if !root.has-dashboard: Text {
+        x: root.view-area.left * 1phx + (root.width - (root.view-area.left + root.view-area.right) * 1phx - self.width) / 2;
+        y: root.view-area.top * 1phx + (root.height - (root.view-area.top + root.view-area.bottom) * 1phx - self.height) / 2;
         text: root.empty-label;
         color: #ffffff73;
         font-size: 20px;

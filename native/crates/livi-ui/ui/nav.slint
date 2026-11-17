@@ -37,15 +37,14 @@ component Tab inherits Rectangle {
     in property <bool> right-hand;
     callback clicked();
 
+    property <bool> cursor: touch.has-hover || root.focused;
     property <color> tint: page == Page.projection
         ? (phone == PhoneState.streaming ? Theme.highlight : phone == PhoneState.connected ? Theme.text : Theme.text-disabled)
-        : Theme.text;
+        : root.active ? Theme.text : Theme.text-secondary;
 
     vertical-stretch: 1;
     min-height: Ui.icon-size;
     preferred-height: Ui.icon-size + (Ui.xs-icons ? 10px : 20px);
-
-    property <bool> lit: touch.has-hover || root.focused;
 
     // COMAND: a horizontal wash plus a glowing 2px bar on the outer edge marks
     // the selected tab; the others are muted.
@@ -61,24 +60,25 @@ component Tab inherits Rectangle {
         drop-shadow-blur: 9px;
         drop-shadow-color: Theme.primary;
     }
-    if !Theme.comand && root.active: Rectangle {
-        width: min(parent.width - 4px, Ui.icon-size + 14px);
-        height: parent.height - (Ui.xs-icons ? 6px : 12px);
-        border-radius: 6px;
-        border-width: 1px;
+    if !Theme.comand: Rectangle {
+        width: min(Ui.icon-size + 16px, root.height);
+        height: self.width;
+        border-radius: 12px;
+        background: root.active ? Theme.lit-pressed : touch.pressed ? Theme.lit : transparent;
+        border-width: root.cursor ? 2px : 0;
         border-color: Theme.primary;
-        background: Theme.primary.with-alpha(0.14);
+        animate background { duration: 120ms; }
     }
 
     Image {
         width: Ui.icon-size;
         height: Ui.icon-size;
         colorize: Theme.comand
-            ? (root.lit || root.active ? Theme.primary : root.page == Page.projection ? root.tint : Theme.muted)
-            : (root.active || root.lit ? Theme.primary : root.tint);
+            ? (root.cursor || root.active ? Theme.primary : root.page == Page.projection ? root.tint : Theme.muted)
+            : (root.cursor ? Theme.primary : root.tint);
         opacity: Theme.comand
-            ? (root.active || root.lit || root.page == Page.projection ? 1 : 0.72)
-            : (root.active || root.lit || root.page == Page.projection ? 1 : 0.6);
+            ? (root.active || root.cursor || root.page == Page.projection ? 1 : 0.72)
+            : (root.active || root.cursor || root.page == Page.projection ? 1 : 0.7);
         source: root.icon;
     }
 
@@ -99,8 +99,8 @@ export component Nav inherits Rectangle {
 
     property <length> clock-pair-width: root.clock.hour == "" && root.clock.minute == ""
         ? 0px : max(clock-pair-probe.preferred-width, max(clock-hours.preferred-width, clock-minutes.preferred-width));
-    width: Ui.xs-icons ? Ui.nav-width : max(Ui.icon-size, Ui.show-clock ? clock-text.preferred-width : 0) + 2 * Ui.nav-pad + 1px;
-    background: Theme.nav-fill;
+    width: Ui.xs-icons ? Ui.nav-width : max(Ui.icon-size + 16px, Ui.show-clock ? clock-text.preferred-width : 0) + 2 * Ui.nav-pad + 1px;
+    background: Theme.comand ? Theme.nav-fill : Theme.background;
     drop-shadow-blur: Theme.comand ? 25px : 0;
     drop-shadow-offset-x: root.right-hand ? -8px : 8px;
     drop-shadow-color: Theme.nav-shadow;
@@ -156,7 +156,7 @@ export component Nav inherits Rectangle {
     Rectangle {
         x: root.right-hand ? 0 : parent.width - 1px;
         width: 1px;
-        background: Theme.rule;
+        background: Theme.comand ? Theme.rule : Theme.hairline;
     }
     if Theme.comand: Rectangle {
         x: root.right-hand ? 1px : parent.width - 2px;

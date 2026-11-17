@@ -219,7 +219,7 @@ pub(crate) mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::config_file::tests::TempDir;
+    use crate::files::config_file::tests::TempDir;
 
     pub fn dirs(root: &Path) -> Dirs {
         Dirs {

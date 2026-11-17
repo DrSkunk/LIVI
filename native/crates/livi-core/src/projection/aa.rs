@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
+use livi_core_proto::aa_events::AaHelperEvent;
+use livi_core_proto::ids::same_mac;
+
 use super::*;
 
 impl Projection {
@@ -32,7 +35,7 @@ impl Projection {
                 self.aa_telemetry.hydrate(&self.telemetry_seen, &self.aa);
             }
             AaEvent::HelperConnected => self.push_wired(true),
-            AaEvent::Helper(ev) => self.on_aa_helper(&ev),
+            AaEvent::Helper(ev) => self.on_aa_helper(ev),
             AaEvent::Device {
                 id,
                 name,
@@ -45,8 +48,8 @@ impl Projection {
             AaEvent::Status { id, status } => {
                 let link = Link::Aa(id);
                 let ids = match self.sessions.iter().find(|s| s.link == link) {
-                    Some(s) => registry_ids(&s.device),
-                    None => devices::Ids {
+                    Some(s) => s.device.clone(),
+                    None => Ids {
                         ip: opt(&status.ip),
                         ..Default::default()
                     },
@@ -89,11 +92,7 @@ impl Projection {
                     self.host_ui();
                 }
             }
-            AaEvent::VideoCodec { id, cluster, .. } => {
-                if !cluster {
-                    self.video_up(Link::Aa(id));
-                }
-            }
+            AaEvent::VideoCodec { .. } => {}
             AaEvent::NowPlaying { id, now_playing } => self.aa_now_playing(id, now_playing),
             AaEvent::Navigation { id, navigation } => self.aa_navigation(id, navigation),
             AaEvent::NavigationImage { id, image } => {
@@ -110,51 +109,50 @@ impl Projection {
         }
     }
 
-    pub(super) fn on_aa_helper(&mut self, ev: &Value) {
-        let text = |key: &str| {
-            ev.get(key)
-                .and_then(Value::as_str)
-                .filter(|v| !v.is_empty())
-        };
-        let up = ev.get("up").and_then(Value::as_bool) == Some(true);
-        match text("event") {
-            Some("sco") => self.call_audio(up),
-            Some("hfp") => self.hands_free.on_link(up, text("mac")),
-            Some("phone-battery") => {
-                let pct = ev.get("pct").and_then(Value::as_f64);
-                let Some(mac) = text("mac") else { return };
-                println!("[core] HFP battery {mac}: ~{}%", pct.unwrap_or(0.0));
-                if self.hands_free.battery_precise || pct.is_none() {
+    pub(super) fn on_aa_helper(&mut self, ev: AaHelperEvent) {
+        let given = |v: &str| (!v.is_empty()).then(|| v.to_string());
+        match ev {
+            AaHelperEvent::Sco { up, .. } => self.call_audio(up),
+            AaHelperEvent::Hfp { up, mac } => self
+                .hands_free
+                .on_link(up, mac.as_deref().filter(|m| !m.is_empty())),
+            AaHelperEvent::PhoneBattery { mac, pct } => {
+                println!("[core] HFP battery {mac}: ~{pct}%");
+                if self.hands_free.battery_precise || mac.is_empty() {
                     return;
                 }
-                let ids = devices::Ids {
-                    bt_mac: Some(mac.to_string()),
+                let ids = Ids {
+                    bt_mac: Some(mac),
                     ..Default::default()
                 };
                 let status = devices::Status {
-                    battery_level: pct,
+                    battery_level: Some(f64::from(pct)),
                     ..Default::default()
                 };
                 self.devices.registry.note_status(&ids, &status);
                 self.publish();
             }
-            Some("aa-device") => {
-                let Some(instance) = text("instanceId") else {
+            AaHelperEvent::AaDevice {
+                bt_mac,
+                instance_id,
+                usb_serial,
+            } => {
+                if instance_id.is_empty() {
                     return;
-                };
-                if let Some(mac) = text("btMac") {
+                }
+                if let Some(mac) = given(&bt_mac) {
                     self.hands_free
                         .bt_by_instance
-                        .insert(instance.into(), mac.into());
-                    self.keep_link(mac);
+                        .insert(instance_id.clone(), mac.clone());
+                    self.keep_link(&mac);
                 }
-                if let Some(serial) = text("usbSerial") {
+                if let Some(serial) = given(&usb_serial) {
                     self.hands_free
                         .serial_by_instance
-                        .insert(instance.into(), serial.into());
+                        .insert(instance_id, serial);
                 }
             }
-            _ => {}
+            AaHelperEvent::Input { .. } | AaHelperEvent::AaSession { .. } => {}
         }
     }
 
@@ -193,7 +191,7 @@ impl Projection {
             ..Default::default()
         };
         let seen = Seen {
-            ids: registry_ids(&ids),
+            ids: ids.clone(),
             name: opt(&name),
             model: opt(&model),
             protocol: Some(Protocol::Androidauto),
@@ -225,12 +223,16 @@ impl Projection {
                 .map(|s| s.device.instance_id.clone())
                 .collect();
             for instance in unnamed {
+                if self.another_phone_has(mac, instance.as_deref()) {
+                    println!("[core] {mac} belongs to another phone, not taken for android auto");
+                    continue;
+                }
                 if let Some(instance) = &instance {
                     self.hands_free
                         .bt_by_instance
                         .insert(instance.clone(), mac.clone());
                 }
-                let ids = devices::Ids {
+                let ids = Ids {
                     bt_mac: Some(mac.clone()),
                     instance_id: instance,
                     ..Default::default()
@@ -247,6 +249,21 @@ impl Projection {
         for mac in phones {
             self.keep_link(&mac);
         }
+    }
+
+    fn another_phone_has(&self, mac: &str, instance: Option<&str>) -> bool {
+        let has = |m: Option<&str>| m.is_some_and(|m| same_mac(m, mac));
+        self.sessions
+            .iter()
+            .any(|s| has(s.device.bt_mac.as_deref()))
+            || self.devices.registry.entries().iter().any(|e| {
+                has(e.bt_mac())
+                    && (e.view_protocol() == Some(Protocol::Carplay)
+                        || matches!(
+                            (e.ids().instance_id.as_deref(), instance),
+                            (Some(a), Some(b)) if a != b
+                        ))
+            })
     }
 
     pub(super) fn keep_link(&mut self, mac: &str) {
@@ -281,29 +298,17 @@ impl Projection {
         let Some(entry) = self.by_link(link) else {
             return;
         };
-        let np = &mut entry.now_playing;
-        for (field, value) in [
-            (&mut np.title, from.title),
-            (&mut np.artist, from.artist),
-            (&mut np.album, from.album),
-            (&mut np.app, from.app),
-        ] {
-            if value.is_some() {
-                *field = value;
-            }
+        NowPlayingPatch {
+            title: from.title,
+            artist: from.artist,
+            album: from.album,
+            app: from.app,
+            duration_ms: from.duration_ms.map(|ms| ms as f64),
+            elapsed_ms: from.elapsed_ms.map(|ms| ms as f64),
+            playing: from.playing,
+            artwork: from.artwork.map(|art| STANDARD.encode(art)),
         }
-        if let Some(ms) = from.duration_ms {
-            np.duration_ms = Some(ms as f64);
-        }
-        if let Some(ms) = from.elapsed_ms {
-            np.elapsed_ms = Some(ms as f64);
-        }
-        if from.playing.is_some() {
-            np.playing = from.playing;
-        }
-        if let Some(art) = from.artwork.filter(|a| !a.is_empty()) {
-            np.artwork = Some(STANDARD.encode(art));
-        }
+        .apply_to(&mut entry.now_playing);
         if self.is_active(link) {
             self.publish();
         }

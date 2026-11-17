@@ -9,8 +9,6 @@ use std::path::Path;
 use std::process::ExitCode;
 
 #[cfg(target_os = "linux")]
-mod accessoryd;
-#[cfg(target_os = "linux")]
 mod bt_up;
 #[cfg(target_os = "linux")]
 mod btd;
@@ -42,8 +40,8 @@ fn board() -> (&'static str, &'static str) {
 }
 
 #[cfg(target_os = "linux")]
-fn wifi_standards(target: &str) -> livi_wifid::server::Standards {
-    use livi_wifid::server::Standards;
+fn wifi_standards(target: &str) -> livi_link_ap::server::Standards {
+    use livi_link_ap::server::Standards;
     match target {
         "v821b_aic8800d80" | "ax520_aic8800d80" => Standards {
             vht: true,
@@ -134,7 +132,7 @@ fn main() -> ExitCode {
             Some(sub) => (sub.as_str(), args[2..].to_vec()),
             None => {
                 eprintln!(
-                    "usage: livid <accessoryd|bt-up|bt-mgmt|bt-probe|btd|config|httpd|ledd|mfid|netd|wifid> [args…]"
+                    "usage: livid <bt-up|bt-probe|btd|config|httpd|ledd|mfid|netd|wifid> [args…]"
                 );
                 return ExitCode::from(2);
             }
@@ -145,10 +143,8 @@ fn main() -> ExitCode {
 
     let rc = match cmd {
         "livi-bt-up" | "bt-up" => bt_up::run(rest),
-        "bt-mgmt" => exit_rc(livi_accessoryd::mgmt::probe()),
-        "bt-probe" => exit_rc(livi_btd::probe()),
+        "bt-probe" => exit_rc(livi_link_hci::probe()),
         "livi-btd" | "btd" => btd::run(rest),
-        "livi-accessoryd" | "accessoryd" => accessoryd::run(rest),
         "livi-httpd" | "httpd" => livi_web::run(web_caps()),
         "livi-ledd" | "ledd" => ledd::run(rest),
         "livi-netd" | "netd" => netd::run(rest),
@@ -177,7 +173,7 @@ fn exit_rc(code: ExitCode) -> i32 {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
-    use livi_wifid::server::Standards;
+    use livi_link_ap::server::Standards;
 
     #[test]
     fn each_module_is_asked_only_for_what_it_speaks() {

@@ -341,7 +341,7 @@ mod tests {
     use livi_core_proto::state::{OsChannel, OsStaged};
 
     use super::*;
-    use crate::config_file::tests::TempDir;
+    use crate::files::config_file::tests::TempDir;
 
     fn status(pending: bool) -> OsStatus {
         OsStatus {

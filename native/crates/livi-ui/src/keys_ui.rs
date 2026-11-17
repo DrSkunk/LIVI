@@ -9,7 +9,7 @@ use livi_core_client::Client;
 use livi_core_proto::input::Input;
 use livi_core_proto::message::Action;
 use livi_ui_model::keys::{
-    Context, Focused, HELD_GAP, Outcome, Zone, bound_to, decide, held_factor, released,
+    Context, Focused, HELD_GAP, MirrorKey, Outcome, Zone, bound_to, decide, held_factor, released,
 };
 use livi_ui_model::media::pressed;
 #[cfg(not(target_os = "android"))]
@@ -53,7 +53,6 @@ enum Target {
     Progress,
     Source(MediaSource),
     Favorite,
-    Tune(i32),
     Station(usize),
     Games(usize),
     ClockStyle(ClockFace),
@@ -147,16 +146,7 @@ fn targets(ui: &AppWindow) -> Vec<Target> {
             }
             if d.get_receiver() && d.get_view() != MediaSource::Phone {
                 if d.get_art_shown() {
-                    out.push(Target::Artwork);
-                }
-                out.extend([
-                    Target::Prev,
-                    Target::PlayPause,
-                    Target::Next,
-                    Target::Favorite,
-                ]);
-                if d.get_tunable() {
-                    out.extend([Target::Tune(-1), Target::Tune(1)]);
+                    out.extend([Target::Artwork, Target::Favorite]);
                 }
                 if d.get_band_shown() {
                     out.extend((0..d.get_stations().row_count()).map(Target::Station));
@@ -334,7 +324,6 @@ fn activate(ui: &AppWindow, target: Target) {
         Target::Favorite => d.invoke_toggle_favorite(),
         Target::Games(i) => crate::games_ui::activate(ui, i),
         Target::ClockStyle(face) => ui.invoke_clock_style_picked(face),
-        Target::Tune(by) => d.invoke_tune(by),
         Target::Station(i) => {
             if let Some(st) = d.get_stations().row_data(i) {
                 d.invoke_pick(st.id);
@@ -426,7 +415,7 @@ fn apply(ui: &AppWindow, client: &Client, code: &str, outcome: Outcome) -> bool 
         Outcome::Pass => return false,
         Outcome::Ignore => {}
         Outcome::ToCore(code) => {
-            let name = bound_to(&client.state()["config"], &code);
+            let name = bound_to(&client.mirror().json["config"], &code);
             if let Some(p) = name.as_deref().and_then(pressed) {
                 crate::media_ui::pressed_feedback(ui, p);
             }
@@ -434,7 +423,7 @@ fn apply(ui: &AppWindow, client: &Client, code: &str, outcome: Outcome) -> bool 
         }
         Outcome::CycleSession => {
             client.act(Action::NextDevice);
-            let name = livi_ui_model::overlay::cycled(&client.state());
+            let name = livi_ui_model::overlay::cycled(&client.mirror().state);
             if let Some(name) = name {
                 crate::overlay_ui::phone(ui, &name);
             }
@@ -527,9 +516,20 @@ pub fn key(ui: &AppWindow, client: &Client, code: &str, down: bool, repeat: bool
         }
         return true;
     }
-    let state = client.state();
-    let config = state["config"].clone();
-    drop(state);
+    let config = client.mirror().json["config"].clone();
+    if down && crate::video_ui::mirror_on_screen(ui) {
+        match livi_ui_model::keys::mirror_key(code, &config, ui.get_mirror_shown()) {
+            MirrorKey::Leave => {
+                crate::video_ui::leave_mirror(ui);
+                return true;
+            }
+            MirrorKey::Show => {
+                crate::video_ui::wake_mirror(ui);
+                return true;
+            }
+            MirrorKey::Pass => {}
+        }
+    }
     if !down {
         if let Some(code) = released(code, &config) {
             client.input(Input::Key { code, down: false });
@@ -603,6 +603,9 @@ pub fn wire(ui: &AppWindow, client: &Client) {
             }
             winit::event::WindowEvent::CursorMoved { position, .. } => {
                 crate::cursor_ui::moved(&ui, *position);
+                if crate::video_ui::mirror_on_screen(&ui) {
+                    crate::video_ui::wake_mirror(&ui);
+                }
                 ui.invoke_wake_nav();
                 EventResult::Propagate
             }

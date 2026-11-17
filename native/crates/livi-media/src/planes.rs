@@ -5,16 +5,15 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use livi_host_proto::{
-    CAMERA_TAG, CLUSTER_PLANE_MIN, CameraOrder, MAIN_TAG, PLANE_CAMERA, PLANE_MAIN, PLANE_VIDEO,
-    SCREENS, VIDEO_TAG,
+use livi_output_proto::{
+    AIRPLAY_TAG, CAMERA_TAG, CLUSTER_PLANE_MIN, CameraOrder, MAIN_TAG, PLANE_AIRPLAY, PLANE_CAMERA,
+    PLANE_MAIN, PLANE_VIDEO, SCREENS, VIDEO_TAG,
 };
 use tokio::sync::broadcast;
 
 use crate::compositor::CompositorControl;
-use crate::gst_host::{Codec, GstHost};
+use crate::output::{Output, OutputEvent, VideoCodec};
 
-const TAG: &str = MAIN_TAG;
 const SCREEN: &str = SCREENS[0];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -54,7 +53,7 @@ pub fn crop_for(tier: (u32, u32), display: (u32, u32)) -> Option<Crop> {
     })
 }
 
-fn same_stream(codec: Option<Codec>, data: &[u8], next: Codec, atom: &[u8]) -> bool {
+fn same_stream(codec: Option<VideoCodec>, data: &[u8], next: VideoCodec, atom: &[u8]) -> bool {
     codec == Some(next) && data == atom
 }
 
@@ -62,22 +61,34 @@ fn same_stream(codec: Option<Codec>, data: &[u8], next: Codec, atom: &[u8]) -> b
 struct State {
     started: bool,
     claiming: bool,
-    codec: Option<Codec>,
+    codec: Option<VideoCodec>,
     codec_data: Vec<u8>,
     generation: u64,
 }
 
 pub struct MainPlane {
-    gst: GstHost,
+    id: u32,
+    tag: &'static str,
+    gst: Output,
     comp: CompositorControl,
     state: Mutex<State>,
     created: broadcast::Sender<()>,
 }
 
 impl MainPlane {
-    pub fn new(gst: GstHost, comp: CompositorControl) -> Arc<Self> {
+    pub fn new(gst: Output, comp: CompositorControl) -> Arc<Self> {
+        Self::on(PLANE_MAIN, MAIN_TAG, gst, comp)
+    }
+
+    pub fn airplay(gst: Output, comp: CompositorControl) -> Arc<Self> {
+        Self::on(PLANE_AIRPLAY, AIRPLAY_TAG, gst, comp)
+    }
+
+    fn on(id: u32, tag: &'static str, gst: Output, comp: CompositorControl) -> Arc<Self> {
         let (created, _) = broadcast::channel(8);
         Arc::new(Self {
+            id,
+            tag,
             gst,
             comp,
             state: Mutex::new(State::default()),
@@ -93,7 +104,11 @@ impl MainPlane {
         self.created.subscribe()
     }
 
-    pub fn prepare(self: &Arc<Self>, codec: Codec, atom: Vec<u8>) {
+    pub fn host_events(&self) -> broadcast::Receiver<OutputEvent> {
+        self.gst.subscribe()
+    }
+
+    pub fn prepare(self: &Arc<Self>, codec: VideoCodec, atom: Vec<u8>) {
         let generation = {
             let st = self.state();
             if (st.started || st.claiming) && same_stream(st.codec, &st.codec_data, codec, &atom) {
@@ -109,7 +124,7 @@ impl MainPlane {
         };
         let plane = self.clone();
         tokio::spawn(async move {
-            plane.comp.claim(TAG).await;
+            plane.comp.claim(plane.tag).await;
             let data = {
                 let mut st = plane.state();
                 if st.generation != generation {
@@ -120,7 +135,7 @@ impl MainPlane {
                 st.codec = Some(codec);
                 st.codec_data.clone()
             };
-            plane.gst.create_player(PLANE_MAIN, codec, &data);
+            plane.gst.create_player(plane.id, codec, &data);
             let _ = plane.created.send(());
         });
     }
@@ -135,12 +150,12 @@ impl MainPlane {
             tier_h: 0.0,
         });
         self.comp.videocfg(
-            TAG, SCREEN, c.crop_l, c.crop_t, c.vis_w, c.vis_h, c.tier_w, c.tier_h,
+            self.tag, SCREEN, c.crop_l, c.crop_t, c.vis_w, c.vis_h, c.tier_w, c.tier_h,
         );
     }
 
     pub fn set_visible(&self, visible: bool) {
-        self.comp.videoshow(TAG, visible);
+        self.comp.videoshow(self.tag, visible);
     }
 
     pub fn dispose(&self) {
@@ -151,22 +166,22 @@ impl MainPlane {
             st.codec = None;
             std::mem::take(&mut st.started)
         };
-        self.comp.release(TAG);
+        self.comp.release(self.tag);
         if started {
-            self.gst.stop(PLANE_MAIN);
+            self.gst.stop(self.id);
         }
     }
 }
 
 pub struct VideoPlane {
-    gst: GstHost,
+    gst: Output,
     comp: CompositorControl,
     stops: AtomicU64,
     shown: AtomicBool,
 }
 
 impl VideoPlane {
-    pub fn new(gst: GstHost, comp: CompositorControl) -> Arc<Self> {
+    pub fn new(gst: Output, comp: CompositorControl) -> Arc<Self> {
         Arc::new(Self {
             gst,
             comp,
@@ -221,13 +236,13 @@ impl VideoPlane {
 }
 
 pub struct CameraPlane {
-    gst: GstHost,
+    gst: Output,
     comp: CompositorControl,
     stops: AtomicU64,
 }
 
 impl CameraPlane {
-    pub fn new(gst: GstHost, comp: CompositorControl) -> Arc<Self> {
+    pub fn new(gst: Output, comp: CompositorControl) -> Arc<Self> {
         Arc::new(Self {
             gst,
             comp,
@@ -265,7 +280,7 @@ impl CameraPlane {
 const CLUSTER_SCREENS: [&str; 3] = SCREENS;
 
 fn cluster_tag(i: usize) -> String {
-    livi_host_proto::cluster_tag(CLUSTER_SCREENS[i])
+    livi_output_proto::cluster_tag(CLUSTER_SCREENS[i])
 }
 
 fn cluster_plane(i: usize) -> u32 {
@@ -282,21 +297,21 @@ struct Slot {
 
 #[derive(Default)]
 struct ClusterState {
-    codec: Option<Codec>,
+    codec: Option<VideoCodec>,
     codec_data: Vec<u8>,
     crop: Option<Crop>,
     slots: [Slot; 3],
 }
 
 pub struct ClusterPlanes {
-    gst: GstHost,
+    gst: Output,
     comp: CompositorControl,
     state: Mutex<ClusterState>,
     created: broadcast::Sender<()>,
 }
 
 impl ClusterPlanes {
-    pub fn new(gst: GstHost, comp: CompositorControl) -> Arc<Self> {
+    pub fn new(gst: Output, comp: CompositorControl) -> Arc<Self> {
         let (created, _) = broadcast::channel(8);
         Arc::new(Self {
             gst,
@@ -314,7 +329,7 @@ impl ClusterPlanes {
         self.created.subscribe()
     }
 
-    pub fn prepare(self: &Arc<Self>, codec: Codec, atom: Vec<u8>) {
+    pub fn prepare(self: &Arc<Self>, codec: VideoCodec, atom: Vec<u8>) {
         let restart = {
             let mut st = self.state();
             let same = same_stream(st.codec, &st.codec_data, codec, &atom);
@@ -464,33 +479,43 @@ mod tests {
     #[test]
     fn only_the_same_stream_keeps_the_running_player() {
         assert!(same_stream(
-            Some(Codec::H265),
+            Some(VideoCodec::H265),
             &[1, 2],
-            Codec::H265,
+            VideoCodec::H265,
             &[1, 2]
         ));
-        assert!(!same_stream(Some(Codec::H265), &[1, 2], Codec::H265, &[]));
         assert!(!same_stream(
-            Some(Codec::H265),
+            Some(VideoCodec::H265),
             &[1, 2],
-            Codec::H265,
+            VideoCodec::H265,
+            &[]
+        ));
+        assert!(!same_stream(
+            Some(VideoCodec::H265),
+            &[1, 2],
+            VideoCodec::H265,
             &[3, 4]
         ));
-        assert!(!same_stream(Some(Codec::H264), &[], Codec::H265, &[]));
-        assert!(!same_stream(None, &[], Codec::H265, &[]));
+        assert!(!same_stream(
+            Some(VideoCodec::H264),
+            &[],
+            VideoCodec::H265,
+            &[]
+        ));
+        assert!(!same_stream(None, &[], VideoCodec::H265, &[]));
     }
 
     #[tokio::test]
     async fn the_player_is_created_after_the_claim_and_only_once() {
         let dir = TempDir::new();
         let comp_listener = UnixListener::bind(dir.0.join("ctrl")).unwrap();
-        let gst = GstHost::new(dir.0.join("gst.sock"));
+        let gst = Output::new(dir.0.join("gst.sock"));
         let plane = MainPlane::new(gst.clone(), CompositorControl::connect(dir.0.join("ctrl")));
         let mut created = plane.player_created();
 
         plane.set_visible(true);
-        plane.prepare(Codec::H264, vec![1, 2]);
-        plane.prepare(Codec::H264, vec![1, 2]);
+        plane.prepare(VideoCodec::H264, vec![1, 2]);
+        plane.prepare(VideoCodec::H264, vec![1, 2]);
         tokio::time::timeout(Duration::from_secs(5), created.recv())
             .await
             .unwrap()
@@ -520,9 +545,9 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let mut framer = livi_host_proto::Framer::new();
+        let mut framer = livi_output_proto::Framer::new();
         framer.push(&buf[..n]);
-        let msg = framer.next_message().unwrap();
+        let msg = framer.next_message().unwrap().unwrap();
         assert_eq!((msg.op, msg.id), (1, PLANE_MAIN));
         assert_eq!(msg.rest, [&[4u8][..], b"h264", &[1, 2]].concat());
         assert!(created.try_recv().is_err());
@@ -538,11 +563,11 @@ mod tests {
 
     async fn next_msg(
         host: &mut UnixStream,
-        framer: &mut livi_host_proto::Framer,
-    ) -> livi_host_proto::Message {
+        framer: &mut livi_output_proto::Framer,
+    ) -> livi_output_proto::Message {
         loop {
             if let Some(msg) = framer.next_message() {
-                return msg;
+                return msg.unwrap();
             }
             let mut buf = vec![0u8; 64];
             let n = tokio::time::timeout(Duration::from_secs(5), host.read(&mut buf))
@@ -557,14 +582,14 @@ mod tests {
     async fn a_cluster_player_runs_on_each_screen_that_shows_it() {
         let dir = TempDir::new();
         let comp_listener = UnixListener::bind(dir.0.join("ctrl")).unwrap();
-        let gst = GstHost::new(dir.0.join("gst.sock"));
+        let gst = Output::new(dir.0.join("gst.sock"));
         let planes =
             ClusterPlanes::new(gst.clone(), CompositorControl::connect(dir.0.join("ctrl")));
         let mut created = planes.player_created();
 
         planes.show_on([false, true, false]);
         planes.set_crop(None);
-        planes.prepare(Codec::H264, vec![7]);
+        planes.prepare(VideoCodec::H264, vec![7]);
         tokio::time::timeout(Duration::from_secs(5), created.recv())
             .await
             .unwrap()
@@ -584,7 +609,7 @@ mod tests {
         assert!(seen.contains(&"videoshow cluster-cluster 1".to_string()));
 
         let mut host = UnixStream::connect(dir.0.join("gst.sock")).await.unwrap();
-        let mut framer = livi_host_proto::Framer::new();
+        let mut framer = livi_output_proto::Framer::new();
         let msg = next_msg(&mut host, &mut framer).await;
         assert_eq!((msg.op, msg.id), (1, CLUSTER_PLANE_MIN + 1));
 
@@ -604,7 +629,7 @@ mod tests {
     async fn the_video_plane_lies_over_the_main_screen_until_it_stops() {
         let dir = TempDir::new();
         let comp_listener = UnixListener::bind(dir.0.join("ctrl")).unwrap();
-        let gst = GstHost::new(dir.0.join("gst.sock"));
+        let gst = Output::new(dir.0.join("gst.sock"));
         let plane = VideoPlane::new(gst.clone(), CompositorControl::connect(dir.0.join("ctrl")));
 
         assert!(
@@ -626,11 +651,11 @@ mod tests {
         assert!(seen.contains(&"claim video".to_string()));
 
         let mut host = UnixStream::connect(dir.0.join("gst.sock")).await.unwrap();
-        let mut framer = livi_host_proto::Framer::new();
+        let mut framer = livi_output_proto::Framer::new();
         let msg = next_msg(&mut host, &mut framer).await;
         assert_eq!((msg.op, msg.id), (22, PLANE_VIDEO));
         assert_eq!(
-            livi_host_proto::parse_url_body(&msg.rest),
+            livi_output_proto::parse_url_body(&msg.rest),
             Some(("http://127.0.0.1:9/i.m3u8".into(), "car".into()))
         );
 
@@ -670,7 +695,7 @@ mod tests {
     async fn a_hidden_video_plane_stays_hidden_for_the_next_play() {
         let dir = TempDir::new();
         let comp_listener = UnixListener::bind(dir.0.join("ctrl")).unwrap();
-        let gst = GstHost::new(dir.0.join("gst.sock"));
+        let gst = Output::new(dir.0.join("gst.sock"));
         let plane = VideoPlane::new(gst.clone(), CompositorControl::connect(dir.0.join("ctrl")));
 
         let (ctrl, _) = tokio::time::timeout(Duration::from_secs(5), comp_listener.accept())

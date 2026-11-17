@@ -6,6 +6,8 @@ pub mod clock;
 #[cfg(not(target_os = "android"))]
 mod cursor_ui;
 mod dashboard_ui;
+#[cfg(target_os = "macos")]
+mod dock_ui;
 mod files_ui;
 mod follow;
 mod fonts;
@@ -20,19 +22,22 @@ mod minidsp_ui;
 mod overlay_ui;
 mod secondary;
 mod settings_ui;
+#[cfg(target_os = "macos")]
+mod shape_ui;
 mod touch_ui;
 mod video_ui;
 
 use std::cell::{Cell, RefCell};
 use std::os::unix::net::UnixStream;
 use std::rc::Rc;
+use std::sync::Mutex;
 use std::time::Duration;
 
-use livi_core_client::{Client, Event};
+use livi_core_client::{Client, Event, Mirror};
 use livi_core_proto::config::ClockStyle;
 use livi_core_proto::input::{Input, Phase, Point};
 use livi_core_proto::message::Action;
-use livi_core_proto::state::{Front, Screen};
+use livi_core_proto::state::{Front, Screen, State};
 use serde_json::Value;
 use slint::platform::WindowEvent;
 use slint::{Color, Model, ModelRc, Timer, TimerMode, VecModel, Weak};
@@ -241,6 +246,7 @@ fn apply(ui: &AppWindow, update: Update) {
         Update::Front(front) => match (front, ui.get_page()) {
             (Front::Projection, Page::Projection) => {}
             (Front::Projection, _) => choose(ui, Page::Projection),
+            (Front::Livi, Page::Projection) if ui.get_phone() == PhoneState::Connected => {}
             (_, Page::Projection) => choose(ui, Page::Media),
             _ => {}
         },
@@ -249,6 +255,8 @@ fn apply(ui: &AppWindow, update: Update) {
             settle_projection_focus(ui);
         }
         Update::Look(look) => apply_look(ui, look),
+        #[cfg(target_os = "macos")]
+        Update::Shape(w, h) => shape_ui::follow(ui, w, h),
         Update::Kiosk(on) => {
             fullscreen::follow_main(ui.window(), on);
             KIOSK.with_borrow(|k| {
@@ -271,7 +279,10 @@ fn apply(ui: &AppWindow, update: Update) {
         Update::PhoneName(name) => overlay_ui::phone(ui, &name),
         Update::Camera(found) => ui.set_camera_found(found),
         Update::MainMask(mask) => ui.set_main_mask(dashboard_ui::mask_data(mask)),
+        Update::ViewArea(area) => ui.set_view_area(view_area(area)),
         Update::Video(video) => video_ui::show(ui, video),
+        Update::Mirrored(mirrored) => video_ui::mirrored(ui, mirrored),
+        Update::Held(held) => ui.set_held(held),
         Update::Fonts(paths) => {
             if fonts::register(&paths) {
                 let lang = settings_ui::language();
@@ -283,6 +294,16 @@ fn apply(ui: &AppWindow, update: Update) {
                 secondary::relayout();
             }
         }
+    }
+}
+
+pub(crate) fn view_area(area: livi_core_proto::config::ViewArea) -> ViewArea {
+    let px = |v: u32| i32::try_from(v).unwrap_or(i32::MAX);
+    ViewArea {
+        top: px(area.top),
+        bottom: px(area.bottom),
+        left: px(area.left),
+        right: px(area.right),
     }
 }
 
@@ -407,15 +428,16 @@ pub(crate) fn detach_video(screen: &str) {
     let _ = screen;
 }
 
-fn follow_core(weak: Weak<AppWindow>) -> impl FnMut(Event, &Value) + Send + 'static {
+fn follow_core(weak: Weak<AppWindow>) -> impl FnMut(Event, &Mutex<Mirror>) + Send + 'static {
     let mut follow = Follow::default();
-    move |ev, state| {
-        let updates = match ev {
+    move |ev, mirror| {
+        let read = || mirror.lock().unwrap_or_else(|e| e.into_inner());
+        let mut updates = match ev {
             Event::Welcome { version } => {
                 println!("[ui] core {version}");
-                follow.changed(None, state)
+                follow.changed(None, &read().state)
             }
-            Event::Changed(keys) => follow.changed(Some(&keys), state),
+            Event::Changed(keys) => follow.changed(Some(&keys), &read().state),
             Event::Spectrum(bands) => vec![Update::Spectrum(bands)],
             Event::OpenPage(path) => vec![Update::Open(path)],
             Event::Gone(why) => {
@@ -426,6 +448,7 @@ fn follow_core(weak: Weak<AppWindow>) -> impl FnMut(Event, &Value) + Send + 'sta
         if updates.is_empty() {
             return;
         }
+        follow.decode(&mut updates);
         let weak = weak.clone();
         let _ = slint::invoke_from_event_loop(move || {
             let Some(ui) = weak.upgrade() else { return };
@@ -509,11 +532,35 @@ pub fn key(code: &str, down: bool, repeat: bool) {
     });
 }
 
+fn own_panel(ui: &AppWindow) {
+    ui.set_keep_safe_area(false);
+    #[cfg(target_os = "ios")]
+    defer_system_gestures(ui);
+}
+
+// Slint's Skia renderer sends no rendering notifier on iOS, so the winit window is awaited instead.
+#[cfg(target_os = "ios")]
+fn defer_system_gestures(ui: &AppWindow) {
+    use slint::winit_030::WinitWindowAccessor;
+    use slint::winit_030::winit::platform::ios::{ScreenEdge, WindowExtIOS};
+    let weak = ui.as_weak();
+    let _ = slint::spawn_local(async move {
+        let Some(ui) = weak.upgrade() else { return };
+        let Ok(window) = ui.window().winit_window().await else {
+            eprintln!("[ui] no winit window to hide the home indicator in");
+            return;
+        };
+        window.set_prefers_home_indicator_hidden(true);
+        window.set_preferred_screen_edges_deferring_system_gestures(ScreenEdge::ALL);
+    });
+}
+
 pub fn run(
     connect: impl FnOnce() -> std::io::Result<UnixStream>,
     fixture: Option<Value>,
     kiosk: impl Fn(bool) + 'static,
     pick: Option<Pick>,
+    full_panel: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     KIOSK.with_borrow_mut(|k| *k = Some(Box::new(kiosk)));
     PICK.with_borrow_mut(|p| *p = pick);
@@ -536,12 +583,11 @@ pub fn run(
     let client = Client::start(stream, "LIVI", follow_core(weak.clone()))?;
     CLIENT.with_borrow_mut(|c| *c = Some(client.clone()));
     MAIN.with_borrow_mut(|m| *m = Some(weak.clone()));
-    let lang = client
-        .state()
-        .get("config")
-        .and_then(|c| c["language"].as_str().map(str::to_string))
-        .unwrap_or_else(|| "en".into());
+    let lang = client.mirror().state.config.language.clone();
     settings_ui::wire(&ui, &client, &lang);
+    if full_panel {
+        own_panel(&ui);
+    }
     #[cfg(not(target_os = "android"))]
     keys_ui::wire(&ui, &client);
     #[cfg(target_os = "android")]
@@ -549,11 +595,11 @@ pub fn run(
     video_ui::wire(&ui, &client);
     wire(&ui, &client);
     if let Some(state) = fixture {
-        *client.state() = state.clone();
-        Follow::default()
-            .changed(None, &state)
-            .into_iter()
-            .for_each(|u| apply(&ui, u));
+        let mut mirror = client.mirror();
+        *mirror = Mirror::new(State::filled(state));
+        let updates = Follow::default().changed(None, &mirror.state);
+        drop(mirror);
+        updates.into_iter().for_each(|u| apply(&ui, u));
     }
 
     let clock_timer = Timer::default();
@@ -610,7 +656,11 @@ pub fn run(
     {
         ui.window().set_size(slint::LogicalSize::new(w, h));
     }
+    #[cfg(target_os = "macos")]
+    dock_ui::keep(&ui);
     ui.show()?;
+    #[cfg(target_os = "macos")]
+    shape_ui::apply(&ui);
     reported(&ui, &client, ui.get_page());
     if let Ok(page) = std::env::var("LIVI_UI_PAGE") {
         let page = match page.as_str() {

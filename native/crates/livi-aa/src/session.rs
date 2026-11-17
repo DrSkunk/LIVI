@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use livi_aa_proto::VersionResponseOptions;
-use livi_host_proto::feed as feedproto;
+use livi_output_proto::feed as feedproto;
 use prost::Message as _;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
@@ -81,7 +81,10 @@ impl Sinks {
     fn apply(&mut self, v: &serde_json::Value) {
         if let Some(path) = v.get("feed").and_then(|p| p.as_str())
             && !path.is_empty()
-            && self.feed.as_ref().is_none_or(|(p, _)| p != path)
+            && self
+                .feed
+                .as_ref()
+                .is_none_or(|(p, writer)| p != path || writer.closed())
         {
             self.feed = Some((path.to_owned(), FeedWriter::open(path.to_owned())));
             let known: Vec<(u8, u32, u8)> = self
@@ -271,6 +274,7 @@ where
             };
             framer.push(&buf[..n]);
             while let Some(item) = framer.next_item() {
+                let Ok(item) = item else { return };
                 if item_tx.send(item).await.is_err() {
                     return;
                 }
@@ -309,6 +313,8 @@ where
 
     let mut buf = vec![0u8; READ_CHUNK];
     let mut phone_open = true;
+    let setup_deadline = tokio::time::sleep(SETUP_TIMEOUT);
+    tokio::pin!(setup_deadline);
     loop {
         let setting_up = s.phase != Phase::Running;
         tokio::select! {
@@ -352,7 +358,7 @@ where
                     break;
                 }
             }
-            _ = tokio::time::sleep(SETUP_TIMEOUT), if setting_up => {
+            _ = &mut setup_deadline, if setting_up => {
                 s.closed("setup timeout").await;
                 break;
             }
@@ -688,6 +694,7 @@ async fn read_mic(mut sock: UnixStream, tx: mpsc::Sender<(u64, Vec<u8>)>) {
         };
         framer.push(&buf[..n]);
         while let Some(record) = framer.next_record() {
+            let Ok(record) = record else { return };
             if record.kind == feedproto::KIND_MIC {
                 let _ = tx.try_send((record.ts, record.payload));
             }

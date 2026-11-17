@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
-//! What the MiniDSP page shows, read from `state["minidsp"]` and
-//! `state["config"]["minidsp"]`.
+//! What the MiniDSP page shows, read from the `minidsp` state section and
+//! the `minidsp` config.
 
-use serde_json::Value;
+use livi_core_proto::state::State;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Control {
@@ -73,67 +73,52 @@ pub struct View {
     pub presets: Vec<Preset>,
 }
 
-fn num(v: &Value, default: f64) -> f64 {
-    v.as_f64().filter(|f| f.is_finite()).unwrap_or(default)
-}
-
-fn text(v: &Value) -> String {
-    v.as_str().unwrap_or_default().to_string()
-}
-
-pub fn view(state: &Value) -> View {
-    let dsp = &state["minidsp"];
-    let c = &state["config"]["minidsp"];
-    let connected = dsp["connected"].as_bool().unwrap_or(false);
-    let error = text(&dsp["error"]);
+pub fn view(state: &State) -> View {
+    let dsp = &state.minidsp;
+    let c = &state.config.minidsp;
+    let error = dsp.error.clone().unwrap_or_default();
     let phase = if !error.is_empty() {
         Phase::Error
-    } else if !dsp["checked"].as_bool().unwrap_or(false) {
+    } else if !dsp.checked {
         Phase::Connecting
-    } else if connected {
+    } else if dsp.connected {
         Phase::Ready
     } else {
         Phase::Waiting
     };
-    let volume_min = num(&c["volumeMinDb"], -80.0);
-    let preset = dsp["preset"].as_u64();
+    let finite = |v: f64, default: f64| if v.is_finite() { v } else { default };
+    let checked_volume = if dsp.checked {
+        dsp.volume_db
+    } else {
+        c.volume_min_db
+    };
     View {
-        enabled: c["enabled"].as_bool().unwrap_or(false),
+        enabled: c.enabled,
         phase,
-        busy: dsp["busy"].as_bool().unwrap_or(false),
+        busy: dsp.busy,
         error,
-        product: text(&dsp["productName"]),
-        source: text(&dsp["source"]),
+        product: dsp.product_name.clone().unwrap_or_default(),
+        source: dsp.source.clone(),
         volume: Control {
-            value: num(&dsp["volumeDb"], volume_min),
-            min: volume_min,
-            max: num(&c["volumeMaxDb"], 0.0),
-            step: num(&c["volumeStepDb"], 0.5),
+            value: finite(checked_volume, c.volume_min_db),
+            min: c.volume_min_db,
+            max: c.volume_max_db,
+            step: c.volume_step_db,
         },
         bass: Control {
-            value: num(&c["bassGainDb"], 0.0),
-            min: num(&c["bassMinDb"], -80.0),
-            max: num(&c["bassMaxDb"], 12.0),
-            step: num(&c["bassStepDb"], 0.5),
+            value: finite(c.bass_gain_db, 0.0),
+            min: c.bass_min_db,
+            max: c.bass_max_db,
+            step: c.bass_step_db,
         },
-        bass_outputs: c["bassOutputChannels"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_u64)
-            .map(|i| i as u32 + 1)
-            .collect(),
-        presets: c["presets"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|p| {
-                let index = p["index"].as_u64()?;
-                Some(Preset {
-                    index: index as u32,
-                    label: text(&p["label"]),
-                    active: connected && preset == Some(index),
-                })
+        bass_outputs: c.bass_output_channels.iter().map(|i| i + 1).collect(),
+        presets: c
+            .presets
+            .iter()
+            .map(|p| Preset {
+                index: p.index,
+                label: p.label.clone(),
+                active: dsp.connected && dsp.preset == p.index,
             })
             .collect(),
     }
@@ -176,9 +161,14 @@ pub fn outputs(list: &[u32]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     use super::*;
+    use crate::testing::state as typed;
+
+    fn view(state: &Value) -> View {
+        super::view(&typed(state.clone()))
+    }
 
     fn en(_: &str, text: &str) -> String {
         text.to_string()

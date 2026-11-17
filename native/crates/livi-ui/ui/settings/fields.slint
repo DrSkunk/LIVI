@@ -83,7 +83,7 @@ component StepButton inherits Rectangle {
         running: root.held;
         triggered => {
             root.repeats += 1;
-            root.step(root.repeats >= 40 ? 100 : root.repeats >= 12 ? 10 : 1);
+            root.step(root.repeats >= 12 ? 10 : 1);
         }
     }
 }
@@ -236,11 +236,14 @@ component GradientSlider inherits VerticalLayout {
     property <length> knob: clamp(Metrics.row-h * 0.5, 22px, 28px);
 
     spacing: 4px;
-    Text {
-        text: root.label;
-        color: Theme.text-secondary;
-        font-size: 13px;
-        x: 24px;
+    HorizontalLayout {
+        padding-left: 24px;
+        padding-right: 24px;
+        Text {
+            text: root.label;
+            color: Theme.text-secondary;
+            font-size: 13px;
+        }
     }
     Rectangle {
         height: 32px;

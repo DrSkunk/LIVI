@@ -16,7 +16,7 @@ use livi_core_proto::message::{LocalMusicCommand, MediaControl};
 use livi_core_proto::state::{
     LocalMusic as LocalMusicState, LocalMusicEntry, LocalMusicEntryKind, NowPlaying, State,
 };
-use livi_media::gst_host::{AudioCodec, AudioOpts, GstHost};
+use livi_media::output::{AudioCodec, AudioOpts, Output};
 use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, watch};
 
@@ -548,7 +548,7 @@ impl Drop for PipelineGuard {
 }
 
 struct HostStreamGuard {
-    host: GstHost,
+    host: Output,
     stream: u32,
 }
 
@@ -563,7 +563,7 @@ fn decoder(
     path: PathBuf,
     track_id: String,
     stream: u32,
-    host: GstHost,
+    host: Output,
     events: mpsc::UnboundedSender<DecoderEvent>,
 ) -> Result<Decoder, String> {
     let (commands, rx) = std_mpsc::channel();
@@ -595,7 +595,7 @@ fn decode(
     path: PathBuf,
     track_id: String,
     stream: u32,
-    host: GstHost,
+    host: Output,
     commands: std_mpsc::Receiver<DecoderCommand>,
     events: mpsc::UnboundedSender<DecoderEvent>,
 ) -> Result<bool, String> {
@@ -737,7 +737,7 @@ fn decode(
     Ok(false)
 }
 
-async fn open_stream(host: &GstHost, device: &str, level: f64) -> Option<u32> {
+async fn open_stream(host: &Output, device: &str, level: f64) -> Option<u32> {
     let opts = AudioOpts {
         codec: AudioCodec::PcmLe,
         payload_type: 0,
@@ -757,7 +757,7 @@ async fn open_stream(host: &GstHost, device: &str, level: f64) -> Option<u32> {
     Some(stream)
 }
 
-fn stop_decoder(decoder: Option<Decoder>, host: &GstHost, stream: Option<u32>) {
+fn stop_decoder(decoder: Option<Decoder>, host: &Output, stream: Option<u32>) {
     if let Some(decoder) = decoder {
         let _ = decoder.commands.send(DecoderCommand::Stop);
         let _ = decoder.thread.join();
@@ -769,7 +769,7 @@ fn stop_decoder(decoder: Option<Decoder>, host: &GstHost, stream: Option<u32>) {
 
 pub async fn run(
     hub: std::sync::Arc<crate::hub::Hub>,
-    host: GstHost,
+    host: Output,
     mut asks: mpsc::UnboundedReceiver<Ask>,
 ) {
     let mut state = hub.watch();
@@ -1120,7 +1120,7 @@ pub async fn run(
 #[allow(clippy::too_many_arguments)]
 async fn start_track(
     hub: &crate::hub::Hub,
-    host: &GstHost,
+    host: &Output,
     catalog: &Catalog,
     queue: &[String],
     queue_index: usize,
@@ -1329,7 +1329,7 @@ mod tests {
 
     #[tokio::test]
     async fn stopping_joins_decoder_before_deactivating_and_closing_host_audio() {
-        use livi_host_proto::{Framer, ops::*};
+        use livi_output_proto::{Framer, ops::*};
         use tokio::io::AsyncReadExt;
         use tokio::net::UnixStream;
 
@@ -1339,7 +1339,7 @@ mod tests {
             .strip_prefix(std::env::current_dir().unwrap())
             .unwrap()
             .join("gst.sock");
-        let host = GstHost::new(socket.clone());
+        let host = Output::new(socket.clone());
         let (commands, rx) = std_mpsc::channel();
         let decoder_host = host.clone();
         let runtime = tokio::runtime::Handle::current();
@@ -1358,7 +1358,7 @@ mod tests {
         for expected in [OP_AUDIO_DATA, OP_AUDIO_ACTIVE, OP_AUDIO_STOP] {
             let message = loop {
                 if let Some(message) = framer.next_message() {
-                    break message;
+                    break message.unwrap();
                 }
                 let mut buf = [0; 1024];
                 let count = tokio::time::timeout(Duration::from_secs(2), peer.read(&mut buf))
@@ -1378,7 +1378,7 @@ mod tests {
 
     #[tokio::test]
     async fn decoder_startup_error_closes_host_audio_without_waiting_for_actor() {
-        use livi_host_proto::{Framer, ops::*};
+        use livi_output_proto::{Framer, ops::*};
         use tokio::io::AsyncReadExt;
         use tokio::net::UnixStream;
 
@@ -1388,7 +1388,7 @@ mod tests {
             .strip_prefix(std::env::current_dir().unwrap())
             .unwrap()
             .join("gst.sock");
-        let host = GstHost::new(socket.clone());
+        let host = Output::new(socket.clone());
         host.set_audio_active(42, true);
         let mut peer = UnixStream::connect(&socket).await.unwrap();
         let (events, mut rx) = mpsc::unbounded_channel();
@@ -1409,7 +1409,7 @@ mod tests {
         ] {
             let message = loop {
                 if let Some(message) = framer.next_message() {
-                    break message;
+                    break message.unwrap();
                 }
                 let mut buf = [0; 1024];
                 let count = tokio::time::timeout(Duration::from_secs(2), peer.read(&mut buf))

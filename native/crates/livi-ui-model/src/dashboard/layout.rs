@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
+use livi_core_proto::state::State;
 use livi_core_proto::theme::{Cluster, DisplayKind, ThemeLayout};
-use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Center {
     None,
     NavMini,
-    NavFull,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,25 +16,28 @@ pub struct Spec {
     pub gauges: bool,
     pub map: bool,
     pub center: Center,
+    pub strip: bool,
 }
 
 const MAP_WITH_GAUGES: Spec = Spec {
     gauges: true,
     map: true,
     center: Center::None,
+    strip: false,
 };
 
 pub fn spec(layout: &str) -> Spec {
     match layout {
+        "livi.strip" => Spec {
+            gauges: false,
+            strip: true,
+            ..MAP_WITH_GAUGES
+        },
         "livi.navMini" => Spec {
             gauges: true,
             map: false,
             center: Center::NavMini,
-        },
-        "livi.navFull" => Spec {
-            gauges: true,
-            map: false,
-            center: Center::NavFull,
+            strip: false,
         },
         "livi.clusterOnly" => Spec {
             gauges: false,
@@ -54,10 +56,6 @@ pub struct Pages {
     pub accent: Option<String>,
 }
 
-pub fn cluster(state: &Value) -> Option<Cluster> {
-    serde_json::from_value(state["cluster"].clone()).ok()
-}
-
 fn layouts(c: &Cluster) -> Vec<ThemeLayout> {
     c.theme
         .displays
@@ -67,17 +65,9 @@ fn layouts(c: &Cluster) -> Vec<ThemeLayout> {
         .unwrap_or_default()
 }
 
-pub fn pages(state: &Value, dark: bool) -> Pages {
-    let Some(c) = cluster(state) else {
-        return Pages {
-            active: None,
-            index: None,
-            count: 0,
-            ids: Vec::new(),
-            accent: None,
-        };
-    };
-    let all = layouts(&c);
+pub fn pages(state: &State, dark: bool) -> Pages {
+    let c = &state.cluster;
+    let all = layouts(c);
     let ids: Vec<String> = c
         .shown
         .iter()
@@ -114,6 +104,8 @@ mod tests {
     fn unknown_layouts_keep_the_gauges_over_the_map() {
         assert_eq!(spec("vendor.x"), MAP_WITH_GAUGES);
         assert!(!spec("livi.clusterOnly").gauges);
-        assert_eq!(spec("livi.navFull").center, Center::NavFull);
+        assert_eq!(spec("livi.navMini").center, Center::NavMini);
+        let strip = spec("livi.strip");
+        assert!(strip.strip && strip.map && !strip.gauges);
     }
 }

@@ -17,12 +17,11 @@ use tokio::sync::{broadcast, mpsc, watch};
 use crate::auth_setup;
 use crate::bplist::{self, Value, dict};
 use crate::control_cipher::ControlCipher;
-use crate::crypto::hkdf_sha512;
 use crate::helper_sock::HelperSock;
 use crate::hid::{self, Contact, KnobState};
 use crate::hls::Client;
 use crate::hls_gateway::Gateway;
-use crate::iap_tunnel::IapTunnel;
+use crate::iap_tunnel::{self, IapTunnel};
 use crate::identity::Identity;
 use crate::info::{self, InfoConfig};
 use crate::keep_alive::KeepAlive;
@@ -33,6 +32,7 @@ use crate::pair_setup::PairSetup;
 use crate::pair_verify::PairVerify;
 use crate::pairings::Pairings;
 use crate::rtsp::{self, Request, Response};
+use crate::session_keys;
 use crate::timing::ntp64_now;
 use crate::timing_sync::TimingSync;
 use crate::ui_sync;
@@ -63,7 +63,8 @@ const PHONE_SILENT: Duration = Duration::from_secs(10);
 const SILENCE_CHECK: Duration = Duration::from_millis(250);
 
 const CLUSTER_MAP_URL: &str = "maps:/car/instrumentcluster/map";
-const APPEARANCE_AUTOMATIC: u64 = 0;
+const UI_APPEARANCE: &str = "uiAppearanceUpdate";
+const MAP_APPEARANCE: &str = "mapAppearanceUpdate";
 
 const AAC_LC_44K_STEREO: u64 = 0x40_0000;
 const AAC_LC_48K_STEREO: u64 = 0x80_0000;
@@ -133,7 +134,6 @@ pub struct StackConfig {
     pub info: InfoConfig,
     pub audio_device: String,
     pub audio_input_device: String,
-    pub hls_video: bool,
     pub vehicle_climate: bool,
     pub app_version: String,
     pub app_build_date: String,
@@ -151,6 +151,34 @@ pub struct Touch {
     pub down: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Surface {
+    MainUi,
+    MainMap,
+    ClusterUi,
+    ClusterMap,
+}
+
+impl Surface {
+    pub const ALL: [Surface; 4] = [
+        Surface::MainUi,
+        Surface::MainMap,
+        Surface::ClusterUi,
+        Surface::ClusterMap,
+    ];
+
+    fn on_cluster(self) -> bool {
+        matches!(self, Surface::ClusterUi | Surface::ClusterMap)
+    }
+
+    fn update(self) -> &'static str {
+        match self {
+            Surface::MainUi | Surface::ClusterUi => UI_APPEARANCE,
+            Surface::MainMap | Surface::ClusterMap => MAP_APPEARANCE,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum StackCmd {
     NextClusterContent,
@@ -166,8 +194,7 @@ pub enum StackCmd {
     Media(u8),
     Telephony(u8),
     Siri,
-    NightMode(bool),
-    ClusterNightMode(bool),
+    Appearance(Surface, bool),
     LimitedUi(bool),
     VideoAllowed(bool),
     Keyframe,
@@ -292,15 +319,15 @@ struct Conn<M: Media> {
     main_stream_ready: bool,
     audio: Vec<AudioStreamState>,
     iap_tunnel: Option<IapTunnel>,
-    iap_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    iap_out: Option<mpsc::Receiver<Vec<u8>>>,
     iap_relay: Option<(UnixRead, UnixWrite)>,
     video_playback: bool,
     video_capture: Option<video_playback::Capture>,
     last_stream_id: u64,
     video_settings: Option<IapTunnel>,
-    video_settings_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    video_settings_out: Option<mpsc::Receiver<Vec<u8>>>,
     video_overlay: Option<IapTunnel>,
-    video_overlay_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    video_overlay_out: Option<mpsc::Receiver<Vec<u8>>>,
     ui_sync_on: bool,
     ui_sync: Option<(IapTunnel, mpsc::UnboundedSender<Vec<u8>>)>,
     ui_sync_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
@@ -312,6 +339,7 @@ struct Conn<M: Media> {
     notice_shown: bool,
     select_closed_notice: bool,
     offered_vehicle_state: bool,
+    told_info: Option<InfoConfig>,
     climate_reported: Option<Climate>,
     volume_reported: Option<Vec<(&'static str, f64)>>,
     vehicle_streams: Vec<(Lane, IapTunnel, mpsc::UnboundedSender<Vec<u8>>)>,
@@ -325,8 +353,8 @@ struct Conn<M: Media> {
     event_listener: Option<TcpListener>,
     event: Option<EventConn>,
     live: bool,
-    night_mode: Option<bool>,
-    cluster_night_mode: Option<bool>,
+    appearance: [Option<bool>; 4],
+    appearance_setting: u64,
     limited_ui: Option<bool>,
     cluster_want: bool,
     cluster_url: Option<String>,
@@ -397,7 +425,14 @@ async fn read_relay(
     }
 }
 
-async fn recv_iap<T>(out: &mut Option<mpsc::UnboundedReceiver<T>>) -> Option<T> {
+async fn recv_iap<T>(out: &mut Option<mpsc::Receiver<T>>) -> Option<T> {
+    match out {
+        Some(rx) => rx.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn recv_delivered<T>(out: &mut Option<mpsc::UnboundedReceiver<T>>) -> Option<T> {
     match out {
         Some(rx) => rx.recv().await,
         None => std::future::pending().await,
@@ -422,7 +457,7 @@ async fn sleep_until(at: Option<tokio::time::Instant>) {
     }
 }
 
-fn id_text(v: Option<&Value>) -> String {
+pub(crate) fn id_text(v: Option<&Value>) -> String {
     match v {
         Some(Value::Int(n)) => n.to_string(),
         Some(Value::Real(f)) if f.fract() == 0.0 && f.abs() < 1e21 => format!("{}", *f as i64),
@@ -484,7 +519,7 @@ fn status(code: u16) -> Response {
     }
 }
 
-fn octet(result: Result<Vec<u8>, String>, what: &str) -> Response {
+fn octet(result: Result<Vec<u8>, impl std::fmt::Display>, what: &str) -> Response {
     match result {
         Ok(body) => Response {
             headers: vec![("Content-Type".into(), OCTET.into())],
@@ -509,14 +544,6 @@ fn header_number(req: &Request, name: &str) -> Option<u32> {
     }
 }
 
-fn stream_key(shared: &[u8; 32], id: &str, info: &str) -> [u8; 32] {
-    hkdf_sha512(
-        shared,
-        format!("DataStream-Salt{id}").as_bytes(),
-        info.as_bytes(),
-    )
-}
-
 pub async fn run<M: Media>(
     stream: TcpStream,
     ctx: Arc<StackCtx<M>>,
@@ -538,6 +565,7 @@ pub async fn run<M: Media>(
             .with_cluster_content(cfg.cluster_content.as_ref())
             .with_images(&cfg.images)
     };
+    let appearance_setting = ctx.config.borrow().info.appearance_setting;
     let mut conn = Conn {
         ctx,
         events,
@@ -575,6 +603,7 @@ pub async fn run<M: Media>(
         ui_sync_state: ui_sync::UiSync::default(),
         vehicle_state: Some(vehicle_state),
         offered_vehicle_state: false,
+        told_info: None,
         notice: None,
         notice_ready_at: None,
         notice_ready: false,
@@ -593,8 +622,8 @@ pub async fn run<M: Media>(
         event_listener: None,
         event: None,
         live: false,
-        night_mode: None,
-        cluster_night_mode: None,
+        appearance: [None; 4],
+        appearance_setting,
         limited_ui: None,
         cluster_want: false,
         cluster_url: None,
@@ -614,7 +643,10 @@ pub async fn run<M: Media>(
     config.mark_unchanged();
     loop {
         tokio::select! {
-            Ok(()) = config.changed() => conn.follow_cluster_url().await,
+            Ok(()) = config.changed() => {
+                conn.follow_cluster_url().await;
+                conn.follow_appearance_setting().await;
+            }
             read = rd.read(&mut buf) => match read {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
@@ -672,7 +704,7 @@ pub async fn run<M: Media>(
                 Some(iap) => conn.relay_iap(&iap).await,
                 None => conn.iap_out = None,
             },
-            sync = recv_iap(&mut conn.ui_sync_out) => match sync {
+            sync = recv_delivered(&mut conn.ui_sync_out) => match sync {
                 Some(message) => conn.on_ui_sync(&message),
                 None => conn.ui_sync_out = None,
             },
@@ -684,7 +716,7 @@ pub async fn run<M: Media>(
                 Some(setting) => conn.keep_side_message("settings", &setting),
                 None => conn.video_settings_out = None,
             },
-            vehicle = recv_iap(&mut conn.vehicle_out) => match vehicle {
+            vehicle = recv_delivered(&mut conn.vehicle_out) => match vehicle {
                 Some((lane, message)) => conn.on_vehicle_message(lane, &message),
                 None => conn.vehicle_out = None,
             },
@@ -710,7 +742,12 @@ impl<M: Media> Conn<M> {
         let Some(answered) = self.timing.as_ref().and_then(TimingSync::last_heard) else {
             return false;
         };
-        answered.max(self.last_request).elapsed() > PHONE_SILENT
+        let beacon = self.keep_alive.as_ref().and_then(KeepAlive::last_heard);
+        answered
+            .max(self.last_request)
+            .max(beacon.unwrap_or(answered))
+            .elapsed()
+            > PHONE_SILENT
     }
 }
 

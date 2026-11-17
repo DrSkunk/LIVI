@@ -6,7 +6,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::Value;
+use livi_core_proto::helper_events::{CallPhase as Phase, HelperEvent, HelperKind, StationEvent};
+use livi_core_proto::ids::{Ids, norm_mac, same_mac};
 use socket2::{SockRef, TcpKeepalive};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
@@ -15,7 +16,7 @@ use tokio::task::JoinHandle;
 use crate::helper_sock::Feed;
 use crate::media::Media;
 use crate::net::{host_of, norm_host};
-use crate::stack::{self, AudioProfile, ScreenCodec, StackCmd, StackCtx, StackEvent};
+use crate::stack::{self, AudioProfile, ScreenCodec, StackCmd, StackCtx, StackEvent, Surface};
 use crate::vehicle_state::{Climate, Gauges, Radio, RadioCommand};
 
 const RESTART_FIRST: Duration = Duration::from_millis(500);
@@ -27,16 +28,6 @@ const PENDING_MAX: usize = 8;
 const HISTORY_KEPT: usize = 10;
 
 pub type SessionId = u64;
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DeviceIds {
-    pub bt_mac: Option<String>,
-    pub wifi_mac: Option<String>,
-    pub ip: Option<String>,
-    pub usb_udid: Option<String>,
-    pub controller_id: Option<String>,
-    pub name: Option<String>,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Presence {
@@ -67,10 +58,8 @@ pub enum HelperPresence {
         connected: bool,
     },
     Device {
-        ids: DeviceIds,
-    },
-    DeviceGone {
-        usb_udid: String,
+        ids: Ids,
+        name: Option<String>,
     },
 }
 
@@ -136,7 +125,7 @@ pub enum CpEvent {
     },
     Metadata {
         id: SessionId,
-        event: Value,
+        event: HelperKind,
     },
     Climate {
         id: SessionId,
@@ -163,9 +152,7 @@ pub enum CpEvent {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CpCmd {
     Stack { id: SessionId, cmd: StackCmd },
-    NightMode(bool),
-    ClusterNightMode(bool),
-    InitialNightMode(Option<bool>),
+    NightModes([bool; 4]),
     LimitedUi(bool),
     VideoAllowed(bool),
     ClusterActive(bool),
@@ -215,11 +202,14 @@ impl Session {
         }
     }
 
-    fn matches(&self, ids: &DeviceIds) -> bool {
-        let same = |a: &Option<String>, b: &str| {
-            a.as_deref()
-                .is_some_and(|a| !a.is_empty() && !b.is_empty() && a.eq_ignore_ascii_case(b))
-        };
+    fn night_modes(&self, modes: [bool; 4]) {
+        for (surface, night) in Surface::ALL.into_iter().zip(modes) {
+            self.send(StackCmd::Appearance(surface, night));
+        }
+    }
+
+    fn matches(&self, ids: &Ids) -> bool {
+        let same = |a: &Option<String>, b: &str| a.as_deref().is_some_and(|a| same_mac(a, b));
         same(&ids.bt_mac, &self.bt_mac)
             || same(&ids.wifi_mac, &self.wifi_mac)
             || ids.ip.as_deref().is_some_and(|ip| {
@@ -233,15 +223,8 @@ impl Session {
     }
 }
 
-fn str_of(ev: &Value, key: &str) -> String {
-    ev.get(key)
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string()
-}
-
-fn opt(s: String) -> Option<String> {
-    (!s.is_empty()).then_some(s)
+fn opt(s: &Option<String>) -> Option<String> {
+    s.clone().filter(|s| !s.is_empty())
 }
 
 struct Manager<M: Media> {
@@ -253,7 +236,7 @@ struct Manager<M: Media> {
     next_id: SessionId,
     sessions: HashMap<SessionId, Session>,
     live: Option<SessionId>,
-    pending: Vec<DeviceIds>,
+    pending: Vec<(Ids, Option<String>)>,
     wired: HashMap<String, String>,
     gone: HashSet<String>,
     cabled: HashSet<SessionId>,
@@ -261,7 +244,7 @@ struct Manager<M: Media> {
     to_cable: HashMap<String, JoinHandle<()>>,
     awaiting: HashMap<String, JoinHandle<()>>,
     reset_once: HashSet<String>,
-    initial_night_mode: Option<bool>,
+    night_modes: Option<[bool; 4]>,
     notices: Notices,
     cluster_stream_active: bool,
     video_allowed: bool,
@@ -269,7 +252,7 @@ struct Manager<M: Media> {
 }
 
 pub fn start<M: Media>(
-    listener: TcpListener,
+    listener: Option<TcpListener>,
     ctx: Arc<StackCtx<M>>,
     events: mpsc::UnboundedSender<CpEvent>,
 ) -> CpHandle {
@@ -279,7 +262,7 @@ pub fn start<M: Media>(
 }
 
 async fn run<M: Media>(
-    listener: TcpListener,
+    listener: Option<TcpListener>,
     ctx: Arc<StackCtx<M>>,
     mut cmds: mpsc::UnboundedReceiver<CpCmd>,
     events: mpsc::UnboundedSender<CpEvent>,
@@ -305,7 +288,7 @@ async fn run<M: Media>(
         to_cable: HashMap::new(),
         awaiting: HashMap::new(),
         reset_once: HashSet::new(),
-        initial_night_mode: None,
+        night_modes: None,
         notices: Notices::default(),
         cluster_stream_active: true,
         video_allowed: true,
@@ -313,14 +296,17 @@ async fn run<M: Media>(
     };
     loop {
         tokio::select! {
-            accepted = listener.accept() => {
-                if let Ok((sock, _)) = accepted {
+            accepted = async { listener.as_ref()?.accept().await.ok() }, if listener.is_some() => {
+                if let Some((sock, _)) = accepted {
                     m.spawn(sock);
                 }
             }
             item = feed.recv() => match item {
                 Some(Feed::Connected) => m.emit(CpEvent::HelperConnected),
-                Some(Feed::Event(ev)) => m.on_helper_event(&ev),
+                Some(Feed::Event(ev)) => match serde_json::from_value::<HelperEvent>(ev) {
+                    Ok(ev) => m.on_helper_event(ev),
+                    Err(e) => println!("[CpManager] helper event not understood: {e}"),
+                },
                 None => feed = m.ctx.helper.subscribe(),
             },
             Some((id, ev)) = stack_rx.recv() => m.on_stack_event(id, ev),
@@ -384,9 +370,8 @@ impl<M: Media> Manager<M> {
     fn register(&mut self, session: Session) -> SessionId {
         let id = self.next_id;
         self.next_id += 1;
-        if let Some(night) = self.initial_night_mode {
-            session.send(StackCmd::NightMode(night));
-            session.send(StackCmd::ClusterNightMode(night));
+        if let Some(modes) = self.night_modes {
+            session.night_modes(modes);
         }
         session.send(StackCmd::ClusterActive(self.cluster_stream_active));
         if !self.notices.history.is_empty() {
@@ -422,7 +407,7 @@ impl<M: Media> Manager<M> {
 
     fn on_cable(&self, id: SessionId) -> bool {
         self.sessions.get(&id).is_some_and(|s| {
-            self.wired.contains_key(&s.bt_mac.to_lowercase()) && !self.cabled.contains(&id)
+            self.wired.contains_key(&norm_mac(&s.bt_mac)) && !self.cabled.contains(&id)
         })
     }
 
@@ -544,7 +529,7 @@ impl<M: Media> Manager<M> {
             return;
         };
         s.send(StackCmd::Stop);
-        let mac = s.bt_mac.to_lowercase();
+        let mac = norm_mac(&s.bt_mac);
         match self.wired.get(&mac).cloned() {
             Some(udid) => {
                 if self.cabled.remove(&id) {
@@ -658,7 +643,7 @@ impl<M: Media> Manager<M> {
         }
     }
 
-    fn adopt_helper_device(&mut self, id: SessionId, ids: &DeviceIds) {
+    fn adopt_helper_device(&mut self, id: SessionId, ids: &Ids, name: Option<&str>) {
         let Some(s) = self.sessions.get_mut(&id) else {
             return;
         };
@@ -678,7 +663,7 @@ impl<M: Media> Manager<M> {
             wifi_mac: s.wifi_mac.clone(),
             ip: ids.ip.clone().unwrap_or_default(),
             usb_udid: ids.usb_udid.clone().unwrap_or_default(),
-            name: ids.name.clone().unwrap_or_default(),
+            name: name.unwrap_or_default().to_string(),
             model: String::new(),
         };
         self.presence(id, presence);
@@ -691,25 +676,25 @@ impl<M: Media> Manager<M> {
             let matches = self
                 .sessions
                 .get(&id)
-                .is_some_and(|s| s.matches(&self.pending[i]));
+                .is_some_and(|s| s.matches(&self.pending[i].0));
             if matches {
-                let ids = self.pending.remove(i);
-                self.adopt_helper_device(id, &ids);
+                let (ids, name) = self.pending.remove(i);
+                self.adopt_helper_device(id, &ids, name.as_deref());
             }
         }
     }
 
-    fn buffer_pending(&mut self, ids: DeviceIds) {
+    fn buffer_pending(&mut self, ids: Ids, name: Option<String>) {
         if ids.bt_mac.is_none() && ids.wifi_mac.is_none() && ids.usb_udid.is_none() {
             return;
         }
-        let same = self.pending.iter().position(|d| {
-            matches!((&ids.bt_mac, &d.bt_mac), (Some(a), Some(b)) if a.eq_ignore_ascii_case(b))
+        let same = self.pending.iter().position(|(d, _)| {
+            matches!((&ids.bt_mac, &d.bt_mac), (Some(a), Some(b)) if same_mac(a, b))
                 || matches!((&ids.usb_udid, &d.usb_udid), (Some(a), Some(b)) if a == b)
         });
         match same {
             Some(i) => {
-                let d = &mut self.pending[i];
+                let (d, known) = &mut self.pending[i];
                 let merge = |into: &mut Option<String>, from: &Option<String>| {
                     if from.is_some() {
                         into.clone_from(from);
@@ -719,9 +704,9 @@ impl<M: Media> Manager<M> {
                 merge(&mut d.wifi_mac, &ids.wifi_mac);
                 merge(&mut d.ip, &ids.ip);
                 merge(&mut d.usb_udid, &ids.usb_udid);
-                merge(&mut d.name, &ids.name);
+                merge(known, &name);
             }
-            None => self.pending.push(ids),
+            None => self.pending.push((ids, name)),
         }
         while self.pending.len() > PENDING_MAX {
             self.pending.remove(0);
@@ -730,17 +715,17 @@ impl<M: Media> Manager<M> {
 
     fn create_meta_session(&mut self, phone_id: &str) -> SessionId {
         let id = self.register(Session::default());
-        let ids = DeviceIds {
+        let ids = Ids {
             bt_mac: Some(phone_id.to_string()),
-            usb_udid: self.wired.get(&phone_id.to_lowercase()).cloned(),
+            usb_udid: self.wired.get(&norm_mac(phone_id)).cloned(),
             ..Default::default()
         };
-        self.adopt_helper_device(id, &ids);
+        self.adopt_helper_device(id, &ids, None);
         self.adopt_pending(id);
         id
     }
 
-    fn match_session(&self, ids: &DeviceIds) -> Option<SessionId> {
+    fn match_session(&self, ids: &Ids) -> Option<SessionId> {
         let mut ids_sorted: Vec<_> = self.sessions.iter().collect();
         ids_sorted.sort_by_key(|(id, _)| **id);
         ids_sorted
@@ -757,34 +742,39 @@ impl<M: Media> Manager<M> {
         }
     }
 
-    fn on_helper_event(&mut self, ev: &Value) {
-        match ev.get("type").and_then(Value::as_str).unwrap_or("") {
-            "wifi" => {
-                let wifi_mac = str_of(ev, "mac");
-                let connected = str_of(ev, "event") == "joined";
-                if !connected && !wifi_mac.is_empty() {
-                    self.left_wifi(&wifi_mac);
+    fn on_helper_event(&mut self, ev: HelperEvent) {
+        match &ev.kind {
+            HelperKind::Wifi { event, mac, ip } => {
+                let connected = *event == StationEvent::Joined;
+                if !connected && !mac.is_empty() {
+                    self.left_wifi(mac);
                 }
                 self.emit(CpEvent::HelperPresence(HelperPresence::Wifi {
-                    wifi_mac,
-                    ip: str_of(ev, "ip"),
+                    wifi_mac: mac.clone(),
+                    ip: ip.clone().unwrap_or_default(),
                     connected,
                 }));
             }
-            "device" => {
-                let ids = DeviceIds {
-                    bt_mac: opt(str_of(ev, "btMac")),
-                    ip: opt(str_of(ev, "ip")),
-                    usb_udid: opt(str_of(ev, "usbUdid")),
-                    name: opt(str_of(ev, "name")),
+            HelperKind::Device {
+                bt_mac,
+                usb_udid,
+                ip,
+                name,
+                ..
+            } => {
+                let ids = Ids {
+                    bt_mac: opt(bt_mac),
+                    ip: opt(ip),
+                    usb_udid: opt(usb_udid),
                     ..Default::default()
                 };
+                let name = opt(name);
                 if let Some(mac) = &ids.bt_mac {
-                    self.gone.remove(&mac.to_lowercase());
+                    self.gone.remove(&norm_mac(mac));
                 }
                 let found = self.match_session(&ids);
                 if let (Some(mac), Some(udid)) = (&ids.bt_mac, &ids.usb_udid) {
-                    let mac = mac.to_lowercase();
+                    let mac = norm_mac(mac);
                     if !self.wired.contains_key(&mac)
                         && let Some(id) = found
                         && self.sessions[&id].controller_id.is_some()
@@ -795,14 +785,15 @@ impl<M: Media> Manager<M> {
                 }
                 self.emit(CpEvent::HelperPresence(HelperPresence::Device {
                     ids: ids.clone(),
+                    name: name.clone(),
                 }));
                 match found {
-                    Some(id) => self.adopt_helper_device(id, &ids),
-                    None => self.buffer_pending(ids),
+                    Some(id) => self.adopt_helper_device(id, &ids, name.as_deref()),
+                    None => self.buffer_pending(ids, name),
                 }
             }
-            "link" => {
-                if ev.get("up") == Some(&Value::Bool(false)) {
+            HelperKind::Link { up } => {
+                if !up {
                     let wireless: Vec<SessionId> = self
                         .sessions
                         .keys()
@@ -812,20 +803,20 @@ impl<M: Media> Manager<M> {
                     for id in wireless {
                         self.close(id);
                     }
-                    self.pending.retain(|d| d.usb_udid.is_some());
+                    self.pending.retain(|(d, _)| d.usb_udid.is_some());
                 }
             }
-            "wired-start" => {
-                let udid = str_of(ev, "usbUdid");
-                let ip = norm_host(&str_of(ev, "ip"));
+            HelperKind::WiredStart { usb_udid, ip } => {
+                let udid = usb_udid.clone();
+                let ip = norm_host(ip);
                 if udid.is_empty() || ip.is_empty() {
                     return;
                 }
                 self.cable_addrs.insert(udid.clone(), ip);
                 self.await_session(&udid);
-                let ids = DeviceIds {
+                let ids = Ids {
                     usb_udid: Some(udid.clone()),
-                    bt_mac: opt(str_of(ev, "phoneId")),
+                    bt_mac: opt(&ev.phone_id),
                     ..Default::default()
                 };
                 let leaving: Vec<SessionId> = self
@@ -841,34 +832,33 @@ impl<M: Media> Manager<M> {
                     self.close(id);
                 }
             }
-            "deviceTime" => {
-                if let Some(minutes) = ev.get("utcOffsetMinutes").and_then(Value::as_f64) {
-                    self.emit(CpEvent::PhoneUtcOffset {
-                        minutes: minutes as i32,
-                    });
-                }
+            HelperKind::DeviceTime { utc_offset_minutes } => {
+                self.emit(CpEvent::PhoneUtcOffset {
+                    minutes: *utc_offset_minutes,
+                });
             }
-            "device-gone" => {
-                let udid = str_of(ev, "usbUdid");
+            HelperKind::DeviceGone { usb_udid, .. } => {
+                let udid = usb_udid.clone();
                 if udid.is_empty() {
                     return;
                 }
-                self.wired.retain(|_, u| *u != udid);
-                self.cable_addrs.remove(&udid);
-                self.came_over(&udid);
-                self.emit(CpEvent::HelperPresence(HelperPresence::DeviceGone {
-                    usb_udid: udid.clone(),
-                }));
-                let ids = DeviceIds {
+                let ids = Ids {
                     usb_udid: Some(udid.clone()),
                     ..Default::default()
                 };
                 let matching: Vec<SessionId> = self
                     .sessions
                     .iter()
-                    .filter(|(_, s)| s.matches(&ids))
+                    .filter(|(_, s)| {
+                        s.matches(&ids)
+                            || self.cable_udid(&s.local_ip).as_deref() == Some(udid.as_str())
+                            || self.wired.get(&norm_mac(&s.bt_mac)) == Some(&udid)
+                    })
                     .map(|(id, _)| *id)
                     .collect();
+                self.wired.retain(|_, u| *u != udid);
+                self.cable_addrs.remove(&udid);
+                self.came_over(&udid);
                 for id in matching {
                     if self.cabled.remove(&id) {
                         continue;
@@ -876,14 +866,14 @@ impl<M: Media> Manager<M> {
                     self.close(id);
                 }
                 self.pending
-                    .retain(|d| d.usb_udid.as_deref() != Some(udid.as_str()));
+                    .retain(|(d, _)| d.usb_udid.as_deref() != Some(udid.as_str()));
             }
             _ => self.route_metadata(ev),
         }
     }
 
     fn left_wifi(&mut self, wifi_mac: &str) {
-        let ids = DeviceIds {
+        let ids = Ids {
             wifi_mac: Some(wifi_mac.to_string()),
             ..Default::default()
         };
@@ -900,19 +890,19 @@ impl<M: Media> Manager<M> {
         }
     }
 
-    fn route_metadata(&mut self, ev: &Value) {
-        let phone_id = str_of(ev, "phoneId");
-        let cid = str_of(ev, "cid");
-        let by = |ids: DeviceIds| self.match_session(&ids);
+    fn route_metadata(&mut self, ev: HelperEvent) {
+        let phone_id = ev.phone_id.clone().unwrap_or_default();
+        let cid = ev.cid.clone().unwrap_or_default();
+        let by = |ids: Ids| self.match_session(&ids);
         let mut target = None;
         if !phone_id.is_empty() {
-            target = by(DeviceIds {
+            target = by(Ids {
                 bt_mac: Some(phone_id.clone()),
                 ..Default::default()
             });
         }
         if target.is_none() && !cid.is_empty() {
-            target = by(DeviceIds {
+            target = by(Ids {
                 controller_id: Some(cid.clone()),
                 ..Default::default()
             });
@@ -922,60 +912,54 @@ impl<M: Media> Manager<M> {
             let contradicts = !phone_id.is_empty()
                 && fallback.is_some_and(|id| {
                     let mac = &self.sessions[&id].bt_mac;
-                    !mac.is_empty() && !mac.eq_ignore_ascii_case(&phone_id)
+                    !mac.is_empty() && !same_mac(mac, &phone_id)
                 });
             let unattributable = phone_id.is_empty() && cid.is_empty() && self.sessions.len() > 1;
             if unattributable {
                 target = None;
             } else if fallback.is_some() && !contradicts {
                 target = fallback;
-            } else if !phone_id.is_empty() && !self.gone.contains(&phone_id.to_lowercase()) {
+            } else if !phone_id.is_empty() && !self.gone.contains(&norm_mac(&phone_id)) {
                 target = Some(self.create_meta_session(&phone_id));
             }
         }
         if let Some(id) = target {
-            self.ingest(id, ev);
+            self.ingest(id, ev.kind);
         }
     }
 
-    fn ingest(&mut self, id: SessionId, ev: &Value) {
-        let num = |k: &str| ev.get(k).and_then(Value::as_f64);
-        match ev.get("type").and_then(Value::as_str).unwrap_or("") {
-            "power" => self.presence(
+    fn ingest(&mut self, id: SessionId, kind: HelperKind) {
+        match kind {
+            HelperKind::Power { level, charging } => self.presence(
                 id,
                 Presence::Status {
-                    battery_level: num("level"),
-                    battery_charging: ev.get("charging").and_then(Value::as_bool),
+                    battery_level: level.map(f64::from),
+                    battery_charging: charging,
                     signal_strength: None,
                     carrier_name: None,
                 },
             ),
-            "cellular" => self.presence(
+            HelperKind::Cellular {
+                signal, carrier, ..
+            } => self.presence(
                 id,
                 Presence::Status {
                     battery_level: None,
                     battery_charging: None,
-                    signal_strength: num("signal"),
-                    carrier_name: ev
-                        .get("carrier")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
+                    signal_strength: signal.map(f64::from),
+                    carrier_name: carrier,
                 },
             ),
-            "call" => {
-                let phase = match ev.get("phase").and_then(Value::as_str) {
-                    Some("ringing") => CallPhase::Ringing,
-                    Some("active") => CallPhase::Active,
-                    Some("ended") => CallPhase::Ended,
-                    _ => return,
+            HelperKind::Call { phase, .. } => {
+                let phase = match phase {
+                    Phase::Ringing => CallPhase::Ringing,
+                    Phase::Active => CallPhase::Active,
+                    Phase::Ended => CallPhase::Ended,
                 };
                 self.emit(CpEvent::Call { id, phase });
             }
-            "albumart" | "navigation" | "nowplaying" => {
-                self.emit(CpEvent::Metadata {
-                    id,
-                    event: ev.clone(),
-                });
+            event @ (HelperKind::Navigation(_) | HelperKind::NowPlaying(_)) => {
+                self.emit(CpEvent::Metadata { id, event });
             }
             _ => {}
         }
@@ -988,22 +972,11 @@ impl<M: Media> Manager<M> {
                     s.send(cmd);
                 }
             }
-            CpCmd::NightMode(night) => {
-                for s in self.sessions.values() {
-                    s.send(StackCmd::NightMode(night));
-                }
-            }
-            CpCmd::ClusterNightMode(night) => {
-                for s in self.sessions.values() {
-                    s.send(StackCmd::ClusterNightMode(night));
-                }
-            }
-            CpCmd::InitialNightMode(night) => {
-                self.initial_night_mode = night;
-                if let Some(night) = night {
+            CpCmd::NightModes(modes) => {
+                if self.night_modes != Some(modes) {
+                    self.night_modes = Some(modes);
                     for s in self.sessions.values() {
-                        s.send(StackCmd::NightMode(night));
-                        s.send(StackCmd::ClusterNightMode(night));
+                        s.night_modes(modes);
                     }
                 }
             }
@@ -1113,7 +1086,6 @@ mod tests {
 
     use super::*;
     use crate::bplist::{Value as Plist, dict};
-    use crate::crypto::{ed25519_public, random_bytes};
     use crate::helper_sock::HelperSock;
     use crate::identity::load_or_create;
     use crate::net;
@@ -1121,6 +1093,7 @@ mod tests {
     use crate::pairings::tests::TempDir;
     use crate::stack::StackConfig;
     use crate::stack::tests::{FakeMedia, Phone};
+    use livi_crypto::{ed25519_public, random_bytes};
 
     struct FakeHelper {
         lines: Arc<Mutex<Vec<String>>>,
@@ -1200,7 +1173,6 @@ mod tests {
                 info: crate::info::tests::sample(),
                 audio_device: String::new(),
                 audio_input_device: String::new(),
-                hls_video: false,
                 vehicle_climate: true,
                 app_version: "9.5.0".into(),
                 app_build_date: String::new(),
@@ -1224,7 +1196,7 @@ mod tests {
             let listener = net::tcp_listener().unwrap();
             let port = net::local_port(listener.local_addr());
             let (ev_tx, events) = mpsc::unbounded_channel();
-            let handle = start(listener, ctx, ev_tx);
+            let handle = start(Some(listener), ctx, ev_tx);
             let mut rig = Self {
                 _dir: dir,
                 helper,
@@ -1341,9 +1313,9 @@ mod tests {
     async fn a_session_takes_its_identity_and_its_metadata() {
         let mut rig = Rig::new().await;
         rig.helper
-            .push(serde_json::json!({ "type": "device", "btMac": "AA:BB", "usbUdid": "u1", "ip": "10.0.0.2" }))
+            .push(serde_json::json!({ "type": "device", "src": "carkit", "btMac": "AA:BB", "usbUdid": "u1", "ip": "10.0.0.2" }))
             .await;
-        let ids = DeviceIds {
+        let ids = Ids {
             bt_mac: Some("AA:BB".into()),
             ip: Some("10.0.0.2".into()),
             usb_udid: Some("u1".into()),
@@ -1351,7 +1323,7 @@ mod tests {
         };
         assert_eq!(
             rig.event().await,
-            CpEvent::HelperPresence(HelperPresence::Device { ids })
+            CpEvent::HelperPresence(HelperPresence::Device { ids, name: None })
         );
 
         let (mut phone, id) = rig.phone("AA:BB", "CC:DD").await;
@@ -1480,9 +1452,7 @@ mod tests {
             .await;
 
         rig.handle.stack(id, StackCmd::Keyframe);
-        rig.handle.send(CpCmd::NightMode(true));
-        rig.handle.send(CpCmd::ClusterNightMode(true));
-        rig.handle.send(CpCmd::InitialNightMode(Some(false)));
+        rig.handle.send(CpCmd::NightModes([true; 4]));
         rig.handle.send(CpCmd::LimitedUi(true));
         rig.handle.send(CpCmd::VideoAllowed(false));
         rig.handle.send(CpCmd::ClusterActive(false));
@@ -1524,15 +1494,13 @@ mod tests {
             unreachable!()
         };
         rig.helper
-            .push(serde_json::json!({ "type": "device-gone", "usbUdid": "u1" }))
+            .push(serde_json::json!({ "type": "device-gone", "src": "carkit", "usbUdid": "u1" }))
             .await;
         assert_eq!(
-            rig.until(|e| matches!(e, CpEvent::HelperPresence(_))).await,
-            CpEvent::HelperPresence(HelperPresence::DeviceGone {
-                usb_udid: "u1".into()
-            })
+            rig.until(|e| matches!(e, CpEvent::Disconnected { .. }))
+                .await,
+            CpEvent::Disconnected { id: again }
         );
-        assert_eq!(rig.event().await, CpEvent::Disconnected { id: again });
         rig.handle.send(CpCmd::DropSessions);
         assert_eq!(rig.event().await, CpEvent::Disconnected { id: meta });
         rig.helper.saw("drop-iap2").await;
@@ -1556,7 +1524,7 @@ mod tests {
         .await;
 
         rig.helper
-            .push(serde_json::json!({ "type": "device", "btMac": "GG:HH", "usbUdid": "u3" }))
+            .push(serde_json::json!({ "type": "device", "src": "carkit", "btMac": "GG:HH", "usbUdid": "u3" }))
             .await;
         rig.until(|e| matches!(e, CpEvent::Presence { presence: Presence::Device { usb_udid, .. }, .. } if usb_udid == "u3")).await;
         rig.helper
@@ -1586,10 +1554,10 @@ mod tests {
             .push(serde_json::json!({ "type": "link", "up": false }))
             .await;
         rig.helper
-            .push(serde_json::json!({ "type": "device", "btMac": "GG:HH", "usbUdid": "u3" }))
+            .push(serde_json::json!({ "type": "device", "src": "carkit", "btMac": "GG:HH", "usbUdid": "u3" }))
             .await;
         rig.helper
-            .push(serde_json::json!({ "type": "device-gone", "usbUdid": "u3" }))
+            .push(serde_json::json!({ "type": "device-gone", "src": "carkit", "usbUdid": "u3" }))
             .await;
         assert_eq!(
             rig.until(|e| matches!(e, CpEvent::Disconnected { .. }))
@@ -1631,7 +1599,7 @@ mod tests {
             })
         );
         rig.helper
-            .push(serde_json::json!({ "type": "device", "usbUdid": "u9" }))
+            .push(serde_json::json!({ "type": "device", "src": "carkit", "usbUdid": "u9" }))
             .await;
         rig.helper
             .push(serde_json::json!({ "type": "link", "up": false }))

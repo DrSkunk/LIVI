@@ -1,12 +1,14 @@
 [package]
 name = "livi-helper"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 livi-aa.workspace = true
+livi-base.workspace = true
 livi-core-proto.workspace = true
-livi-runtime.workspace = true
+livi-helper-stack.workspace = true
 livi-link-host.workspace = true
 livi-net.workspace = true
 livi-wifi.workspace = true
@@ -22,3 +24,9 @@ livi-hfp.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 livi-mdns.workspace = true
+
+[build-dependencies]
+livi-cfg.workspace = true
+
+[lints]
+workspace = true

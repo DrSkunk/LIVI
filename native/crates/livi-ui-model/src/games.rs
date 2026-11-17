@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
-use livi_core_proto::state::{GameImport, GameRun, Games};
-use serde_json::Value;
+use livi_core_proto::state::{GameImport, GameRun, Games, State};
 
-pub fn read(state: &Value) -> Games {
-    serde_json::from_value(state["games"].clone()).unwrap_or_default()
+pub fn read(state: &State) -> Games {
+    state.games.clone()
 }
 
 pub fn busy(g: &Games) -> bool {
@@ -92,12 +91,12 @@ mod tests {
 
     #[test]
     fn the_state_reads_with_defaults() {
-        let g = read(&json!({ "games": { "library": [
+        let g = read(&crate::testing::state(json!({ "games": { "library": [
             { "id": "a", "title": "Tetris", "system": "Nintendo - Game Boy" }
-        ], "run": "running" } }));
+        ], "run": "running" } })));
         assert_eq!(g.library[0].title, "Tetris");
         assert!(busy(&g));
-        assert!(!busy(&read(&json!({}))));
+        assert!(!busy(&read(&crate::testing::state(json!({})))));
         assert!(came_back(GameRun::Running, GameRun::Idle));
         assert!(came_back(GameRun::Launching, GameRun::Idle));
         assert!(!came_back(GameRun::Idle, GameRun::Idle));

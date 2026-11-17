@@ -3,8 +3,7 @@
 // Additional terms: see NOTICE
 
 use super::{
-    Offered, assign, calibrated, choose, panel_id, panel_name, size_of, timing_mm, touch_cal_of,
-    wl_output_in,
+    Offered, assign, calibrated, choose, panel_id, panel_name, size_of, timing_mm, wl_output_in,
 };
 use smithay::utils::{Logical, Point, Size, Transform};
 
@@ -107,6 +106,12 @@ fn the_setting_wins_with_its_fastest_refresh() {
         mode(1280, 720, 60, false),
     ];
     assert_eq!(choose(&modes, Some((1280, 720))), Some(2));
+    let pinned = [mode(800, 470, 120, true), mode(800, 470, 120, false)];
+    assert_eq!(
+        choose(&pinned, Some((800, 470))),
+        Some(0),
+        "the panel's own mode beats a cmdline mode of the same rate"
+    );
     assert_eq!(size_of("1024x600"), Some((1024, 600)));
     assert_eq!(size_of("auto"), None);
 }
@@ -239,20 +244,6 @@ fn the_panel_id_comes_from_vendor_product_and_serial() {
     assert_eq!(panel_id(&edid).as_deref(), Some("DEL-a0b1-00000001"));
     assert_eq!(panel_id(&[0u8; 128]), None);
     assert_eq!(panel_id(&edid[..12]), None);
-}
-
-#[test]
-fn a_touch_calibration_line_names_its_device_last() {
-    let (name, cal) =
-        touch_cal_of("touchcal 1 DEL-a0b1-00000001 1 0 0.02 0 0.98 0 ILITEK ILITEK-TP").unwrap();
-    assert_eq!(name, "ILITEK ILITEK-TP");
-    assert!(cal.enabled);
-    assert_eq!(cal.display, "DEL-a0b1-00000001");
-    assert_eq!(cal.matrix, [1.0, 0.0, 0.02, 0.0, 0.98, 0.0]);
-    let (_, off) = touch_cal_of("touchcal 0 - 1 0 0 0 1 0 Other").unwrap();
-    assert!(!off.enabled && off.display.is_empty());
-    assert!(touch_cal_of("touchcal 1 - 1 0 0 0 1 Short").is_none());
-    assert!(touch_cal_of("touchcal 1 - 1 0 0 0 1 0 ").is_none());
 }
 
 #[test]

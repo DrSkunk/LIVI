@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, dev]
 
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_DEV_DEBUG: 0
@@ -30,6 +34,7 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.cargo/bin:$PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup update stable --no-self-update
           rustup toolchain install
           rustup target add armv7-unknown-linux-musleabihf
           rustc --version
@@ -79,8 +84,6 @@ jobs:
     if: ${{ github.actor != 'github-actions' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.MACOS_RUNNER || 'macos-latest' }}
     timeout-minutes: 40
-    env:
-      PKG_CONFIG_PATH: /Library/Frameworks/GStreamer.framework/Versions/1.0/lib/pkgconfig
 
     steps:
       - uses: actions/checkout@v7
@@ -97,6 +100,7 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.cargo/bin:$PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup update stable --no-self-update
           rustup toolchain install
           rustc --version
 
@@ -128,8 +132,11 @@ jobs:
           set -euo pipefail
           v='${{ steps.gst.outputs.version }}'
           base="https://gstreamer.freedesktop.org/data/pkg/osx/$v"
-          curl -fL --http1.1 --retry 5 --retry-all-errors -C - -o gst-runtime.pkg "$base/gstreamer-1.0-$v-universal.pkg"
-          curl -fL --http1.1 --retry 5 --retry-all-errors -C - -o gst-devel.pkg "$base/gstreamer-1.0-devel-$v-universal.pkg"
+          curl -fL --http1.1 -C - --retry 10 --retry-all-errors --retry-delay 5 -o gst-runtime.pkg "$base/gstreamer-1.0-$v-universal.pkg"
+          curl -fL --http1.1 -C - --retry 10 --retry-all-errors --retry-delay 5 -o gst-devel.pkg "$base/gstreamer-1.0-devel-$v-universal.pkg"
+          runtime_sha=$(curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "$base/gstreamer-1.0-$v-universal.pkg.sha256sum" | cut -d' ' -f1)
+          devel_sha=$(curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "$base/gstreamer-1.0-devel-$v-universal.pkg.sha256sum" | cut -d' ' -f1)
+          printf '%s  gst-runtime.pkg\n%s  gst-devel.pkg\n' "$runtime_sha" "$devel_sha" | shasum -a 256 -c
 
       - name: Install GStreamer (runtime + devel)
         if: steps.gst.outputs.installed != 'true'
@@ -181,6 +188,7 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.cargo/bin:$PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup update stable --no-self-update
           rustup toolchain install
           rustc --version
 
@@ -219,14 +227,20 @@ jobs:
       - name: Check formatting (YAML, Markdown, JSON, TOML)
         run: |
           set -euo pipefail
-          curl -fsSL https://dprint.dev/install.sh | sh -s 0.64.3 >/dev/null
-          "$HOME/.dprint/bin/dprint" check
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/dprint.zip" \
+            https://github.com/dprint/dprint/releases/download/0.64.3/dprint-x86_64-unknown-linux-gnu.zip
+          echo "f71cb7e22d6776439eba168d5cb296092d6413fea7148fe4d70684a2702a4fee  $RUNNER_TEMP/dprint.zip" | sha256sum -c
+          unzip -q "$RUNNER_TEMP/dprint.zip" -d "$RUNNER_TEMP/dprint"
+          "$RUNNER_TEMP/dprint/dprint" check
 
       - name: Lint the workflows
         run: |
           set -euo pipefail
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
-          ./actionlint -color
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/actionlint.tar.gz" \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color
 
       - name: Check the license headers
         run: sh scripts/spdx-header.sh --check

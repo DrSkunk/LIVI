@@ -112,7 +112,7 @@ async fn run_with(
         }
     }
     if let Some(mut child) = games.child.take() {
-        crate::child::terminate(&mut child, STOP_GRACE, true).await;
+        crate::system::child::terminate(&mut child, STOP_GRACE, true).await;
     }
 }
 
@@ -203,7 +203,7 @@ impl Games {
             GamesAsk::OpenRetroArch => self.start(&cfg, launch::menu_args(), None),
             GamesAsk::Stop => {
                 if let Some(child) = self.child.as_mut() {
-                    crate::child::terminate(child, STOP_GRACE, true).await;
+                    crate::system::child::terminate(child, STOP_GRACE, true).await;
                 }
             }
             GamesAsk::ListControllers => self.controllers(Bt::List),
@@ -324,7 +324,7 @@ pub(crate) mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::config_file::tests::TempDir;
+    use crate::files::config_file::tests::TempDir;
 
     pub fn state() -> State {
         let livi = PerScreen {
@@ -351,7 +351,7 @@ pub(crate) mod tests {
             network: Default::default(),
             cameras: Vec::new(),
             mfi: Default::default(),
-            config: crate::config_file::defaults(),
+            config: crate::files::config_file::defaults(),
         }
     }
 

@@ -174,7 +174,7 @@ fn act(
     f: impl FnOnce(&mut Controller, &Value) -> (Vec<Change>, bool),
 ) {
     let Some(ui) = weak.upgrade() else { return };
-    let state = client.state().clone();
+    let state = client.mirror().json.clone();
     let Some((changes, _)) = with(|c| {
         let out = f(c, &state);
         if out.1 {
@@ -262,7 +262,7 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
                     }
                 }
                 Some(Local::JoinNetwork(n)) => {
-                    if let Some(join) = Join::scanned(&client.state(), n) {
+                    if let Some(join) = Join::scanned(&client.mirror().json, n) {
                         open_join(&weak, &client, join);
                     }
                 }
@@ -374,7 +374,7 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
         let (weak, client) = (weak.clone(), client.clone());
         move || {
             client.act(Action::ApplySettings);
-            let state = client.state().clone();
+            let state = client.mirror().json.clone();
             with(|c| c.baseline = Some(state["config"].clone()));
             if let Some(ui) = weak.upgrade() {
                 render(&ui, &client);
@@ -746,7 +746,7 @@ fn follow_watches(client: &Client, now: Vec<Watch>) {
 }
 
 pub fn render(ui: &AppWindow, client: &Client) {
-    let state = client.state().clone();
+    let state = client.mirror().json.clone();
     with(|c| render_screen(c, &ui.global::<SettingsState>(), &state));
     let now = with(|c| c.model.watches(&c.stack)).unwrap_or_default();
     follow_watches(client, now);
@@ -823,7 +823,7 @@ mod network_layout_tests {
             renderer.render(&mut pixels, 1280);
         }));
         assert!(
-            (10..40).any(|y| (600..740).any(|x| {
+            (10..40).any(|y| (140..280).any(|x| {
                 let p = pixels[y * 1280 + x];
                 p.r > 200 && p.g > 200 && p.b > 200
             })),
@@ -840,7 +840,7 @@ mod network_layout_tests {
                 button: PointerEventButton::Left,
             });
         };
-        click(100.0, 24.0);
+        click(116.0, 24.0);
         assert_eq!(backs.get(), 1);
         click(200.0, 235.0);
         assert_eq!(state.get_join_field(), 1);

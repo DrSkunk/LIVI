@@ -71,6 +71,9 @@ pub enum Action {
     MusicSync {
         command: MusicSyncCommand,
     },
+    PhoneMedia {
+        control: MediaControl,
+    },
     #[serde(rename_all = "camelCase")]
     Seek {
         position_ms: u32,
@@ -154,6 +157,7 @@ pub enum Action {
         up: bool,
     },
     FmResume,
+    PhoneResume,
     FmFavorite {
         khz: u32,
         favorite: bool,

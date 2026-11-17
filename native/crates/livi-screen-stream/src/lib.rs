@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
-use livi_crypto::open;
+use livi_crypto::{ChaCha, TAG_LEN, nonce64};
 use livi_video::nal::{CpCodec, detect_codec};
 
 pub const HEADER_LEN: usize = 128;
 const OP_VIDEO_FRAME: u8 = 0;
 const OP_VIDEO_CONFIG: u8 = 1;
 const MAX_BODY: usize = 8 * 1024 * 1024;
-const TAG_LEN: usize = 16;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Implausible(pub usize);
@@ -17,24 +16,21 @@ pub struct Implausible(pub usize);
 pub trait ScreenSink {
     fn on_config(&mut self, codec: CpCodec, atom: &[u8]);
     fn on_frame(&mut self, nal: &[u8]);
-    fn on_started(&mut self);
 }
 
 pub struct ScreenStream {
-    key: [u8; 32],
+    key: ChaCha,
     counter: u64,
     acc: Vec<u8>,
-    started: bool,
     sink: Box<dyn ScreenSink>,
 }
 
 impl ScreenStream {
     pub fn new(key: [u8; 32], sink: Box<dyn ScreenSink>) -> Self {
         Self {
-            key,
+            key: ChaCha::new(&key),
             counter: 0,
             acc: Vec::new(),
-            started: false,
             sink,
         }
     }
@@ -42,7 +38,6 @@ impl ScreenStream {
     pub fn reset(&mut self) {
         self.acc.clear();
         self.counter = 0;
-        self.started = false;
     }
 
     pub fn push(&mut self, chunk: &[u8]) -> Result<(), Implausible> {
@@ -80,7 +75,7 @@ impl ScreenStream {
 
         let opened;
         let frame: &[u8] = if body.len() >= TAG_LEN {
-            let Some(plain) = Self::open(&self.key, self.counter, header, body) else {
+            let Some(plain) = self.key.open(&nonce64(self.counter), body, header) else {
                 eprintln!("[cp_screen] frame auth failed at counter {}", self.counter);
                 return;
             };
@@ -91,24 +86,14 @@ impl ScreenStream {
             body
         };
 
-        if !self.started {
-            self.started = true;
-            self.sink.on_started();
-        }
         self.sink.on_frame(frame);
-    }
-
-    fn open(key: &[u8; 32], counter: u64, header: &[u8], body: &[u8]) -> Option<Vec<u8>> {
-        let mut nonce = [0u8; 12];
-        nonce[4..].copy_from_slice(&counter.to_le_bytes());
-        open(key, &nonce, body, header)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use livi_crypto::seal;
+    use livi_crypto::chacha_seal;
 
     const KEY: [u8; 32] = [7u8; 32];
 
@@ -116,7 +101,6 @@ mod tests {
     struct Reports {
         configs: Vec<(CpCodec, Vec<u8>)>,
         frames: Vec<Vec<u8>>,
-        started: usize,
     }
 
     #[derive(Default, Clone)]
@@ -130,10 +114,6 @@ mod tests {
         fn frames(&self) -> Vec<Vec<u8>> {
             self.0.borrow().frames.clone()
         }
-
-        fn started(&self) -> usize {
-            self.0.borrow().started
-        }
     }
 
     impl ScreenSink for Seen {
@@ -143,10 +123,6 @@ mod tests {
 
         fn on_frame(&mut self, nal: &[u8]) {
             self.0.borrow_mut().frames.push(nal.to_vec());
-        }
-
-        fn on_started(&mut self) {
-            self.0.borrow_mut().started += 1;
         }
     }
 
@@ -166,9 +142,7 @@ mod tests {
         let mut header = vec![0u8; HEADER_LEN];
         header[..4].copy_from_slice(&((plain.len() + TAG_LEN) as u32).to_le_bytes());
         header[4] = OP_VIDEO_FRAME;
-        let mut nonce = [0u8; 12];
-        nonce[4..].copy_from_slice(&counter.to_le_bytes());
-        let body = seal(&KEY, &nonce, plain, &header).unwrap();
+        let body = chacha_seal(&KEY, &nonce64(counter), plain, &header);
 
         let mut msg = header;
         msg.extend_from_slice(&body);
@@ -189,14 +163,13 @@ mod tests {
     }
 
     #[test]
-    fn a_sealed_frame_arrives_decrypted_and_announces_the_start_once() {
+    fn a_sealed_frame_arrives_decrypted() {
         let seen = Seen::default();
         let mut s = stream(&seen);
 
         s.push(&sealed_frame(0, b"first")).unwrap();
         s.push(&sealed_frame(1, b"second")).unwrap();
 
-        assert_eq!(seen.started(), 1);
         assert_eq!(seen.frames(), vec![b"first".to_vec(), b"second".to_vec()]);
     }
 
@@ -209,7 +182,6 @@ mod tests {
 
         s.push(&bad).unwrap();
         assert!(seen.frames().is_empty());
-        assert_eq!(seen.started(), 0);
 
         s.push(&sealed_frame(0, b"again")).unwrap();
         assert_eq!(seen.frames(), vec![b"again".to_vec()]);
@@ -223,7 +195,6 @@ mod tests {
         s.push(&message(OP_VIDEO_FRAME, &[1, 2, 3])).unwrap();
 
         assert_eq!(seen.frames(), vec![vec![1, 2, 3]]);
-        assert_eq!(seen.started(), 1);
     }
 
     #[test]
@@ -283,7 +254,6 @@ mod tests {
         s.push(&sealed_frame(0, b"fresh")).unwrap();
 
         assert_eq!(seen.frames(), vec![b"fresh".to_vec()]);
-        assert_eq!(seen.started(), 1);
     }
 }
 
@@ -301,6 +271,7 @@ pub mod receiver {
         listener: TcpListener,
         sources: Vec<glib::SourceId>,
         client: Rc<RefCell<Option<std::net::TcpStream>>>,
+        client_watch: Rc<RefCell<Option<glib::SourceId>>>,
         stream: Rc<RefCell<ScreenStream>>,
     }
 
@@ -323,6 +294,7 @@ pub mod receiver {
                 listener,
                 sources: Vec::new(),
                 client: Rc::new(RefCell::new(None)),
+                client_watch: Rc::new(RefCell::new(None)),
                 stream: Rc::new(RefCell::new(ScreenStream::new(key, sink))),
             };
             r.watch_listener();
@@ -333,6 +305,7 @@ pub mod receiver {
             let fd = self.listener.as_raw_fd();
             let listener = self.listener.try_clone().expect("dup listener");
             let client = self.client.clone();
+            let client_watch = self.client_watch.clone();
             let stream = self.stream.clone();
 
             let id = glib_unix::unix_fd_add_local(fd, IOCondition::IN, move |_, _| {
@@ -348,7 +321,8 @@ pub mod receiver {
 
                 let cfd = sock.as_raw_fd();
                 *client.borrow_mut() = Some(sock);
-                watch_client(cfd, client.clone(), stream.clone());
+                let id = watch_client(cfd, client.clone(), client_watch.clone(), stream.clone());
+                *client_watch.borrow_mut() = Some(id);
                 eprintln!("[cp_screen] video data connection accepted");
                 glib::ControlFlow::Continue
             });
@@ -359,11 +333,13 @@ pub mod receiver {
     fn watch_client(
         fd: RawFd,
         client: Rc<RefCell<Option<std::net::TcpStream>>>,
+        client_watch: Rc<RefCell<Option<glib::SourceId>>>,
         stream: Rc<RefCell<ScreenStream>>,
-    ) {
+    ) -> glib::SourceId {
         let cond = IOCondition::IN | IOCondition::HUP | IOCondition::ERR;
         glib_unix::unix_fd_add_local(fd, cond, move |_, cond| {
             let drop_client = |stream: &Rc<RefCell<ScreenStream>>| {
+                client_watch.borrow_mut().take();
                 *client.borrow_mut() = None;
                 stream.borrow_mut().reset();
                 glib::ControlFlow::Break
@@ -376,6 +352,7 @@ pub mod receiver {
             let read = {
                 let mut guard = client.borrow_mut();
                 let Some(sock) = guard.as_mut() else {
+                    client_watch.borrow_mut().take();
                     return glib::ControlFlow::Break;
                 };
                 sock.read(&mut chunk)
@@ -390,7 +367,7 @@ pub mod receiver {
                     }
                 },
             }
-        });
+        })
     }
 
     impl Drop for ScreenReceiver {
@@ -398,6 +375,10 @@ pub mod receiver {
             for id in self.sources.drain(..) {
                 id.remove();
             }
+            if let Some(id) = self.client_watch.borrow_mut().take() {
+                id.remove();
+            }
+            self.client.borrow_mut().take();
         }
     }
 }

@@ -18,7 +18,8 @@ LIVI_BOOT_CONFIG="${LIVI_BOOT_CONFIG:-/boot/firmware/config.txt}"
 # I2C for the Apple MFi coprocessor, matching carPlayMfiI2cBus in config.json
 LIVI_MFI_I2C_BUS=""
 LIVI_MFI_POWER_GPIO="21"
-LIVI_APP_CONFIG="${LIVI_APP_CONFIG:-$HOME/.config/LIVI/config.json}"
+LIVI_USER_DATA="${LIVI_USER_DATA:-${XDG_CONFIG_HOME:-$HOME/.config}/LIVI}"
+LIVI_APP_CONFIG="${LIVI_APP_CONFIG:-$LIVI_USER_DATA/config.json}"
 LIVI_MFI_OVERLAY_MATCH='^dtoverlay=i2c-gpio,.*i2c_gpio_sda=19'
 LIVI_I2C_DEVICES="${LIVI_I2C_DEVICES:-/sys/bus/i2c/devices}"
 LIVI_DEVICE_TREE="${LIVI_DEVICE_TREE:-/proc/device-tree}"
@@ -64,7 +65,7 @@ livi_pm_install() {
   case "$(livi_pm)" in
     apt)    sudo apt-get update && sudo apt-get install -y "$@" ;;
     dnf)    sudo dnf install -y "$@" ;;
-    pacman) sudo pacman -Sy --needed --noconfirm "$@" ;;
+    pacman) sudo pacman -Syu --needed --noconfirm "$@" ;;
     *)      echo "Error: no supported package manager (apt/dnf/pacman) found" >&2; return 1 ;;
   esac
 }
@@ -126,7 +127,7 @@ livi_pick_channel() {
 # livi_fetch_appimage <dest> [source]
 # source is an optional local path or http(s) URL, otherwise the picked channel.
 livi_fetch_appimage() {
-  local dest="$1" src="${2:-}" arch url tmp
+  local dest="$1" src="${2:-}" arch url sha tmp
   mkdir -p "$(dirname "$dest")"
   tmp="$dest.download"
 
@@ -144,16 +145,21 @@ livi_fetch_appimage() {
   else
     arch="$(livi_asset_arch)" || return 1
     echo "→ Fetching the latest $LIVI_CHANNEL build for $arch"
-    url="$(curl -s "$LIVI_RELEASE_API" \
-      | grep browser_download_url \
-      | grep "linux-${arch}.AppImage" \
-      | cut -d '"' -f 4)"
-    if [ -z "$url" ]; then
+    read -r url sha < <(curl -fsSL "$LIVI_RELEASE_API" | awk -F'"' -v want="linux-${arch}.AppImage" '
+      /"digest":/ { d = $4 }
+      /"browser_download_url":/ && index($4, want) { sub(/^sha256:/, "", d); print $4, d; exit }
+    ') || true
+    if [ -z "${url:-}" ]; then
       echo "Error: no ${arch} AppImage in the latest $LIVI_CHANNEL build" >&2
+      return 1
+    fi
+    if [ -z "${sha:-}" ]; then
+      echo "Error: the $LIVI_CHANNEL build publishes no sha256 for $url" >&2
       return 1
     fi
     echo "   Download URL: $url"
     curl -fL "$url" --output "$tmp" || { rm -f "$tmp"; echo "Error: download failed" >&2; return 1; }
+    echo "$sha  $tmp" | sha256sum -c --status || { rm -f "$tmp"; echo "Error: $url does not match its sha256" >&2; return 1; }
   fi
 
   mv -f "$tmp" "$dest"
@@ -221,19 +227,32 @@ livi_install_video_mode_helper() {
 set -euo pipefail
 CMDLINE="/boot/firmware/cmdline.txt"
 arg="${1:-}"
-case "$arg" in
-  clear) new="" ;;
-  *)
-    [[ "$arg" =~ ^[A-Za-z0-9-]+:[0-9]+x[0-9]+@[0-9]+D?$ ]] || {
-      echo "usage: livi-video-mode.sh <CONNECTOR:WxH@Hz>|clear" >&2
-      exit 2
-    }
-    new="video=$arg"
-    ;;
-esac
 line="$(tr -d '\n' < "$CMDLINE")"
-stripped="$(sed -E 's/[[:space:]]*video=[^[:space:]]+//g' <<< "$line")"
-out="$stripped${new:+ $new}"
+read -ra words <<< "$line"
+if [ "$arg" = clear ]; then
+  kept=()
+  for w in "${words[@]}"; do
+    [[ "$w" == video=* ]] || kept+=("$w")
+  done
+  out="${kept[*]-}"
+else
+  [[ "$arg" =~ ^[A-Za-z0-9-]+:[0-9]+x[0-9]+@[0-9]+i?D?$ ]] || {
+    echo "usage: livi-video-mode.sh <CONNECTOR:WxH@Hz>|clear" >&2
+    exit 2
+  }
+  connector="${arg%%:*}"
+  found=""
+  for i in "${!words[@]}"; do
+    w="${words[$i]}"
+    [[ "$w" == "video=$connector:"* ]] || continue
+    options=""
+    [[ "$w" == *,* ]] && options=",${w#*,}"
+    words[$i]="video=$arg$options"
+    found=1
+  done
+  [ -n "$found" ] || words+=("video=$arg")
+  out="${words[*]}"
+fi
 [ "$out" = "$line" ] || echo "$out" > "$CMDLINE"
 EOF
 }
@@ -575,7 +594,9 @@ livi_write_sudoers() {
   local template="$1" staged
   echo "→ Writing $LIVI_SUDOERS_FILE"
   staged="$(mktemp)"
-  sed -e "s/__USERNAME__/$USER/g" "$template" > "$staged"
+  sed -e "s|__USERNAME__|$USER|g" \
+      -e "s|__HELPER__|$LIVI_USER_DATA/driver/livi-helperd|g" \
+      "$template" > "$staged"
   sudo install -m 0440 -o root -g root "$staged" "$LIVI_SUDOERS_FILE.livi-tmp"
   rm -f "$staged"
   if sudo visudo -c -f "$LIVI_SUDOERS_FILE.livi-tmp" >/dev/null; then

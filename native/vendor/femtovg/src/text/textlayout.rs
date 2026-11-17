@@ -7,8 +7,8 @@ use fnv::FnvHasher;
 use lru::LruCache;
 
 use crate::{
-    paint::{FontVariations, TextSettings},
     Align, Baseline, ErrorKind, FontId, Paint,
+    paint::{FontVariations, TextSettings},
 };
 
 use unicode_bidi::BidiInfo;
@@ -67,16 +67,16 @@ impl ShapingId {
         let mut hasher = FnvHasher::default();
         word.hash(&mut hasher);
         if let Some(max_width) = max_width {
-            (max_width.trunc() as i32).hash(&mut hasher);
+            max_width.to_bits().hash(&mut hasher);
         }
 
         Self {
-            size: (font_size * 10.0).trunc() as u32,
+            size: font_size.to_bits(),
             word_hash: hasher.finish(),
             font_ids,
             variation_hash: variations.hash(),
             rtl,
-            letter_spacing_key: (letter_spacing * 10.0).trunc() as u32,
+            letter_spacing_key: letter_spacing.to_bits(),
         }
     }
 }
@@ -99,7 +99,12 @@ impl super::TextContext {
     /// Returns the maximum index-th byte of text that will fit inside `max_width`.
     ///
     /// The retuned index will always lie at the start and/or end of a UTF-8 code point sequence or at the start or end of the text
-    pub fn break_text<S: AsRef<str>>(&self, max_width: f32, text: S, paint: &Paint) -> Result<usize, ErrorKind> {
+    pub fn break_text<S: AsRef<str>>(
+        &self,
+        max_width: f32,
+        text: S,
+        paint: &Paint,
+    ) -> Result<usize, ErrorKind> {
         self.0.borrow_mut().break_text(max_width, text, &paint.text)
     }
 
@@ -110,7 +115,9 @@ impl super::TextContext {
         text: S,
         paint: &Paint,
     ) -> Result<Vec<Range<usize>>, ErrorKind> {
-        self.0.borrow_mut().break_text_vec(max_width, text, &paint.text)
+        self.0
+            .borrow_mut()
+            .break_text_vec(max_width, text, &paint.text)
     }
 
     /// Adjusts the capacity of the shaping run cache. This is a cache for measurements of whole
@@ -152,7 +159,14 @@ impl super::TextContextImpl {
         text: S,
         text_settings: &TextSettings,
     ) -> Result<usize, ErrorKind> {
-        let layout = shape(0.0, 0.0, self, text_settings, text.as_ref(), Some(max_width))?;
+        let layout = shape(
+            0.0,
+            0.0,
+            self,
+            text_settings,
+            text.as_ref(),
+            Some(max_width),
+        )?;
 
         Ok(layout.final_byte_index)
     }
@@ -379,7 +393,9 @@ fn shape_run(
                                 // nuance: we want to include the first glyph even if it breaks
                                 // the bounds. this is to allow pathologically small bounds to
                                 // at least complete rendering
-                                if subword_width + glyph_width >= target_width && bytes_included != 0 {
+                                if subword_width + glyph_width >= target_width
+                                    && bytes_included != 0
+                                {
                                     break;
                                 }
 
@@ -570,7 +586,7 @@ fn layout(
     let mut descender: f32 = 0.;
 
     for glyph in &mut res.glyphs {
-        let font = context.font_mut(glyph.font_id).ok_or(ErrorKind::NoFontFound)?;
+        let font = context.font(glyph.font_id).ok_or(ErrorKind::NoFontFound)?;
         let metrics = font.metrics(text_settings.font_size);
         ascender = ascender.max(metrics.ascender());
         descender = descender.min(metrics.descender());

@@ -41,10 +41,13 @@ pub fn now() -> std::io::Result<ClockTime> {
         tv_sec: 0,
         tv_usec: 0,
     };
+    // SAFETY: tv is a valid output pointer and the timezone argument may be null.
     if unsafe { libc::gettimeofday(&mut tv, std::ptr::null_mut()) } != 0 {
         return Err(std::io::Error::last_os_error());
     }
+    // SAFETY: an all-zero tm is valid, localtime_r only writes into it.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: both pointers are valid for the call.
     if unsafe { libc::localtime_r(&tv.tv_sec, &mut tm) }.is_null() {
         return Err(std::io::Error::last_os_error());
     }
@@ -60,9 +63,12 @@ pub fn stamp() -> String {
         tv_sec: 0,
         tv_usec: 0,
     };
+    // SAFETY: tv is a valid timeval, the timezone argument may be null.
     unsafe { libc::gettimeofday(&mut tv, std::ptr::null_mut()) };
     let now = tv.tv_sec;
+    // SAFETY: an all-zero tm is valid, localtime_r only writes into it.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: both pointers are valid for the call.
     unsafe { libc::localtime_r(&now, &mut tm) };
     format!(
         "{:02}:{:02}:{:02}.{:03}",

@@ -9,9 +9,8 @@ use std::time::Duration;
 use std::{fs, io};
 
 use livi_core_proto::config::{CarType, Config};
-use livi_core_proto::helper::{HelperSettings, HelperStart};
+use livi_core_proto::helper::{HelperSettings, HelperStart, USER_DATA};
 use livi_cp::identity::Identity;
-use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{Notify, watch};
@@ -36,6 +35,7 @@ pub fn helper_start(
         public_key: identity.pk_hex(),
         pairing_id: identity.pairing_id.clone(),
         airplay_port,
+        mirror: None,
     }
 }
 
@@ -96,10 +96,13 @@ fn settings(cfg: &Config) -> HelperSettings {
         mfi_files: cfg.car_play_mfi_files.clone(),
         wifi_iface: cfg.wifi_interface.clone(),
         passphrase: cfg.wifi_password.clone(),
-        wifi_type: livi_wifi::Band::setting(crate::wifi_options::band_of(cfg.wifi_type))
+        wifi_type: livi_wifi::Band::setting(crate::system::wifi_options::band_of(cfg.wifi_type))
             .to_string(),
         channel: cfg.wifi_channel,
         country: cfg.country.clone(),
+        source_version: cfg.car_play_source_version.clone(),
+        mfi_i2c_bus: cfg.car_play_mfi_i2c_bus,
+        mfi_power_gpio: cfg.car_play_mfi_power_gpio,
     }
 }
 
@@ -112,7 +115,7 @@ fn inside_appimage_mount(p: &Path) -> bool {
 }
 
 fn digest(p: &Path) -> io::Result<Vec<u8>> {
-    Ok(Sha256::digest(fs::read(p)?).to_vec())
+    Ok(livi_crypto::sha256(&[&fs::read(p)?]).to_vec())
 }
 
 fn stage(src: &Path, dest: &Path) -> io::Result<()> {
@@ -164,27 +167,28 @@ fn stale_pattern(bin: &Path, spec: &Spec) -> String {
     }
 }
 
-fn stale_running(pattern: &str) -> bool {
-    std::process::Command::new("pgrep")
+async fn stale_running(pattern: &str) -> bool {
+    let run = tokio::process::Command::new("pgrep")
         .args(["-f", pattern])
-        .output()
-        .is_ok_and(|o| !o.stdout.is_empty())
+        .stdin(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    matches!(
+        tokio::time::timeout(Duration::from_secs(2), run).await,
+        Ok(Ok(o)) if !o.stdout.is_empty()
+    )
 }
 
 async fn kill_stale(pattern: &str) {
-    if !stale_running(pattern) {
+    if !stale_running(pattern).await {
         return;
     }
     println!("[core] stopping a stale helper");
     for signal in ["-TERM", "-KILL"] {
-        let _ = std::process::Command::new("sudo")
-            .args(["-n", "pkill", signal, "-f", pattern])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        crate::system::privileged::sudo(&["pkill", signal, "-f", pattern]).await;
         for _ in 0..20 {
             tokio::time::sleep(Duration::from_millis(100)).await;
-            if !stale_running(pattern) {
+            if !stale_running(pattern).await {
                 return;
             }
         }
@@ -197,7 +201,7 @@ pub type StartHelper = dyn Fn(HelperStart) -> Result<Box<dyn Send>, String> + Se
 #[derive(Clone)]
 pub enum Helper {
     Process(PathBuf),
-    Embedded(Arc<StartHelper>),
+    InProcess(Arc<StartHelper>),
 }
 
 pub struct Spec {
@@ -208,6 +212,7 @@ pub struct Spec {
     /// LIVI OS processes use the image's fixed helper, without `-E` and with only the
     /// allow-listed environment of `livi_os::helper_env`.
     pub livi_os: bool,
+    pub user_data: PathBuf,
     pub restart_delay: Duration,
     pub max_restarts: Option<u32>,
 }
@@ -247,12 +252,15 @@ fn command(bin: &Path, spec: &Spec) -> Command {
     if let Some(dir) = bin.parent() {
         cmd.current_dir(dir);
     }
-    let env = if spec.livi_os {
-        crate::livi_os::helper_env((spec.start)().to_env(), |k| std::env::var(k).ok())
-    } else {
-        (spec.start)().to_env()
-    };
-    crate::child::with_lifeline(&mut cmd).envs(env);
+    let mut env = (spec.start)().to_env();
+    env.push((
+        USER_DATA.to_string(),
+        spec.user_data.to_string_lossy().into_owned(),
+    ));
+    if spec.livi_os {
+        env = crate::livi_os::helper_env(env, |k| std::env::var(k).ok());
+    }
+    crate::system::child::with_lifeline(&mut cmd).envs(env);
     cmd
 }
 
@@ -290,11 +298,11 @@ fn forward_lines(child: &mut Child) {
 async fn run(spec: Spec, stop: watch::Receiver<bool>) {
     match spec.helper.clone() {
         Helper::Process(bin) => run_process(&bin, spec, stop).await,
-        Helper::Embedded(helper) => run_embedded(helper, spec, stop).await,
+        Helper::InProcess(helper) => run_in_process(helper, spec, stop).await,
     }
 }
 
-async fn run_embedded(helper: Arc<StartHelper>, spec: Spec, mut stop: watch::Receiver<bool>) {
+async fn run_in_process(helper: Arc<StartHelper>, spec: Spec, mut stop: watch::Receiver<bool>) {
     loop {
         let running = match helper((spec.start)()) {
             Ok(running) => running,
@@ -334,18 +342,18 @@ async fn run_process(bin: &Path, spec: Spec, mut stop: watch::Receiver<bool>) {
                 return;
             }
         };
-        let _lifeline = crate::child::hold_lifeline(&mut child);
+        let _lifeline = crate::system::child::hold_lifeline(&mut child);
         forward_lines(&mut child);
         tokio::select! {
             status = child.wait() => println!("[core] helper exited: {status:?}"),
             _ = spec.restart.notified() => {
                 println!("[core] restarting the helper for new settings");
-                crate::child::terminate(&mut child, STOP_GRACE, false).await;
+                crate::system::child::terminate(&mut child, STOP_GRACE, false).await;
                 restarts = 0;
                 continue;
             }
             _ = stop.changed() => {
-                crate::child::terminate(&mut child, STOP_GRACE, false).await;
+                crate::system::child::terminate(&mut child, STOP_GRACE, false).await;
                 return;
             }
         }
@@ -369,8 +377,8 @@ mod tests {
     use livi_core_proto::config::WifiBand;
 
     use super::*;
-    use crate::config_file::defaults;
-    use crate::config_file::tests::TempDir;
+    use crate::files::config_file::defaults;
+    use crate::files::config_file::tests::TempDir;
 
     fn identity() -> Identity {
         Identity {
@@ -440,6 +448,7 @@ mod tests {
             restart: Arc::new(Notify::new()),
             use_sudo,
             livi_os,
+            user_data: PathBuf::new(),
             restart_delay: Duration::from_secs(1),
             max_restarts: None,
         }
@@ -597,6 +606,7 @@ mod tests {
             restart: Arc::new(Notify::new()),
             use_sudo: false,
             livi_os: false,
+            user_data: PathBuf::new(),
             restart_delay: Duration::from_millis(10),
             max_restarts: Some(2),
         });
@@ -626,6 +636,7 @@ mod tests {
             restart: Arc::new(Notify::new()),
             use_sudo: false,
             livi_os: false,
+            user_data: PathBuf::new(),
             restart_delay: Duration::from_secs(5),
             max_restarts: None,
         });
@@ -649,7 +660,7 @@ mod tests {
         let restart = Arc::new(Notify::new());
         let n = std::sync::atomic::AtomicU32::new(0);
         let sup = HelperSupervisor::start(Spec {
-            helper: Helper::Embedded(Arc::new(move |start| {
+            helper: Helper::InProcess(Arc::new(move |start| {
                 events
                     .send(format!("started:{}", start.settings.car_name))
                     .unwrap();
@@ -662,6 +673,7 @@ mod tests {
             restart: restart.clone(),
             use_sudo: true,
             livi_os: true,
+            user_data: PathBuf::new(),
             restart_delay: Duration::from_secs(60),
             max_restarts: Some(0),
         });
@@ -698,6 +710,7 @@ mod tests {
             restart: restart.clone(),
             use_sudo: false,
             livi_os: false,
+            user_data: PathBuf::new(),
             restart_delay: Duration::from_secs(60),
             max_restarts: Some(0),
         });

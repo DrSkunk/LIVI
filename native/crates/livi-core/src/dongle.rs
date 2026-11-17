@@ -14,8 +14,8 @@ use livi_link_host::link::CHOICE;
 use tokio::sync::watch;
 
 use crate::hub::Hub;
-use crate::hwaddr;
 use crate::projection::DongleAsks;
+use crate::system::hwaddr;
 
 const POLL: Duration = Duration::from_millis(1500);
 const RATES_EVERY: Duration = Duration::from_secs(5);
@@ -81,15 +81,6 @@ fn commands_for(cfg: &Config, status: &Status) -> Vec<String> {
     settings_for(cfg)
 }
 
-fn accessory_on_dongle() -> bool {
-    cfg!(target_os = "linux") && std::env::var("LIVI_BT_VIA_DONGLE").as_deref() == Ok("1")
-}
-
-fn bt_commands_for(cfg: &Config) -> Vec<String> {
-    let on = cfg.bt_adapter == CHOICE && cfg.wireless_cp_enabled && accessory_on_dongle();
-    vec![if on { "accessory on" } else { "accessory off" }.into()]
-}
-
 fn drifted(status: &Status, cfg: &Config) -> bool {
     let get = |k: &str| status.get(k).map(String::as_str);
     if cfg.wifi_interface != CHOICE || get("wifi-enabled") == Some("off") {
@@ -143,7 +134,7 @@ fn attached() -> bool {
 }
 
 async fn talk(commands: Vec<String>) -> Result<Status, String> {
-    tokio::task::spawn_blocking(move || ap::talk(&commands, APPLY))
+    tokio::task::spawn_blocking(move || ap::talk(&commands, APPLY).map_err(|e| e.to_string()))
         .await
         .unwrap_or_else(|e| Err(e.to_string()))
 }
@@ -170,32 +161,20 @@ impl Link {
         }
         self.last_try = Some(Instant::now());
         let mut heard = true;
-        let mut status = Status::new();
         match talk(vec!["status".into()]).await {
-            Ok(s) => {
-                status = s;
-                let mut commands = commands_for(cfg, &status);
-                if !commands.is_empty() {
-                    commands.push("status".into());
-                    match talk(commands).await {
-                        Ok(s) => status = s,
-                        Err(e) => {
-                            heard = false;
-                            report("access point", &e);
-                        }
-                    }
+            Ok(status) => {
+                let commands = commands_for(cfg, &status);
+                if !commands.is_empty()
+                    && let Err(e) = talk(commands).await
+                {
+                    heard = false;
+                    report("access point", &e);
                 }
             }
             Err(e) => {
                 heard = false;
                 report("access point", &e);
             }
-        }
-        if status.get("bt-enabled").map(String::as_str) != Some("off")
-            && let Err(e) = talk(bt_commands_for(cfg)).await
-        {
-            heard = false;
-            report("bluetooth", &e);
         }
         self.told = heard;
     }
@@ -414,7 +393,7 @@ pub async fn run(hub: Arc<Hub>, mut asks: DongleAsks) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config_file::defaults;
+    use crate::files::config_file::defaults;
 
     fn status(pairs: &[(&str, &str)]) -> Status {
         pairs
@@ -477,22 +456,6 @@ mod tests {
                 "set passphrase 12345678"
             ]
         );
-    }
-
-    #[test]
-    fn the_dongles_own_accessory_stays_off_while_the_host_drives_its_controller() {
-        let mut cfg = on_dongle();
-        cfg.wireless_cp_enabled = true;
-        assert_eq!(bt_commands_for(&cfg), ["accessory off"]);
-        cfg.bt_adapter = CHOICE.into();
-        let on = if accessory_on_dongle() {
-            "accessory on"
-        } else {
-            "accessory off"
-        };
-        assert_eq!(bt_commands_for(&cfg), [on]);
-        cfg.wireless_cp_enabled = false;
-        assert_eq!(bt_commands_for(&cfg), ["accessory off"]);
     }
 
     #[test]

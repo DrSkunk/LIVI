@@ -21,7 +21,11 @@ pub(super) fn initial_values(accessories: &[Accessory]) -> impl Iterator<Item = 
         .iter()
         .flat_map(|a| &a.services)
         .flat_map(|s| &s.characteristics)
-        .filter_map(|c| Some((c.iid, c.initial.clone()?)))
+        .flat_map(|c| {
+            let value = c.initial.clone().map(|v| (c.iid, v));
+            let count = c.notifier.map(|n| (n, Value::Int(0)));
+            value.into_iter().chain(count)
+        })
 }
 
 pub(super) fn vehicle_resources() -> Accessory {
@@ -47,8 +51,9 @@ pub(super) fn vehicle_resources() -> Accessory {
     }
 }
 
-pub(super) fn fetched_archives() -> std::sync::MutexGuard<'static, BTreeSet<String>> {
-    static FETCHED: std::sync::Mutex<BTreeSet<String>> = std::sync::Mutex::new(BTreeSet::new());
+pub(super) fn fetched_archives() -> std::sync::MutexGuard<'static, BTreeSet<(String, String)>> {
+    static FETCHED: std::sync::Mutex<BTreeSet<(String, String)>> =
+        std::sync::Mutex::new(BTreeSet::new());
     FETCHED.lock().unwrap_or_else(|e| e.into_inner())
 }
 
