@@ -10,19 +10,24 @@ use std::time::Duration;
 
 use livi_core_proto::PROTOCOL;
 use livi_core_proto::frame::{Decoder, FrameError, encode};
-use livi_core_proto::message::{Action, FromCore, MediaControl, ToCore};
+use livi_core_proto::message::{
+    Action, FromCore, MediaControl, MusicSyncCommand, OsUpdateCommand, ToCore,
+};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{Mutex, Notify, broadcast, oneshot, watch};
+use tokio::sync::{Mutex, Notify, broadcast, mpsc, oneshot, watch};
 
 use crate::audio::spectrum::Viewer;
 use crate::devices::Shared;
 use crate::dongle::LinkSpeedViewer;
 use crate::files::config_file::{ConfigFile, apply_patch};
 use crate::files::status_file::Activity;
+use crate::games::GamesAsk;
 use crate::hub::{Frame, Hub};
+use crate::minidsp::MiniDspAsk;
+use crate::network::{Join, NetworkAsk};
 use crate::projection::{UiCommand, UiSenders};
 use crate::radio::{Band, RadioAsk, Station};
 use crate::update::UpdateAsk;
@@ -33,13 +38,23 @@ pub struct Core {
     config_writes: Mutex<()>,
     pub quit: Arc<Notify>,
     pub restart: AtomicBool,
-    pub quit_asked: AtomicBool,
     pub ui_path: watch::Sender<String>,
     pub open_page: broadcast::Sender<String>,
     pub relaunch: std::sync::Mutex<Option<PathBuf>>,
     asks: UiSenders,
     uid: u32,
     mfi_dir: PathBuf,
+    minidsp: tokio::sync::mpsc::UnboundedSender<MiniDspAsk>,
+    minidsp_asks: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<MiniDspAsk>>>,
+    os_update: mpsc::Sender<OsUpdateCommand>,
+    os_update_asks: std::sync::Mutex<Option<mpsc::Receiver<OsUpdateCommand>>>,
+    network: tokio::sync::mpsc::UnboundedSender<NetworkAsk>,
+    network_asks: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<NetworkAsk>>>,
+    local_music: tokio::sync::mpsc::UnboundedSender<crate::local_music::Ask>,
+    local_music_asks:
+        std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<crate::local_music::Ask>>>,
+    music_sync: mpsc::UnboundedSender<MusicSyncCommand>,
+    music_sync_asks: std::sync::Mutex<Option<mpsc::UnboundedReceiver<MusicSyncCommand>>>,
     pub shared: Shared,
 }
 
@@ -51,21 +66,103 @@ impl Core {
         quit: Arc<Notify>,
         asks: UiSenders,
     ) -> Self {
+        let (minidsp, minidsp_asks) = tokio::sync::mpsc::unbounded_channel();
+        let (os_update, os_update_asks) = mpsc::channel(1);
+        let (network, network_asks) = tokio::sync::mpsc::unbounded_channel();
+        let (local_music, local_music_asks) = tokio::sync::mpsc::unbounded_channel();
+        let (music_sync, music_sync_asks) = mpsc::unbounded_channel();
         Self {
             hub: Arc::new(hub),
             config_file,
             config_writes: Mutex::new(()),
             quit,
             restart: AtomicBool::new(false),
-            quit_asked: AtomicBool::new(false),
             relaunch: std::sync::Mutex::new(None),
             ui_path: watch::channel(String::new()).0,
             open_page: broadcast::channel(8).0,
             asks,
             uid,
             mfi_dir: PathBuf::new(),
+            minidsp,
+            minidsp_asks: std::sync::Mutex::new(Some(minidsp_asks)),
+            os_update,
+            os_update_asks: std::sync::Mutex::new(Some(os_update_asks)),
+            network,
+            network_asks: std::sync::Mutex::new(Some(network_asks)),
+            local_music,
+            local_music_asks: std::sync::Mutex::new(Some(local_music_asks)),
+            music_sync,
+            music_sync_asks: std::sync::Mutex::new(Some(music_sync_asks)),
             shared: Shared::new(PathBuf::new()),
         }
+    }
+
+    pub fn take_local_music_asks(
+        &self,
+    ) -> Option<tokio::sync::mpsc::UnboundedReceiver<crate::local_music::Ask>> {
+        self.local_music_asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+    }
+
+    pub(crate) fn ask_local_music(&self, ask: crate::local_music::Ask) -> Result<(), String> {
+        self.local_music
+            .send(ask)
+            .map_err(|_| "local music player is not available".to_string())
+    }
+
+    pub fn take_music_sync_asks(&self) -> Option<mpsc::UnboundedReceiver<MusicSyncCommand>> {
+        self.music_sync_asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+    }
+
+    pub fn take_os_update_asks(&self) -> Option<mpsc::Receiver<OsUpdateCommand>> {
+        self.os_update_asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+    }
+
+    fn ask_os_update(&self, command: OsUpdateCommand) -> Result<(), String> {
+        let system = self.hub.watch().borrow().system.clone();
+        if system.power_busy {
+            return Err("A host power request is in progress".into());
+        }
+        crate::os_update::allowed(&system.os_update, command)?;
+        self.os_update
+            .try_send(command)
+            .map_err(|e| format!("OS updater unavailable or busy: {e}"))
+    }
+
+    /// The MiniDSP asks, for the one task that serves them.
+    pub fn take_minidsp_asks(&self) -> Option<tokio::sync::mpsc::UnboundedReceiver<MiniDspAsk>> {
+        self.minidsp_asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+    }
+
+    fn ask_minidsp(&self, ask: MiniDspAsk) -> Result<(), String> {
+        self.minidsp
+            .send(ask)
+            .map_err(|_| "MiniDSP is not available".to_string())
+    }
+
+    /// The network asks, for the one task that serves them.
+    pub fn take_network_asks(&self) -> Option<tokio::sync::mpsc::UnboundedReceiver<NetworkAsk>> {
+        self.network_asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+    }
+
+    fn ask_network(&self, ask: NetworkAsk) -> Result<(), String> {
+        self.network
+            .send(ask)
+            .map_err(|_| "network settings are not available".to_string())
     }
 
     pub fn ap_ready(&self) -> &watch::Sender<bool> {
@@ -112,6 +209,15 @@ impl Core {
     }
 
     fn ask_update(&self, ask: UpdateAsk) -> Result<(), String> {
+        let system = self.hub.watch().borrow().system.clone();
+        let os = &system.os_update;
+        if matches!(ask, UpdateAsk::Download | UpdateAsk::Install)
+            && (os.phase != livi_core_proto::state::OsUpdatePhase::Idle
+                || os.confirm_reboot
+                || system.power_busy)
+        {
+            return Err("An OS update is in progress".into());
+        }
         self.asks
             .update
             .send(ask)
@@ -125,7 +231,9 @@ impl Core {
     }
 
     pub fn media(&self, control: MediaControl) {
-        if !self.radio_media(control) {
+        if self.hub.watch().borrow().local_music.active {
+            let _ = self.ask_local_music(crate::local_music::Ask::Control(control));
+        } else if !self.radio_media(control) {
             let _ = self.asks.commands.send(UiCommand::Media(control));
         }
     }
@@ -135,6 +243,13 @@ impl Core {
             .radio
             .send(ask)
             .map_err(|_| "the radio is not available".to_string())
+    }
+
+    fn ask_games(&self, ask: GamesAsk) -> Result<(), String> {
+        self.asks
+            .games
+            .send(ask)
+            .map_err(|_| "games are not available".to_string())
     }
 
     fn phone_resume(&self) {
@@ -170,15 +285,60 @@ impl Core {
         heard
     }
 
+    async fn power(&self, action: crate::system::power::Power) -> Result<(), String> {
+        self.power_with(crate::system::power::request(action)).await
+    }
+
+    async fn power_with(
+        &self,
+        request: impl std::future::Future<Output = Result<(), String>>,
+    ) -> Result<(), String> {
+        let mut allowed = Ok(());
+        self.hub.update(|s| {
+            if s.system.power_busy {
+                allowed = Err("A host power request is already in progress".to_string());
+            } else if s.system.os_update.phase != livi_core_proto::state::OsUpdatePhase::Idle
+                || s.system.os_update.confirm_reboot
+                || !matches!(
+                    s.update.phase,
+                    livi_core_proto::state::UpdatePhase::Idle
+                        | livi_core_proto::state::UpdatePhase::Error
+                )
+            {
+                allowed =
+                    Err("Finish the software update operation before changing host power".into());
+                s.system.power_error = allowed.as_ref().err().cloned();
+            } else {
+                s.system.power_busy = true;
+                s.system.power_error = None;
+            }
+        });
+        allowed?;
+        let result = request.await;
+        if let Err(e) = &result {
+            eprintln!("[power] {e}");
+            self.hub.update(|s| {
+                s.system.power_busy = false;
+                s.system.power_error = Some(e.clone());
+            });
+        }
+        result
+    }
+
     async fn act(&self, action: Action) -> Result<(), String> {
         match action {
             Action::SetConfig { patch } => self.set_config(&patch).await,
             Action::Quit => {
-                self.quit_asked.store(true, Ordering::SeqCst);
+                if crate::system::power::owns_host() {
+                    return self.power(crate::system::power::Power::Off).await;
+                }
                 self.quit.notify_one();
                 Ok(())
             }
             Action::Restart => {
+                if crate::system::power::owns_host() {
+                    return self.power(crate::system::power::Power::Reboot).await;
+                }
                 self.restart.store(true, Ordering::SeqCst);
                 self.quit.notify_one();
                 Ok(())
@@ -188,9 +348,20 @@ impl Core {
                 Ok(())
             }
             Action::Media { control } => {
-                self.media(control);
-                Ok(())
+                if self.hub.watch().borrow().local_music.active {
+                    self.ask_local_music(crate::local_music::Ask::Control(control))
+                } else {
+                    self.media(control);
+                    Ok(())
+                }
             }
+            Action::LocalMusic { command } => {
+                self.ask_local_music(crate::local_music::Ask::Command(command))
+            }
+            Action::MusicSync { command } => self
+                .music_sync
+                .send(command)
+                .map_err(|_| "Wireless music sync is not available".to_string()),
             Action::PhoneMedia { control } => {
                 let _ = self.asks.commands.send(UiCommand::Media(control));
                 Ok(())
@@ -252,8 +423,12 @@ impl Core {
                 by,
             }),
             Action::Seek { position_ms } => {
-                let _ = self.asks.commands.send(UiCommand::Seek(position_ms));
-                Ok(())
+                if self.hub.watch().borrow().local_music.active {
+                    self.ask_local_music(crate::local_music::Ask::Seek(position_ms))
+                } else {
+                    let _ = self.asks.commands.send(UiCommand::Seek(position_ms));
+                    Ok(())
+                }
             }
             Action::VideoPlay { playing } => {
                 let _ = self.asks.commands.send(UiCommand::VideoPlay(playing));
@@ -316,10 +491,42 @@ impl Core {
                 let _ = self.asks.dongle.send((radio, on));
                 Ok(())
             }
+            Action::GamesRefresh => self.ask_games(GamesAsk::Refresh),
+            Action::GamesImport => self.ask_games(GamesAsk::Import),
+            Action::GamesLaunch { id } => self.ask_games(GamesAsk::Launch(id)),
+            Action::GamesOpenRetroArch => self.ask_games(GamesAsk::OpenRetroArch),
+            Action::GamesStop => self.ask_games(GamesAsk::Stop),
+            Action::ControllersList => self.ask_games(GamesAsk::ListControllers),
+            Action::ControllersScan => self.ask_games(GamesAsk::ScanControllers),
+            Action::ControllerPair { mac } => self.ask_games(GamesAsk::Pair(mac)),
+            Action::MiniDspRefresh => self.ask_minidsp(MiniDspAsk::Refresh),
+            Action::MiniDspSetVolume { volume_db } => {
+                self.ask_minidsp(MiniDspAsk::SetVolume(volume_db))
+            }
+            Action::MiniDspSetBass { gain_db } => self.ask_minidsp(MiniDspAsk::SetBass(gain_db)),
+            Action::NetworkWatch { on } => self.ask_network(NetworkAsk::Watch(on)),
+            Action::NetworkRefresh => self.ask_network(NetworkAsk::Refresh),
+            Action::NetworkScan => self.ask_network(NetworkAsk::Scan),
+            Action::NetworkConnect {
+                ssid,
+                psk,
+                hidden,
+                security,
+            } => self.ask_network(NetworkAsk::Connect(Join {
+                ssid,
+                psk,
+                hidden,
+                security,
+            })),
+            Action::NetworkForget { uuid } => self.ask_network(NetworkAsk::Forget(uuid)),
+            Action::MiniDspSelectPreset { preset } => {
+                self.ask_minidsp(MiniDspAsk::SelectPreset(preset))
+            }
             Action::CheckUpdate => self.ask_update(UpdateAsk::Check),
             Action::DownloadUpdate => self.ask_update(UpdateAsk::Download),
             Action::InstallUpdate => self.ask_update(UpdateAsk::Install),
             Action::AbortUpdate => self.ask_update(UpdateAsk::Abort),
+            Action::OsUpdate { command } => self.ask_os_update(command),
         }
     }
 }
@@ -533,6 +740,7 @@ mod tests {
             front: livi,
             sessions: Default::default(),
             now_playing: Default::default(),
+            local_music: Default::default(),
             video_playback: None,
             telemetry: Default::default(),
             navigation: Default::default(),
@@ -541,9 +749,12 @@ mod tests {
             update: Default::default(),
             cluster: Default::default(),
             dab: Default::default(),
+            games: Default::default(),
             fm: Default::default(),
             cameras: Vec::new(),
             mfi: Default::default(),
+            minidsp: Default::default(),
+            network: Default::default(),
             config: defaults(),
         });
         let file = ConfigFile::new(dir.0.join("config.json"), dir.0.join("backup.json"));
@@ -555,6 +766,165 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         tokio::spawn(serve(core.clone(), listener));
         (core, path, asks, dongle, update)
+    }
+
+    #[tokio::test]
+    async fn os_actions_are_gated_and_routed_separately_from_app_updates() {
+        use livi_core_proto::state::{OsChannel, OsUpdatePhase};
+
+        let dir = TempDir::new();
+        let (core, _, _, _, mut updates) = start_with_asks(&dir);
+        let mut asks = core.take_os_update_asks().unwrap();
+        let check = OsUpdateCommand::Check {
+            channel: OsChannel::Nightly,
+        };
+        assert!(core.ask_os_update(check).is_err());
+        core.hub.update(|s| s.system.os_update.enabled = true);
+        core.ask_os_update(check).unwrap();
+        assert_eq!(asks.recv().await, Some(check));
+        assert!(updates.try_recv().is_err());
+        assert!(core.ask_os_update(OsUpdateCommand::ConfirmReboot).is_err());
+        core.hub
+            .update(|s| s.system.os_update.phase = OsUpdatePhase::Staging);
+        assert!(core.ask_os_update(check).is_err());
+        assert!(core.ask_update(UpdateAsk::Download).is_err());
+        assert!(core.ask_update(UpdateAsk::Install).is_err());
+        core.ask_update(UpdateAsk::Check).unwrap();
+        assert_eq!(updates.recv().await, Some(UpdateAsk::Check));
+    }
+
+    #[tokio::test]
+    async fn media_and_seek_route_to_local_only_when_it_is_selected() {
+        let dir = TempDir::new();
+        let (core, _, mut asks, _, _) = start_with_asks(&dir);
+        let mut local = core.take_local_music_asks().unwrap();
+
+        core.media(MediaControl::Prev);
+        assert_eq!(
+            asks.commands.recv().await,
+            Some(UiCommand::Media(MediaControl::Prev))
+        );
+        assert!(local.try_recv().is_err());
+        core.act(Action::Media {
+            control: MediaControl::Next,
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            asks.commands.recv().await,
+            Some(UiCommand::Media(MediaControl::Next))
+        );
+        core.act(Action::Seek { position_ms: 1250 }).await.unwrap();
+        assert_eq!(asks.commands.recv().await, Some(UiCommand::Seek(1250)));
+
+        core.hub.update(|s| s.local_music.active = true);
+        core.media(MediaControl::Next);
+        assert!(matches!(
+            local.recv().await,
+            Some(crate::local_music::Ask::Control(MediaControl::Next))
+        ));
+        assert!(asks.commands.try_recv().is_err());
+        core.act(Action::Media {
+            control: MediaControl::PlayPause,
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            local.recv().await,
+            Some(crate::local_music::Ask::Control(MediaControl::PlayPause))
+        ));
+        core.act(Action::Seek {
+            position_ms: 45_000,
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            local.recv().await,
+            Some(crate::local_music::Ask::Seek(45_000))
+        ));
+        core.act(Action::LocalMusic {
+            command: livi_core_proto::message::LocalMusicCommand::Refresh,
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            local.recv().await,
+            Some(crate::local_music::Ask::Command(
+                livi_core_proto::message::LocalMusicCommand::Refresh
+            ))
+        ));
+    }
+
+    #[tokio::test]
+    async fn failed_power_keeps_core_alive_and_exposes_a_retryable_error() {
+        let dir = TempDir::new();
+        let (core, _) = start(&dir);
+        assert!(
+            core.power_with(async { Err("sudo denied".into()) })
+                .await
+                .is_err()
+        );
+        let current = core.hub.watch().borrow().clone();
+        assert!(!current.system.power_busy);
+        assert_eq!(current.system.power_error.as_deref(), Some("sudo denied"));
+        assert!(!core.restart.load(Ordering::SeqCst));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), core.quit.notified())
+                .await
+                .is_err()
+        );
+        core.power_with(async { Ok(()) }).await.unwrap();
+        assert!(core.hub.watch().borrow().system.power_busy);
+        assert!(core.hub.watch().borrow().system.power_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn app_update_relaunch_does_not_request_host_power() {
+        let dir = TempDir::new();
+        let (core, _) = start(&dir);
+        let next = PathBuf::from("/data/livi/app/LIVI.AppImage");
+        core.relaunch(next.clone());
+        assert!(core.restart.load(Ordering::SeqCst));
+        assert_eq!(*core.relaunch.lock().unwrap(), Some(next));
+        assert!(!core.hub.watch().borrow().system.power_busy);
+        tokio::time::timeout(Duration::from_secs(1), core.quit.notified())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn power_refuses_updates_and_duplicate_requests_without_running_helper() {
+        use livi_core_proto::state::{OsUpdatePhase, UpdatePhase};
+        let dir = TempDir::new();
+        let (core, _) = start(&dir);
+        core.hub
+            .update(|s| s.system.os_update.phase = OsUpdatePhase::Staging);
+        assert!(
+            core.power_with(async { panic!("must not run") })
+                .await
+                .is_err()
+        );
+        core.hub.update(|s| {
+            s.system.os_update.phase = OsUpdatePhase::Idle;
+            s.update.phase = UpdatePhase::Installing;
+        });
+        assert!(
+            core.power_with(async { panic!("must not run") })
+                .await
+                .is_err()
+        );
+        core.hub.update(|s| {
+            s.update.phase = UpdatePhase::Idle;
+            s.system.power_busy = true;
+        });
+        assert!(
+            core.power_with(async { panic!("must not run") })
+                .await
+                .is_err()
+        );
+        assert!(core.hub.watch().borrow().system.power_busy);
+        assert!(core.ask_update(UpdateAsk::Download).is_err());
+        assert!(core.ask_os_update(OsUpdateCommand::Status).is_err());
     }
 
     #[tokio::test]
@@ -741,6 +1111,77 @@ mod tests {
         })
         .await;
         assert_eq!(asks.input.recv().await, Some(key));
+    }
+
+    #[tokio::test]
+    async fn minidsp_actions_reach_the_minidsp_task() {
+        let dir = TempDir::new();
+        let (core, path) = start(&dir);
+        let mut asks = core.take_minidsp_asks().unwrap();
+        assert!(core.take_minidsp_asks().is_none());
+        let mut ui = Peer::hello(&path).await;
+        for (id, action, ask) in [
+            (1, Action::MiniDspRefresh, MiniDspAsk::Refresh),
+            (
+                2,
+                Action::MiniDspSetVolume { volume_db: -20.0 },
+                MiniDspAsk::SetVolume(-20.0),
+            ),
+            (
+                3,
+                Action::MiniDspSetBass { gain_db: 4.5 },
+                MiniDspAsk::SetBass(4.5),
+            ),
+            (
+                4,
+                Action::MiniDspSelectPreset { preset: 1 },
+                MiniDspAsk::SelectPreset(1),
+            ),
+        ] {
+            ui.send(&ToCore::Action { id, action }).await;
+            assert_eq!(ui.recv().await, Some(FromCore::Reply { id, error: None }));
+            assert_eq!(asks.recv().await, Some(ask));
+        }
+    }
+
+    #[tokio::test]
+    async fn network_actions_reach_the_network_task() {
+        let dir = TempDir::new();
+        let (core, path) = start(&dir);
+        let mut asks = core.take_network_asks().unwrap();
+        let mut ui = Peer::hello(&path).await;
+        for (id, action, ask) in [
+            (
+                1,
+                Action::NetworkWatch { on: true },
+                NetworkAsk::Watch(true),
+            ),
+            (2, Action::NetworkScan, NetworkAsk::Scan),
+            (
+                3,
+                Action::NetworkConnect {
+                    ssid: "Garage".into(),
+                    psk: None,
+                    hidden: false,
+                    security: None,
+                },
+                NetworkAsk::Connect(Join {
+                    ssid: "Garage".into(),
+                    psk: None,
+                    hidden: false,
+                    security: None,
+                }),
+            ),
+            (
+                4,
+                Action::NetworkForget { uuid: "u-1".into() },
+                NetworkAsk::Forget("u-1".into()),
+            ),
+        ] {
+            ui.send(&ToCore::Action { id, action }).await;
+            assert_eq!(ui.recv().await, Some(FromCore::Reply { id, error: None }));
+            assert_eq!(asks.recv().await, Some(ask));
+        }
     }
 
     #[tokio::test]

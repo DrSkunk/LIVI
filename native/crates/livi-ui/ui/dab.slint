@@ -83,14 +83,18 @@ component StationTile inherits Rectangle {
     property <bool> on-air: DabState.picked >= 0 ? root.station.id == DabState.picked : root.station.tuned && DabState.playing;
     width: tile;
     height: tile;
-    border-radius: 10px;
-    border-width: root.on-air ? 2px : 0;
-    border-color: Theme.primary;
-    background: root.focused ? (Theme.dark ? #ffffff33 : #00000026) : root.on-air ? (Theme.dark ? #ffffff24 : #0000001a) : Theme.surface;
+    border-radius: Theme.comand ? Theme.radius : 10px;
+    border-width: root.on-air ? (Theme.comand ? 1px : 2px) : Theme.comand ? 1px : 0;
+    border-color: Theme.comand && !root.on-air ? Theme.rule : Theme.primary;
+    background: Theme.comand ? (root.on-air ? Theme.wash : Theme.panel) : root.focused ? (Theme.dark ? #ffffff33 : #00000026) : root.on-air ? (Theme.dark ? #ffffff24 : #0000001a) : Theme.surface;
     Rectangle {
-        border-radius: 10px;
-        border-width: root.focused ? 3px : 0;
-        border-color: Theme.primary;
+        border-radius: Theme.comand ? Theme.radius : 10px;
+        border-width: root.focused ? Theme.ring(3px) : 0;
+        border-color: Theme.focus-color;
+        x: Theme.comand ? -3px : 0;
+        y: Theme.comand ? -3px : 0;
+        width: parent.width + (Theme.comand ? 6px : 0);
+        height: parent.height + (Theme.comand ? 6px : 0);
     }
     Text {
         x: parent.width - self.width - round(8 * root.k) * 1px;
@@ -160,8 +164,8 @@ component StationBand inherits Rectangle {
     changed width => { root.show(DabState.tuned-index); }
 
     height: tile + 16px;
-    border-radius: 12px;
-    background: Theme.surface;
+    border-radius: Theme.comand ? Theme.radius : 12px;
+    background: Theme.comand ? Theme.panel-base : Theme.surface;
     clip: true;
     flick := Flickable {
         content-width: max(self.width, 8px + DabState.stations.length * root.step);

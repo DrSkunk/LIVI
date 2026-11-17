@@ -90,7 +90,7 @@ async fn drive(
         let Some(stdout) = child.stdout.take() else {
             eprintln!("[obd2] worker has no stdout");
             drop(lifeline);
-            crate::child::terminate(&mut child, Duration::from_secs(2), false).await;
+            crate::system::child::terminate(&mut child, Duration::from_secs(2), false).await;
             let _ = telemetry.send(clear("canError", Some("worker has no stdout")));
             break;
         };
@@ -140,7 +140,7 @@ async fn drive(
             .await
             .is_err()
         {
-            crate::child::terminate(&mut child, Duration::from_secs(1), false).await;
+            crate::system::child::terminate(&mut child, Duration::from_secs(1), false).await;
         }
         if let Some(stderr) = stderr {
             stderr.abort();

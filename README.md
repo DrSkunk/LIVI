@@ -6,21 +6,95 @@
 
 LIVI is an open-source Apple CarPlay and Android Auto head unit built in Rust with a Slint UI.
 
+> This is the [DrSkunk/LIVI](https://github.com/DrSkunk/LIVI) fork with extra features for a Raspberry Pi 5 install (Haltech CAN telemetry, MiniDSP, RetroArch games, sunrise/sunset night mode, LIVI OS integration).
+>
+> Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)
+
 It runs on Linux desktops and embedded boards as well as on macOS and Android. A native zero-copy GStreamer pipeline handles hardware-decoded video and low-latency audio. Multitouch and D-Pad navigation are built in, and it works even on very small embedded and OEM displays.
 
 ## Project Status
 
-![Release](https://img.shields.io/github/v/release/f-io/LIVI?label=release)
-![Main Version](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-version.json)
-![Checks Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/checks.yml?branch=main&label=checks%20main)
-![Build Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/build.yml?branch=main&label=build%20main)
-<a href="https://discord.gg/cv6Gd8wDKB"><img alt="Discord" src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" /></a>
+![Release](https://img.shields.io/github/v/release/DrSkunk/LIVI?label=release)
+![Main Version](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-version.json)
+![Checks Main](https://img.shields.io/github/actions/workflow/status/DrSkunk/LIVI/checks.yml?branch=main&label=checks%20main)
+![Build Main](https://img.shields.io/github/actions/workflow/status/DrSkunk/LIVI/build.yml?branch=main&label=build%20main)
 
 ## Native Connectivity
 
 - **Apple CarPlay** (wired & wireless) on Linux, Mac and Android
 - **Android Auto** (wired & wireless) on Linux, Mac and Android - wireless on Mac requires a LIVI Link
 - **AirPlay** audio and Screen Mirroring on Linux, Mac and Android
+
+## Local Music
+
+On LIVI OS, choose **Local Music** from the existing Media page to browse and play music alongside the normal CarPlay and Android Auto media controls. The library scans `/data/livi/music` and USB volumes mounted under `/run/livi-media`; USB music remains read-only. MP3, FLAC, WAV/WAVE, AAC/M4A, Ogg, Opus, and relative-path M3U/M3U8 playlists are supported when their codecs are available. USB sticks show up and disappear on their own when plugged in or pulled; refresh after copying new files to internal storage.
+
+Open a USB source (or a folder inside it) and choose **Eject USB** before unplugging. This stops and joins local playback, deactivates and closes its host audio stream, and waits for serialized library scans before invoking `sudo -n /usr/libexec/livi-media-eject DEVICE`. `DEVICE` is the kernel basename, e.g. `sda1` (partition) or `sdb` (whole-device filesystem), not a `/dev/` path. Only currently mounted read-only USB sources are offered; internal music cannot be ejected. All local playback stops, even if a playlist spans sources. On failure, the library shows the helper error; do not unplug until eject succeeds. Eject requires the LIVI OS helper and its sudo policy.
+
+### Wireless music transfer
+
+The website and transfer client live in
+[DrSkunk/livi-music](https://github.com/DrSkunk/livi-music). The static client
+is deployed to GitHub Pages at <https://drskunk.github.io/livi-music/>. Both the
+browser and LIVI use the free, shared PeerJS Cloud service at `0.peerjs.com` to
+exchange WebRTC connection details; no signaling server needs to be hosted.
+PeerJS's public STUN/TURN defaults are used for network traversal. Music travels
+over an end-to-end-encrypted WebRTC data channel directly when possible, or
+through TURN when necessary. PeerJS Cloud and its public TURN service are
+best-effort and have no uptime guarantee.
+
+To set it up:
+
+1. Open **Media → Local Music → Wireless sync**. LIVI connects to PeerJS Cloud
+   and displays the website link with its random, temporary PeerJS ID.
+2. Open that full link on the phone or computer. Enter the six-digit pairing
+   code shown on LIVI; it confirms the browser is connecting to the intended
+   session. The random ID is carried in the URL fragment and is not sent to
+   GitHub Pages.
+3. Compare the eight-character verification code shown on both devices and
+   tap **Allow** on LIVI only if they match. The pairing window lasts five
+   minutes and permits one browser. Stop the session when finished.
+
+PeerJS Cloud is public infrastructure. LIVI's random 128-bit ID limits
+unsolicited connection attempts, but a person who obtains the link can still
+request a connection. Never approve a mismatched verification code.
+
+Optional configuration can be written to
+`/data/livi/config/LIVI/music-sync.json`:
+
+```json
+{
+  "webUrl": "https://drskunk.github.io/livi-music/",
+  "iceServers": []
+}
+```
+
+`webUrl` defaults to the URL above. Empty or omitted `iceServers` uses PeerJS's
+public STUN/TURN defaults. To override them, specify entries such as
+`{"urls":["turn:relay.example.net:3478"],"username":"...","credential":"..."}`.
+`LIVI_MUSIC_WEB_URL` and JSON `LIVI_MUSIC_ICE_SERVERS` environment variables
+override the file. A legacy `signalUrl` entry is ignored. The file must have
+no group/other permissions if it contains TURN credentials; use mode `0600`
+and ownership by `livi`.
+
+Choose files or a folder to preview titles, artists, albums and embedded
+artwork before upload; audio preview depends on browser codec support. Existing
+files are never overwritten, and uploads go only to internal storage, not USB.
+Folder selection retains relative paths and existing playlists can be uploaded
+alongside music. The browser does not delete, rename, or download library files.
+Each file is limited to 2 GiB and requires at least 128 MiB of free space after
+the transfer. Interrupted uploads can resume when the same file is selected
+again. Partials remain in `/data/livi/.livi-music-transfer` and consume space;
+after stopping sync, an administrator can remove unwanted `.part` files there.
+
+### First-release limitations
+
+- Local playback follows the projection media volume and duck requests. Incoming phone-music focus does **not** automatically pause local playback or guarantee exclusive output; select **Phone** to stop local audio before starting phone music. Call/navigation interruption is limited to the existing projection duck signals; there is no complete call-pause/resume policy.
+- Local playback uses embedded title, artist and album tags when available, with
+  filename fallback. Local now-playing album art, gapless playback and
+  persistent queues/positions are not implemented. Libraries are rescanned, not
+  continuously synchronized.
+- Linux AppImage startup configures core's bundled GStreamer loader and plugin paths before exec; macOS packaging relinks core against the bundle. Rebuild GStreamer bundles with the updated music plugin list before packaging; old bundles may lack decoders/demuxers.
 
 ## Native Apple CarPlay Ultra
 
@@ -103,6 +177,15 @@ Manage under Settings → Devices.
   <img src="docs/media/devices.png" alt="Connected devices" width="70%" />
 </p>
 
+## UI Style
+
+Settings → Appearance → UI Style switches the look of LIVI's own interface.
+
+- **COMAND** (default in this fork): a Mercedes COMAND-style head-unit look. Bevelled gradient panels with a 1px rule and square corners, hardware-style keys, recessed sliders and switches, a nav rail whose selected tab carries a glowing bar, uppercase titles and the D-DIN typeface. A focused control (D-pad / keyboard) gets a thin highlight outline.
+- **Standard**: the upstream LIVI look.
+
+Both styles take their colours from Settings → Appearance → UI Colors, so a custom palette carries over. The projected CarPlay / Android Auto video is not affected.
+
 ## Display Calibration
 
 Car displays are rarely colour accurate. Cheap panels wash out blacks, run cold or warm, or crush the shadows once the sun hits them. LIVI can correct this in software.
@@ -119,11 +202,62 @@ Configure under Settings → Appearance → Contrast / Gamma and Settings → Ap
   <img src="docs/media/color.png" alt="Colour channel calibration" width="42%" align="top" />
 </p>
 
+## Theme and Day / Night Mode
+
+The fork ships the **ZTT** palette, modelled on the 1990s Mercedes R129 OEM look: amber
+accents on near-black panels in dark mode, burnt amber on warm cream in light mode, and an
+amber-outlined tile for the selected navigation item.
+
+|            | Dark      | Light     |
+| ---------- | --------- | --------- |
+| Background | `#0B0B0B` | `#ECE7DE` |
+| Text       | `#F5F0E8` | `#1A1A1A` |
+| Primary    | `#FFA500` | `#C77700` |
+| Highlight  | `#E08F00` | `#A86400` |
+| Divider    | `#303030` | `#C9C1B4` |
+
+While `nightMode` is on, the accents switch to a muted red (`#D93636` / `#A82828`) to keep
+glare down. Every colour can still be overridden under Settings → Appearance → UI Colors.
+
+Settings → Appearance → **Day / Night Mode** (`appearanceMode`) picks what drives day and
+night:
+
+| Mode            | Behaviour                                                              |
+| --------------- | ---------------------------------------------------------------------- |
+| `sun` (default) | Switches at sunrise and sunset, computed from the car's position       |
+| `day` / `night` | Fixed                                                                  |
+| `auto`          | Left to the car or the phone (e.g. a light sensor pushing `nightMode`) |
+
+In `sun` mode LIVI checks the sun's elevation once a minute and, at each transition, sets
+both `darkMode` (LIVI's own theme) and `nightMode` (CarPlay, Android Auto and the cluster),
+so everything switches together. Toggling Dark Mode by hand holds until the next sunrise
+or sunset. The position comes from the GPS fix when a receiver is connected, otherwise from
+`sunLatitude` / `sunLongitude` (Settings → Appearance, decimal degrees). With neither set
+(`0` / `0`) nothing is switched.
+
+A Raspberry Pi 4 has no RTC and the Pi 5 RTC only keeps time with a backup battery, so the
+schedule waits until the system clock is trusted: an RTC with a plausible time close to the
+system clock, NTP in sync (systemd-timesyncd or chrony), the GPS receiver disciplining the
+clock, or the clock having been set or confirmed by an iPhone at CarPlay start. Until then
+the last state is kept.
+
 ## Dashboard
 
 The Dashboard is the car's instrument cluster. It comes in layouts, built the way a car maker's CarPlay theme is: each layout decides where the gauges, the speed and the warning lights sit and whether the phone's cluster stream runs behind them. With a car maker's theme on the phone, the palette picked there colours the gauges. Step through the layouts with the page dots, a swipe or the Cluster Layout key (default T). LIVI comes back with the layout and the palette picked last.
 
 The dashboard is a WIP. While the IPC/socket telemetry payload already supports many signals, the UI exposes only a subset. Widgets and layouts will be extended over time.
+
+### Haltech CAN V2
+
+LIVI can listen to a Haltech ECU's CAN V2 broadcast on `can0` (1 Mbit/s) and feed the engine
+speed (frame 0x360) and the vehicle speed (0x370) into the telemetry, for the Dashboard and the
+phone's cluster. Turn it on under Settings → Car → Receive Haltech CAN V2 telemetry. LIVI only
+listens, it reads `candump -L can0,360:7FF,370:7FF` (`can-utils`, with `can0` already up), on
+LIVI OS the image's `/usr/libexec/livi-can-capture`. A value with no frame for 1.5 s is cleared.
+
+For the Raspberry Pi Haltech CAN V2 receiver and TJD CarPiHAT wiring, configuration, and
+bring-up steps, see the
+[Haltech CAN wiring and setup guide](https://github.com/DrSkunk/livi-os-buildroot/blob/main/docs/HALTECH-CAN.md).
 
 ### Pushing telemetry
 
@@ -198,12 +332,31 @@ Any receiver speaking **NMEA-0183** works. On **u-blox** modules LIVI additional
 UBX for the module identity and the RF front end. Development and testing were done with
 a **NEO-M9N**. Configuration (`config.json`):
 
-| Key           | Default        | Description                                    |
-| ------------- | -------------- | ---------------------------------------------- |
-| `gpsEnabled`  | `false`        | Read the receiver                              |
-| `gpsDevice`   | `/dev/ttyAMA0` | Serial device                                  |
-| `gpsBaudRate` | `38400`        | NEO-M9N default; older modules use `9600`      |
-| `timezone`    | `""`           | Last zone derived from a fix, applied at start |
+| Key               | Default        | Description                                    |
+| ----------------- | -------------- | ---------------------------------------------- |
+| `gpsEnabled`      | `false`        | Read the receiver                              |
+| `gpsSpeedEnabled` | `false`        | Use GPS instead of ECU/external vehicle speed  |
+| `gpsDevice`       | `/dev/ttyAMA0` | Serial device                                  |
+| `gpsBaudRate`     | `38400`        | NEO-M9N default; older modules use `9600`      |
+| `timezone`        | `""`           | Last zone derived from a fix, applied at start |
+
+For a USB NMEA receiver, enable GPS and select its serial device (usually
+`/dev/ttyACM0` or `/dev/ttyUSB0`) and baud rate under Settings → General → GPS.
+Prefer a stable `/dev/serial/by-id/` path where available. No u-blox-specific
+configuration is required if the receiver already emits NMEA RMC sentences.
+
+Enable **Use GPS for vehicle speed** in the same page to drive the Dashboard and
+Android Auto vehicle-speed telemetry from GPS. This is useful when a Haltech ECU
+has no speed sensor but still broadcasts zero speed. Haltech RPM and other
+telemetry continue working; ECU/external `speedKph` updates are ignored while
+GPS speed is selected. Turning the option off restores the latest vehicle-speed
+reading.
+
+GPS speed requires GPS reception to be enabled and a valid speed reading. The
+gauge clears on receiver disconnect, disabling GPS, or after three seconds
+without a valid speed update; it does not fall back to ECU speed. Position-only
+updates do not extend that timeout. GPS can lag, drift at rest, and lose reception
+in tunnels; this is not a replacement for a safety-critical vehicle speedometer.
 
 The receiver also serves as a **time source**. Its satellite clock sets the system time, ahead of the time a phone offers at CarPlay session start, and the fix position selects the system timezone, so daylight saving follows the tz database instead of a manual switch.
 
@@ -228,6 +381,57 @@ DAB+ and FM radio via USB RTL-SDR (RTL2832U with R820T2).
   <img src="docs/media/dabplus.png" alt="Telemetry Dashboard" width="70%" />
 </p>
 
+## RetroArch games
+
+The **Games** tab shows the RetroArch library with cover art and starts games fullscreen above LIVI; when RetroArch closes, LIVI comes back on the Games page. It reads RetroArch's standard directories:
+
+- ROMs: `~/Games/roms`
+- playlists: `~/.config/retroarch/playlists`
+- thumbnails: `~/.config/retroarch/thumbnails`
+- cores: `~/.config/retroarch/cores`, then the system libretro directories
+
+The installers—and LIVI's importer itself—create these ROM folders:
+
+```text
+~/Games/roms/
+├── doom/
+├── gameboy/
+├── gameboy-color/
+├── gba/
+├── nds/
+├── nes/
+├── snes/
+├── genesis/
+└── master-system/
+```
+
+Installers add **DOOM (Freedoom)**, a libre DOOM-compatible campaign, to the `doom` folder by default. Place legally obtained ROMs in the matching folder, then press **Games → Import ROMs**. LIVI detects DOOM WADs, GB, GBC, GBA, Nintendo DS, NES, SNES, Sega Genesis/Mega Drive and Sega Master System files (also zipped inside a system folder); finds installed cores; writes RetroArch `.lpl` playlists; and downloads matching box art from the Libretro thumbnail repositories. Standard No-Intro/Redump filenames produce the best thumbnail matches. Discs in folders with an `.m3u` file are skipped so a multi-disc game appears once. **Open RetroArch** (on an empty library) starts RetroArch's own menu for anything else. Paths and the Games tab itself are under **Settings → General → Games**.
+
+The installers also install RetroArch and the available `libretro-prboom`, `libretro-gambatte`, `libretro-mgba`, `libretro-desmume`, `libretro-nestopia`, `libretro-snes9x` and `libretro-genesisplusgx` packages. SNES and Genesis packages are in Debian's non-free component and are skipped with a warning when that component is unavailable.
+
+Pair a Bluetooth gamepad without leaving LIVI: put the controller in pairing mode, open **Games → Pair controller**, press **Scan**, then **Pair** beside the controller. LIVI pairs, trusts and connects it through BlueZ; RetroArch detects it as a normal Linux gamepad. Reboot once after a fresh installation so `input` and `bluetooth` group membership applies.
+
+Inside LIVI's compositor RetroArch fills the main screen above the LIVI UI, which stays mapped beneath it. Other apps get the same treatment when they ask for fullscreen or their Wayland app id is listed in `LIVI_FULLSCREEN_APP_IDS` (default `retroarch,com.libretro.RetroArch`).
+
+## MiniDSP
+
+The MiniDSP tab controls a [MiniDSP](https://www.minidsp.com/) through the [minidsp-rs](https://github.com/mrene/minidsp-rs) daemon (`minidspd`) and its HTTP API at `http://127.0.0.1:5380`.
+
+- master volume and bass gain, each with touch-sized step buttons and a slider
+- preset selection, the active preset is marked with a check
+- connection status (product and input source) and refresh in the header, the status is polled while the tab is open
+- follows LIVI's theme colours and works with the D-pad / rotary keys
+
+The bass control sets the gain of the outputs in `minidsp.bassOutputChannels` (zero-based, default outputs 3 + 4). Settings → General → Tab Settings → MiniDSP shows or hides the tab and sets the server URL, device index and the volume and bass limits. Preset names (`minidsp.presets`) and step sizes are edited in `config.json`. For development without hardware set `minidsp.mockDevice` or `LIVI_MOCK_MINIDSP=1` (debug builds only).
+
+On apt hosts the installer installs the latest minidsp-rs Debian package and enables `minidsp.service` (skip with `LIVI_SKIP_MINIDSP=1`); elsewhere install minidsp-rs by hand.
+
+## Clock
+
+The Clock tab shows one centered clock with the local system time in a 1990s Mercedes-inspired instrument. Swipe left or right to choose between Classic and Amber analogue dials and a Digital display, stopping at the first and last style. The three dots below the clock also support touch and D-pad selection on compact and wide displays, including the 1280×400 Waveshare. The choice is saved and takes effect immediately, and can also be changed under Settings → Appearance → Clock Style.
+
+The tab can be hidden under Settings → General → Tab Settings → Sidebar. The same Sidebar settings include an optional auto-hide for the Clock page; the menu reappears on touch, pointer movement, or D-pad input and hides again after three seconds of inactivity. Clock can also be selected as the start page under Settings → General → Start Page.
+
 ## Multi-Display
 
 LIVI can run as multiple windows at once, each placeable on its own physical display.
@@ -236,6 +440,8 @@ The Dash and Aux windows are freely assignable and can show the Dashes, the reve
 Configure each window under Settings → General → Screen Settings
 (Main Screen / Cluster Screen / Aux Screen), and assign features under
 Settings → General → Tab Settings.
+Use Tab Settings → Sidebar to choose which page tabs appear in the main window's sidebar.
+Settings remains available, and feature availability (such as an active camera) still applies.
 
 <p align="center">
   <img src="docs/media/multi-display/cluster.png" alt="Dash Screen" width="70%" />
@@ -265,7 +471,7 @@ Settings → General → Tab Settings.
 One script installs LIVI on both desktop and headless hosts, auto-detecting which (override with `--desktop` / `--headless`). It uses apt, dnf or pacman, it runs on Debian/Ubuntu, Fedora, Arch and likely other distros, on arm64 and x86_64.
 
 ```bash
-curl -fL -o install.sh https://raw.githubusercontent.com/f-io/LIVI/main/scripts/install/install.sh
+curl -fL -o install.sh https://raw.githubusercontent.com/DrSkunk/LIVI/main/scripts/install/install.sh
 chmod +x install.sh
 ./install.sh
 ```
@@ -284,6 +490,16 @@ chmod +x LIVI-*-linux-x64.AppImage
 ```
 
 > **Hardware video decode (optional):** LIVI uses the system VA-API driver for GPU video decode (it is not bundled, since it must match your GPU and kernel). Most desktops ship it, a minimal install may not. Without it LIVI still works via software decode. For HW decode install the driver for your GPU and verify with `vainfo`: `i965-va-driver` (older Intel, e.g. Broadwell), `intel-media-va-driver` (Gen9+ Intel), `mesa-va-drivers` (AMD).
+
+## LIVI OS (immutable image)
+
+On the read-only [LIVI OS](https://github.com/DrSkunk/livi-os-buildroot) image, which starts
+LIVI with `LIVI_OS=1`, LIVI installs no system files of its own: no udev rule, sudoers
+drop-in, systemd unit or root copy of `livi-helperd`. It runs the image's
+`/usr/libexec/livi-helperd` through `sudo -n` (no `-E`) with an allow-listed environment
+instead. Linux AppImages carry `resources/livi-os-helper-api` with the version of this
+interface. The exact contract the image has to provide is in [docs/LIVI-OS.md](docs/LIVI-OS.md);
+keep both in sync when the helper's inputs change.
 
 ## Mac (arm64)
 
@@ -312,9 +528,9 @@ Install `LIVI-*-android-arm64.apk` on Android 10 or newer.
 
 ## Build Environment
 
-![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-rust.json)
-![slint](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-slint.json)
-![gstreamer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-gstreamer.json)
+![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-rust.json)
+![slint](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-slint.json)
+![gstreamer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/DrSkunk/LIVI/version/.github/badges/main-gstreamer.json)
 
 ### System Requirements (build)
 
@@ -367,7 +583,7 @@ On macOS, building needs Rust and the GStreamer framework (runtime and devel pkg
 
 ```bash
 # Git clone
-git clone --branch main --single-branch https://github.com/f-io/LIVI.git \
+git clone --branch main --single-branch https://github.com/DrSkunk/LIVI.git \
   && cd LIVI
 
 cd native

@@ -25,7 +25,11 @@ impl GlTexture {
             external,
         }
     }
-    pub fn new(context: &Rc<glow::Context>, info: ImageInfo, opengles_2_0: bool) -> Result<Self, ErrorKind> {
+    pub fn new(
+        context: &Rc<glow::Context>,
+        info: ImageInfo,
+        opengles_2_0: bool,
+    ) -> Result<Self, ErrorKind> {
         //let size = src.dimensions();
 
         let id = unsafe {
@@ -63,8 +67,16 @@ impl GlTexture {
 
         match info.format() {
             PixelFormat::Gray8 => unsafe {
-                let internal_format = if opengles_2_0 { glow::LUMINANCE } else { glow::R8 };
-                let format = if opengles_2_0 { internal_format } else { glow::RED };
+                let internal_format = if opengles_2_0 {
+                    glow::LUMINANCE
+                } else {
+                    glow::R8
+                };
+                let format = if opengles_2_0 {
+                    internal_format
+                } else {
+                    glow::RED
+                };
 
                 context.tex_image_2d(
                     glow::TEXTURE_2D,
@@ -128,41 +140,73 @@ impl GlTexture {
             }
         } else if flags.contains(ImageFlags::NEAREST) {
             unsafe {
-                context.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::NEAREST as i32);
+                context.tex_parameter_i32(
+                    glow::TEXTURE_2D,
+                    glow::TEXTURE_MIN_FILTER,
+                    glow::NEAREST as i32,
+                );
             }
         } else {
             unsafe {
-                context.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
+                context.tex_parameter_i32(
+                    glow::TEXTURE_2D,
+                    glow::TEXTURE_MIN_FILTER,
+                    glow::LINEAR as i32,
+                );
             }
         }
 
         if flags.contains(ImageFlags::NEAREST) {
             unsafe {
-                context.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::NEAREST as i32);
+                context.tex_parameter_i32(
+                    glow::TEXTURE_2D,
+                    glow::TEXTURE_MAG_FILTER,
+                    glow::NEAREST as i32,
+                );
             }
         } else {
             unsafe {
-                context.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
+                context.tex_parameter_i32(
+                    glow::TEXTURE_2D,
+                    glow::TEXTURE_MAG_FILTER,
+                    glow::LINEAR as i32,
+                );
             }
         }
 
         if flags.contains(ImageFlags::REPEAT_X) {
             unsafe {
-                context.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::REPEAT as i32);
+                context.tex_parameter_i32(
+                    glow::TEXTURE_2D,
+                    glow::TEXTURE_WRAP_S,
+                    glow::REPEAT as i32,
+                );
             }
         } else {
             unsafe {
-                context.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+                context.tex_parameter_i32(
+                    glow::TEXTURE_2D,
+                    glow::TEXTURE_WRAP_S,
+                    glow::CLAMP_TO_EDGE as i32,
+                );
             }
         }
 
         if flags.contains(ImageFlags::REPEAT_Y) {
             unsafe {
-                context.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::REPEAT as i32);
+                context.tex_parameter_i32(
+                    glow::TEXTURE_2D,
+                    glow::TEXTURE_WRAP_T,
+                    glow::REPEAT as i32,
+                );
             }
         } else {
             unsafe {
-                context.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+                context.tex_parameter_i32(
+                    glow::TEXTURE_2D,
+                    glow::TEXTURE_WRAP_T,
+                    glow::CLAMP_TO_EDGE as i32,
+                );
             }
         }
 
@@ -215,7 +259,11 @@ impl GlTexture {
 
         match src {
             ImageSource::Gray(data) => unsafe {
-                let format = if opengles_2_0 { glow::LUMINANCE } else { glow::RED };
+                let format = if opengles_2_0 {
+                    glow::LUMINANCE
+                } else {
+                    glow::RED
+                };
 
                 context.tex_sub_image_2d(
                     glow::TEXTURE_2D,
@@ -255,7 +303,7 @@ impl GlTexture {
                     glow::PixelUnpackData::Slice(Some(data.buf().align_to().1)),
                 );
             },
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(wasm_unknown)]
             ImageSource::HtmlImageElement(image_element) => unsafe {
                 context.tex_sub_image_2d_with_html_image(
                     glow::TEXTURE_2D,
@@ -267,7 +315,7 @@ impl GlTexture {
                     image_element,
                 )
             },
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(wasm_unknown)]
             ImageSource::HtmlCanvasElement(canvas_element) => unsafe {
                 context.tex_sub_image_2d_with_html_canvas(
                     glow::TEXTURE_2D,
@@ -306,6 +354,11 @@ impl GlTexture {
             unsafe {
                 context.delete_texture(self.id);
             }
+        }
+        // See `OpenGl::create_image_from_native_texture`.
+        #[cfg(wasm_unknown)]
+        if !self.owned && !self.external {
+            context.unregister_external_texture(self.id);
         }
     }
 

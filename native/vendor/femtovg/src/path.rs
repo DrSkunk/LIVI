@@ -9,7 +9,8 @@ use crate::geometry::{Position, Transform2D, Vector};
 use rustybuzz::ttf_parser;
 
 mod cache;
-pub use cache::{Convexity, PathCache};
+pub(crate) use cache::OutlineWidth;
+pub use cache::PathCache;
 
 // Length proportional to radius of a cubic bezier handle for 90deg arcs.
 const KAPPA90: f32 = 0.552_284_8; // 0.552_284_749_3;
@@ -90,6 +91,9 @@ impl Verb {
     }
 }
 
+/// The transform's cache key and the bits of the tolerances a [`PathCache`] was flattened with.
+type CacheKey = (u64, u32, u32);
+
 /// A collection of verbs (`move_to()`, `line_to()`, `bezier_to()`, etc.)
 /// describing one or more contours.
 ///
@@ -112,7 +116,7 @@ pub struct Path {
     last_pos: Position,
     dist_tol: f32,
     #[cfg_attr(feature = "serde", serde(skip))]
-    pub(crate) cache: RefCell<Option<(u64, PathCache)>>,
+    pub(crate) cache: RefCell<Option<(CacheKey, PathCache)>>,
 }
 
 impl Path {
@@ -126,12 +130,30 @@ impl Path {
 
     /// Returns the memory size in bytes used by the path.
     pub fn size(&self) -> usize {
-        std::mem::size_of::<PackedVerb>() * self.verbs.len() + std::mem::size_of::<f32>() * self.coords.len()
+        std::mem::size_of::<PackedVerb>() * self.verbs.len()
+            + std::mem::size_of::<f32>() * self.coords.len()
     }
 
     /// Checks if the path is empty (contains no verbs).
     pub fn is_empty(&self) -> bool {
         self.verbs.is_empty()
+    }
+
+    /// How many verbs the path has.
+    pub(crate) fn verb_count(&self) -> usize {
+        self.verbs.len()
+    }
+
+    /// The path's verbs and coordinates, bit for bit, onto `words`: what
+    /// tells it from another path without flattening either.
+    pub(crate) fn words(&self, words: &mut Vec<u32>) {
+        words.extend([self.verbs.len() as u32, self.coords.len() as u32]);
+        words.extend(self.verbs.iter().map(|verb| *verb as u32));
+        words.extend(
+            self.coords
+                .iter()
+                .flat_map(|at| [at.x.to_bits(), at.y.to_bits()]),
+        );
     }
 
     /// Sets the distance tolerance used for path operations.
@@ -147,17 +169,28 @@ impl Path {
         }
     }
 
-    pub(crate) fn cache<'a>(&'a self, transform: &Transform2D, tess_tol: f32, dist_tol: f32) -> RefMut<'a, PathCache> {
+    pub(crate) fn cache<'a>(
+        &'a self,
+        transform: &Transform2D,
+        tess_tol: f32,
+        dist_tol: f32,
+    ) -> RefMut<'a, PathCache> {
         // The path cache saves a flattened and transformed version of the path. If client code calls
         // (fill|stroke)_path repeatedly with the same Path under the same transform circumstances then it will be
         // retrieved from cache. I'm not sure if transform.cache_key() is actually good enough for this
         // and if it will produce the correct cache keys under different float edge cases.
 
-        let key = transform.cache_key();
+        // Canvas::set_size() sets the tolerances from the device pixel ratio, so a path drawn again after the ratio
+        // changes is flattened again, even under the same transform.
+        let key = (
+            transform.cache_key(),
+            tess_tol.to_bits(),
+            dist_tol.to_bits(),
+        );
 
         // this shouldn't need a bool once non lexic lifetimes are stable
-        let needs_rebuild = if let Some((transform_cache_key, _cache)) = &*self.cache.borrow() {
-            key != *transform_cache_key
+        let needs_rebuild = if let Some((cache_key, _cache)) = &*self.cache.borrow() {
+            key != *cache_key
         } else {
             true
         };
@@ -167,7 +200,9 @@ impl Path {
             *self.cache.borrow_mut() = Some((key, path_cache));
         }
 
-        RefMut::map(self.cache.borrow_mut(), |cache| &mut cache.as_mut().unwrap().1)
+        RefMut::map(self.cache.borrow_mut(), |cache| {
+            &mut cache.as_mut().unwrap().1
+        })
     }
 
     /// Returns a path containing only the visible segments of this path when
@@ -197,7 +232,13 @@ impl Path {
 
             let mut cursor = DashCursor::new(&dash, offset);
             for segment in contour.points.windows(2) {
-                dash_line_segment(&mut dashed, segment[0], segment[1], &mut cursor, self.dist_tol);
+                dash_line_segment(
+                    &mut dashed,
+                    segment[0],
+                    segment[1],
+                    &mut cursor,
+                    self.dist_tol,
+                );
             }
 
             if contour.closed {
@@ -220,7 +261,8 @@ impl Path {
         let mut current_pos = Position::default();
         let mut first_pos = None;
 
-        let finish_current = |contours: &mut Vec<FlattenedContour>, current: &mut FlattenedContour| {
+        let finish_current = |contours: &mut Vec<FlattenedContour>,
+                              current: &mut FlattenedContour| {
             if current.points.len() >= 2 {
                 contours.push(std::mem::take(current));
             } else {
@@ -242,10 +284,26 @@ impl Path {
                     push_flattened_point(&mut current.points, current_pos, dist_tol);
                 }
                 Verb::BezierTo(c1x, c1y, c2x, c2y, x, y) => {
+                    // A cubic whose four points coincide is the point it starts from, as
+                    // `PathCache::new` takes it: its chord is zero, so it would fail the
+                    // flatness test to the depth limit.
+                    let start = (current_pos.x, current_pos.y);
+                    if [(x, y), (c1x, c1y), (c2x, c2y)] == [start; 3] {
+                        continue;
+                    }
                     let c1 = Position { x: c1x, y: c1y };
                     let c2 = Position { x: c2x, y: c2y };
                     let end = Position { x, y };
-                    flatten_bezier(&mut current.points, current_pos, c1, c2, end, 0, tess_tol, dist_tol);
+                    flatten_bezier(
+                        &mut current.points,
+                        current_pos,
+                        c1,
+                        c2,
+                        end,
+                        0,
+                        tess_tol,
+                        dist_tol,
+                    );
                     current_pos = end;
                 }
                 Verb::Close => {
@@ -453,12 +511,26 @@ impl Path {
     // x-axis-rotation large-arc-flag sweep-flag x y` one-to-one, so the count is
     // fixed by the spec rather than a design choice.
     #[allow(clippy::too_many_arguments)]
-    pub fn svg_arc_to(&mut self, rx: f32, ry: f32, x_axis_rotation: f32, large_arc: bool, sweep: bool, x: f32, y: f32) {
+    pub fn svg_arc_to(
+        &mut self,
+        rx: f32,
+        ry: f32,
+        x_axis_rotation: f32,
+        large_arc: bool,
+        sweep: bool,
+        x: f32,
+        y: f32,
+    ) {
         // The HTML Canvas path primitives (`ellipse()`, `arc()`, `arcTo()`)
         // return early without changing the path "if any of the arguments are
         // infinite or NaN"; apply the same rule here so a single bad value
         // cannot poison every later coordinate derived from the current point.
-        if !rx.is_finite() || !ry.is_finite() || !x_axis_rotation.is_finite() || !x.is_finite() || !y.is_finite() {
+        if !rx.is_finite()
+            || !ry.is_finite()
+            || !x_axis_rotation.is_finite()
+            || !x.is_finite()
+            || !y.is_finite()
+        {
             return;
         }
 
@@ -549,7 +621,8 @@ impl Path {
         // 90-degree segments are ever emitted; the extra headroom only guards
         // against floating-point spill past the exact quarter-turn boundaries.
         const MAX_SEGMENTS: usize = 8;
-        let ndivs = ((delta.abs() / (std::f64::consts::PI * 0.5)).ceil() as usize).clamp(1, MAX_SEGMENTS);
+        let ndivs =
+            ((delta.abs() / (std::f64::consts::PI * 0.5)).ceil() as usize).clamp(1, MAX_SEGMENTS);
         let seg = delta / ndivs as f64;
         // Per-segment handle length: the same kappa `arc()` and `ellipse()` use,
         // 4/3 * tan(seg/4), which puts the curve through the midpoint of its own
@@ -768,7 +841,10 @@ impl Path {
                 ],
                 &[
                     Position { x, y: y + ry_tl },
-                    Position { x, y: y + h - ry_bl },
+                    Position {
+                        x,
+                        y: y + h - ry_bl,
+                    },
                     //
                     Position {
                         x,
@@ -778,7 +854,10 @@ impl Path {
                         x: x + rx_bl * (1.0 - KAPPA90),
                         y: y + h,
                     },
-                    Position { x: x + rx_bl, y: y + h },
+                    Position {
+                        x: x + rx_bl,
+                        y: y + h,
+                    },
                     //
                     Position {
                         x: x + w - rx_br,
@@ -798,7 +877,10 @@ impl Path {
                         y: y + h - ry_br,
                     },
                     //
-                    Position { x: x + w, y: y + ry_tr },
+                    Position {
+                        x: x + w,
+                        y: y + ry_tr,
+                    },
                     //
                     Position {
                         x: x + w,
@@ -808,7 +890,10 @@ impl Path {
                         x: x + w - rx_tr * (1.0 - KAPPA90),
                         y,
                     },
-                    Position { x: x + w - rx_tr, y },
+                    Position {
+                        x: x + w - rx_tr,
+                        y,
+                    },
                     //
                     Position { x: x + rx_tl, y },
                     //
@@ -873,6 +958,7 @@ impl Path {
 
         self.verbs.extend_from_slice(verbs);
         self.coords.extend_from_slice(coords);
+        *self.cache.get_mut() = None;
     }
 }
 
@@ -892,7 +978,11 @@ struct DashCursor<'a> {
 impl<'a> DashCursor<'a> {
     fn new(dash: &'a [f32], offset: f32) -> Self {
         let total = dash.iter().sum::<f32>();
-        let mut normalized_offset = if offset.is_finite() { offset % total } else { 0.0 };
+        let mut normalized_offset = if offset.is_finite() {
+            offset % total
+        } else {
+            0.0
+        };
         if normalized_offset < 0.0 {
             normalized_offset += total;
         }
@@ -1001,6 +1091,9 @@ fn flatten_bezier(
     tess_tol: f32,
     dist_tol: f32,
 ) {
+    #[cfg(test)]
+    tests::BEZIER_PIECES.with(|pieces| pieces.set(pieces.get() + 1));
+
     if level > 10 {
         push_flattened_point(points, p3, dist_tol);
         return;
@@ -1045,7 +1138,13 @@ fn flatten_bezier(
     flatten_bezier(points, p0123, p123, p23, p3, level + 1, tess_tol, dist_tol);
 }
 
-fn dash_line_segment(path: &mut Path, start: Position, end: Position, cursor: &mut DashCursor<'_>, dist_tol: f32) {
+fn dash_line_segment(
+    path: &mut Path,
+    start: Position,
+    end: Position,
+    cursor: &mut DashCursor<'_>,
+    dist_tol: f32,
+) {
     let delta = end - start;
     let length = delta.mag2().sqrt();
     if length <= dist_tol {
@@ -1120,7 +1219,49 @@ impl ttf_parser::OutlineBuilder for Path {
 
 #[cfg(test)]
 mod tests {
-    use super::{svg_arc_angle, Path, Verb, PI};
+    use super::{PI, Path, Transform2D, Verb, svg_arc_angle};
+    use crate::{DIST_TOL, TESS_TOL};
+    use std::cell::Cell;
+
+    thread_local! {
+        /// The pieces `flatten_bezier` has examined on this thread.
+        pub(super) static BEZIER_PIECES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// A cubic whose four points coincide adds nothing to a dashed outline
+    /// either, and is not subdivided to the depth limit on the way: a tab's
+    /// square corners cost half the pieces of the same rect rounded all round.
+    #[test]
+    fn dashing_a_cubic_that_is_a_point_flattens_nothing() {
+        let pieces_dashing = |path: &Path| {
+            BEZIER_PIECES.with(|pieces| pieces.set(0));
+            path.dashed(&[4.0, 2.0], 0.0);
+            BEZIER_PIECES.with(Cell::get)
+        };
+        let mut tab = Path::new();
+        tab.rounded_rect_varying(0.0, 0.0, 60.0, 24.0, 6.0, 6.0, 0.0, 0.0);
+        let mut rounded = Path::new();
+        rounded.rounded_rect(0.0, 0.0, 60.0, 24.0, 6.0);
+        assert_eq!(2 * pieces_dashing(&tab), pieces_dashing(&rounded));
+    }
+
+    /// `Path::cache()` flattens the path again when `tess_tol` or `dist_tol`
+    /// changes under the same transform.
+    #[test]
+    fn a_path_is_flattened_again_when_the_tolerances_change() {
+        let mut path = Path::new();
+        path.circle(50.0, 50.0, 25.0);
+        let points = |tess_tol, dist_tol| {
+            path.cache(&Transform2D::identity(), tess_tol, dist_tol)
+                .positions()
+                .count()
+        };
+        // The canvas's tolerances at device pixel ratio 1 and 2.
+        assert_ne!(
+            points(TESS_TOL, DIST_TOL),
+            points(TESS_TOL / 2.0, DIST_TOL / 2.0)
+        );
+    }
 
     fn line_path(length: f32) -> Path {
         let mut path = Path::new();
@@ -1151,10 +1292,10 @@ mod tests {
 
     fn assert_segment(segment: ((f32, f32), (f32, f32)), expected: ((f32, f32), (f32, f32))) {
         let epsilon = 0.001;
-        assert!((segment.0 .0 - expected.0 .0).abs() < epsilon);
-        assert!((segment.0 .1 - expected.0 .1).abs() < epsilon);
-        assert!((segment.1 .0 - expected.1 .0).abs() < epsilon);
-        assert!((segment.1 .1 - expected.1 .1).abs() < epsilon);
+        assert!((segment.0.0 - expected.0.0).abs() < epsilon);
+        assert!((segment.0.1 - expected.0.1).abs() < epsilon);
+        assert!((segment.1.0 - expected.1.0).abs() < epsilon);
+        assert!((segment.1.1 - expected.1.1).abs() < epsilon);
     }
 
     #[test]
@@ -1205,7 +1346,13 @@ mod tests {
     // ---- SVG elliptical arc (svg_arc_to) tests ----
 
     /// Evaluates a cubic bezier at parameter `s` in [0, 1].
-    fn bezier_point(p0: (f32, f32), c1: (f32, f32), c2: (f32, f32), p3: (f32, f32), s: f32) -> (f32, f32) {
+    fn bezier_point(
+        p0: (f32, f32),
+        c1: (f32, f32),
+        c2: (f32, f32),
+        p3: (f32, f32),
+        s: f32,
+    ) -> (f32, f32) {
         let u = 1.0 - s;
         let w0 = u * u * u;
         let w1 = 3.0 * u * u * s;
@@ -1282,8 +1429,16 @@ mod tests {
         path.svg_arc_to(60.0, 40.0, 0.5, true, false, 240.0, 180.0);
 
         let (_, endpoint) = sample_path(&path);
-        assert!((endpoint.0 - 240.0).abs() < 1e-3, "x endpoint {}", endpoint.0);
-        assert!((endpoint.1 - 180.0).abs() < 1e-3, "y endpoint {}", endpoint.1);
+        assert!(
+            (endpoint.0 - 240.0).abs() < 1e-3,
+            "x endpoint {}",
+            endpoint.0
+        );
+        assert!(
+            (endpoint.1 - 180.0).abs() < 1e-3,
+            "y endpoint {}",
+            endpoint.1
+        );
     }
 
     #[test]
@@ -1364,7 +1519,14 @@ mod tests {
     /// few degrees apart — far from the +-pi wrap-around — so the sum recovers
     /// the true swept angle including direction and extra revolutions, which
     /// on-ellipse residual checks are blind to.
-    fn swept_parametric_angle(points: &[(f64, f64)], cx: f64, cy: f64, rx: f64, ry: f64, phi: f64) -> f64 {
+    fn swept_parametric_angle(
+        points: &[(f64, f64)],
+        cx: f64,
+        cy: f64,
+        rx: f64,
+        ry: f64,
+        phi: f64,
+    ) -> f64 {
         let (sin_phi, cos_phi) = phi.sin_cos();
         let angle = |p: (f64, f64)| -> f64 {
             let dx = p.0 - cx;
@@ -1407,7 +1569,10 @@ mod tests {
             path.svg_arc_to(r, r, 0.0, large_arc, sweep, end.0, end.1);
 
             let (points, _) = sample_path(&path);
-            let points: Vec<(f64, f64)> = points.iter().map(|p| (f64::from(p.0), f64::from(p.1))).collect();
+            let points: Vec<(f64, f64)> = points
+                .iter()
+                .map(|p| (f64::from(p.0), f64::from(p.1)))
+                .collect();
             let (cx, cy, srx, sry) = svg_arc_center_f64(start, end, r, r, 0.0, large_arc, sweep);
             let total = swept_parametric_angle(&points, cx, cy, srx, sry, 0.0);
 
@@ -1721,11 +1886,7 @@ mod tests {
     fn fuzz_coord(rng: &mut Lcg, extreme: bool) -> f32 {
         if extreme && rng.one_in(3) {
             let magnitude = if rng.flag() { 1e30 } else { 1e-30 };
-            if rng.flag() {
-                magnitude
-            } else {
-                -magnitude
-            }
+            if rng.flag() { magnitude } else { -magnitude }
         } else {
             rng.range(-1e4, 1e4)
         }
@@ -1733,11 +1894,7 @@ mod tests {
 
     fn fuzz_radius(rng: &mut Lcg, extreme: bool) -> f32 {
         if extreme && rng.one_in(3) {
-            if rng.flag() {
-                1e30
-            } else {
-                1e-30
-            }
+            if rng.flag() { 1e30 } else { 1e-30 }
         } else if rng.one_in(40) {
             0.0
         } else {
@@ -1802,7 +1959,13 @@ mod tests {
         (u * u) / (rx * rx) + (v * v) / (ry * ry) - 1.0
     }
 
-    fn bezier_point_f64(p0: (f64, f64), c1: (f64, f64), c2: (f64, f64), p3: (f64, f64), s: f64) -> (f64, f64) {
+    fn bezier_point_f64(
+        p0: (f64, f64),
+        c1: (f64, f64),
+        c2: (f64, f64),
+        p3: (f64, f64),
+        s: f64,
+    ) -> (f64, f64) {
         let u = 1.0 - s;
         let w0 = u * u * u;
         let w1 = 3.0 * u * u * s;
@@ -1880,8 +2043,13 @@ mod tests {
             // (d) well-conditioned cases: every sampled point of the emitted
             // bezier chain lies on the ground-truth rotated ellipse.
             let radii_in_range = |r: f64| (1.0..=2e3).contains(&r);
-            if !extreme && radii_in_range(f64::from(rx)) && radii_in_range(f64::from(ry)) && start != end {
-                let (cx, cy, srx, sry) = svg_arc_center_f64(start, end, rx, ry, phi, large_arc, sweep);
+            if !extreme
+                && radii_in_range(f64::from(rx))
+                && radii_in_range(f64::from(ry))
+                && start != end
+            {
+                let (cx, cy, srx, sry) =
+                    svg_arc_center_f64(start, end, rx, ry, phi, large_arc, sweep);
                 // F.6.6 scaling can push the effective radii outside the
                 // well-conditioned band; only check while they stay inside it.
                 if radii_in_range(srx) && radii_in_range(sry) {
@@ -1895,15 +2063,22 @@ mod tests {
                     // amplified by the implicit-form gradient (~1/min_radius).
                     let point_scale = cx.abs() + cy.abs() + srx + sry;
                     let min_radius = srx.min(sry);
-                    let tolerance =
-                        f64::from(ELLIPSE_RESIDUAL_TOL) + 8.0 * f64::from(f32::EPSILON) * point_scale / min_radius;
+                    let tolerance = f64::from(ELLIPSE_RESIDUAL_TOL)
+                        + 8.0 * f64::from(f32::EPSILON) * point_scale / min_radius;
                     let mut sampled = Vec::new();
                     for (p0, c1, c2, p3) in &segments {
                         for step in 0..=4 {
                             let s = f64::from(step) / 4.0;
                             let to_f64 = |p: (f32, f32)| (f64::from(p.0), f64::from(p.1));
-                            let (px, py) = bezier_point_f64(to_f64(*p0), to_f64(*c1), to_f64(*c2), to_f64(*p3), s);
-                            let residual = ellipse_residual_f64(px, py, cx, cy, srx, sry, f64::from(phi));
+                            let (px, py) = bezier_point_f64(
+                                to_f64(*p0),
+                                to_f64(*c1),
+                                to_f64(*c2),
+                                to_f64(*p3),
+                                s,
+                            );
+                            let residual =
+                                ellipse_residual_f64(px, py, cx, cy, srx, sry, f64::from(phi));
                             assert!(
                                 residual.abs() < tolerance,
                                 "sampled point ({px}, {py}) at s={s} off ground-truth ellipse \
@@ -1963,7 +2138,10 @@ mod tests {
         assert!(!points.is_empty());
         assert!((endpoint.0 - 100.0).abs() < 1e-3 && endpoint.1.abs() < 1e-3);
         for (px, py) in points {
-            assert!(px.is_finite() && py.is_finite(), "non-finite point ({px}, {py})");
+            assert!(
+                px.is_finite() && py.is_finite(),
+                "non-finite point ({px}, {py})"
+            );
             let residual = ellipse_residual(px, py, 50.0, 0.0, 50.0, 50.0, 0.0);
             assert!(
                 residual.abs() < ELLIPSE_RESIDUAL_TOL,
@@ -1985,7 +2163,10 @@ mod tests {
         let (points, endpoint) = sample_path(&path);
         assert!(!points.is_empty());
         for (px, py) in &points {
-            assert!(px.is_finite() && py.is_finite(), "non-finite point ({px}, {py})");
+            assert!(
+                px.is_finite() && py.is_finite(),
+                "non-finite point ({px}, {py})"
+            );
         }
         let tolerance = 1e30 * 1e-2;
         assert!((endpoint.0 - 1e30).abs() < tolerance && endpoint.1.abs() < tolerance);
@@ -2150,12 +2331,14 @@ mod tests {
             .expect("one cubic");
 
         let k = super::KAPPA90;
-        for (actual, want) in
-            [curve.0, curve.1, curve.2, curve.3, curve.4, curve.5]
-                .iter()
-                .zip([k, 0.0, 1.0, 1.0 - k, 1.0, 1.0])
+        for (actual, want) in [curve.0, curve.1, curve.2, curve.3, curve.4, curve.5]
+            .iter()
+            .zip([k, 0.0, 1.0, 1.0 - k, 1.0, 1.0])
         {
-            assert!((actual - want).abs() < 1e-5, "quarter turn handles: got {curve:?}");
+            assert!(
+                (actual - want).abs() < 1e-5,
+                "quarter turn handles: got {curve:?}"
+            );
         }
     }
 
@@ -2176,7 +2359,10 @@ mod tests {
         // Centre (0, 1) bows the arc right and down; centre (1, 0) bows it up.
         for (px, py) in sample_path(&sweep).0 {
             let resid = ellipse_residual(px, py, 0.0, 1.0, 1.0, 1.0, 0.0);
-            assert!(resid.abs() < ELLIPSE_RESIDUAL_TOL, "sweep arc off centre (0, 1)");
+            assert!(
+                resid.abs() < ELLIPSE_RESIDUAL_TOL,
+                "sweep arc off centre (0, 1)"
+            );
         }
         for (px, py) in sample_path(&against).0 {
             let resid = ellipse_residual(px, py, 1.0, 0.0, 1.0, 1.0, 0.0);
@@ -2221,7 +2407,15 @@ mod tests {
 
         let scale = 4.069_705_1_f32;
         for (px, py) in sample_path(&path).0 {
-            let resid = ellipse_residual(px, py, 30.0, 40.0, 10.0 * scale, 40.0 * scale, 90.0_f32.to_radians());
+            let resid = ellipse_residual(
+                px,
+                py,
+                30.0,
+                40.0,
+                10.0 * scale,
+                40.0 * scale,
+                90.0_f32.to_radians(),
+            );
             assert!(
                 resid.abs() < ELLIPSE_RESIDUAL_TOL,
                 "point ({px}, {py}) off the ellipse that the rotated-frame lambda gives"
@@ -2279,7 +2473,10 @@ mod tests {
             "endpoint {endpoint:?} should stay at the requested point"
         );
         for (px, py) in points {
-            assert!(px.is_finite() && py.is_finite(), "non-finite point ({px}, {py})");
+            assert!(
+                px.is_finite() && py.is_finite(),
+                "non-finite point ({px}, {py})"
+            );
             // The chord is under 2 units long; nothing may wander far from it.
             assert!(
                 (77.0..=79.0).contains(&px) && (207.0..=209.0).contains(&py),
@@ -2296,7 +2493,15 @@ mod tests {
     fn svg_arc_spec_example_with_a_negative_radicand_stays_finite() {
         let mut path = Path::new();
         path.move_to(650.0, 325.0);
-        path.svg_arc_to(25.0, 25.0, -30.0_f32.to_radians(), false, true, 700.0, 300.0);
+        path.svg_arc_to(
+            25.0,
+            25.0,
+            -30.0_f32.to_radians(),
+            false,
+            true,
+            700.0,
+            300.0,
+        );
 
         let (points, endpoint) = sample_path(&path);
         assert!(!points.is_empty(), "the arc must emit geometry");
@@ -2305,7 +2510,10 @@ mod tests {
             "endpoint {endpoint:?} should reach (700, 300)"
         );
         for (px, py) in points {
-            assert!(px.is_finite() && py.is_finite(), "non-finite point ({px}, {py})");
+            assert!(
+                px.is_finite() && py.is_finite(),
+                "non-finite point ({px}, {py})"
+            );
         }
     }
 
@@ -2356,7 +2564,10 @@ mod tests {
                     _ => vec![],
                 };
                 for value in coords {
-                    assert!(value.is_finite(), "{solidity:?} zero sweep produced {value}");
+                    assert!(
+                        value.is_finite(),
+                        "{solidity:?} zero sweep produced {value}"
+                    );
                 }
             }
         }

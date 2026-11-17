@@ -59,6 +59,7 @@ impl ConfigFile {
         }
 
         let mut config = merge(&current_names(&file), &defaults);
+        config.games = config.games.with_blanks_filled();
         config.settle_night_modes(|_| false);
         if !WIFI_PASSWORD_LEN.contains(&config.wifi_password.chars().count()) {
             println!("[core] wifiPassword is no WPA passphrase, falling back to the default");
@@ -263,7 +264,12 @@ pub fn apply_patch(current: &Config, patch: &Value) -> Result<Config, String> {
             merge_into(fields, key, v);
         }
     }
-    let next: Config = serde_json::from_value(value).map_err(|e| format!("rejected: {e}"))?;
+    let mut next: Config = serde_json::from_value(value).map_err(|e| format!("rejected: {e}"))?;
+    if next.obd2_bitrate != current.obd2_bitrate
+        && patch.get("obd2BusValidated").and_then(Value::as_bool) != Some(true)
+    {
+        next.obd2_bus_validated = false;
+    }
 
     let written = serde_json::to_value(&next).map_err(|e| e.to_string())?;
     if let Some(unknown) = patch
@@ -277,7 +283,6 @@ pub fn apply_patch(current: &Config, patch: &Value) -> Result<Config, String> {
     {
         return Err("wifiPassword needs 8 to 63 characters".into());
     }
-    let mut next = next;
     next.settle_night_modes(|key| patch.contains_key(key));
     Ok(next)
 }
@@ -291,6 +296,21 @@ pub mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn changing_obd_bitrate_requires_a_new_acknowledgement() {
+        let mut current = defaults();
+        current.obd2_bus_validated = true;
+        let next = apply_patch(&current, &json!({"obd2Bitrate":1000000})).unwrap();
+        assert!(!next.obd2_bus_validated);
+        assert!(
+            apply_patch(&next, &json!({"obd2BusValidated":true}))
+                .unwrap()
+                .obd2_bus_validated
+        );
+        assert!(apply_patch(&current, &json!({"obd2Bitrate":125000})).is_err());
+        assert!(apply_patch(&current, &json!({"canTelemetryBackend":"arbitrary_can"})).is_err());
+    }
 
     pub struct TempDir(pub PathBuf);
 
@@ -577,6 +597,32 @@ pub mod tests {
         assert!(next.kiosk.main);
         assert_eq!(next.bindings.home, "KeyX");
         assert_eq!(next.bindings.play_pause, "KeyP");
+    }
+
+    #[test]
+    fn clock_preferences_are_saved_reloaded_and_validated() {
+        let dir = TempDir::new();
+        let file = file_in(&dir);
+        let before = file.load(&HostFacts::default());
+        for style in ["classic", "amber", "digital"] {
+            let next = apply_patch(
+                &before,
+                &json!({
+                    "clockStyle": style,
+                    "clockAutoHide": true,
+                    "sidebarTabs": { "clock": false },
+                    "startPage": "/clock"
+                }),
+            )
+            .unwrap();
+            file.save(&next).unwrap();
+            let reloaded = file.load(&HostFacts::default());
+            assert_eq!(reloaded, next);
+            assert!(reloaded.clock_auto_hide);
+            assert!(!reloaded.sidebar_tabs.clock);
+            assert_eq!(reloaded.start_page, "/clock");
+        }
+        assert!(apply_patch(&before, &json!({ "clockStyle": "unknown" })).is_err());
     }
 
     #[test]

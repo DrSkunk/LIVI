@@ -262,7 +262,7 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
                     }
                 }
                 Some(Local::JoinNetwork(n)) => {
-                    if let Some(join) = Join::scanned(&client.state(), n) {
+                    if let Some(join) = Join::scanned(&client.mirror().json, n) {
                         open_join(&weak, &client, join);
                     }
                 }
@@ -823,7 +823,7 @@ mod network_layout_tests {
             renderer.render(&mut pixels, 1280);
         }));
         assert!(
-            (10..40).any(|y| (600..740).any(|x| {
+            (10..40).any(|y| (140..280).any(|x| {
                 let p = pixels[y * 1280 + x];
                 p.r > 200 && p.g > 200 && p.b > 200
             })),
@@ -840,7 +840,7 @@ mod network_layout_tests {
                 button: PointerEventButton::Left,
             });
         };
-        click(100.0, 24.0);
+        click(116.0, 24.0);
         assert_eq!(backs.get(), 1);
         click(200.0, 235.0);
         assert_eq!(state.get_join_field(), 1);

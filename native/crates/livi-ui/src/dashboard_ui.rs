@@ -275,6 +275,8 @@ pub fn fill(d: &DashState<'_>, mut v: DashView) {
     }
     d.set_speed_t((r.speed / r.speed_scale.max.max(1.0)).clamp(0.0, 1.0) as f32);
     d.set_rpm_t((r.rpm / r.rpm_scale.max.max(1.0)).clamp(0.0, 1.0) as f32);
+    d.set_speed_valid(r.speed_valid);
+    d.set_rpm_valid(r.rpm_valid);
     d.set_redline_t(if r.redline > 0.0 {
         (r.redline / r.rpm_scale.max.max(1.0)).clamp(0.0, 1.0) as f32
     } else {

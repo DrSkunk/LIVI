@@ -3,14 +3,18 @@
 // Additional terms: see NOTICE
 
 use livi_base::hex::rgb;
-use livi_core_proto::config::{Config, HandDriveType};
+use livi_core_proto::config::{ClockStyle, Config, HandDriveType, UiStyle};
+use serde_json::{Map, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Projection,
     Telemetry,
     Media,
+    Clock,
     Camera,
+    Games,
+    MiniDsp,
     Settings,
 }
 
@@ -26,18 +30,48 @@ pub struct Look {
     pub zoom: f32,
     pub stream: (i32, i32),
     pub language: String,
+    pub style: Style,
+    pub clock_style: ClockStyle,
+    pub clock_auto_hide: bool,
+}
+
+/// Which visual style the UI draws with (`uiStyle` in the config).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Style {
+    Standard,
+    Comand,
+}
+
+pub fn style(config: &Config) -> Style {
+    match config.ui_style {
+        UiStyle::Standard => Style::Standard,
+        UiStyle::Comand => Style::Comand,
+    }
 }
 
 pub fn tabs(config: &Config) -> Vec<Tab> {
-    let mut tabs = vec![Tab::Projection];
-    if config.dashboard.main {
+    let side = &config.sidebar_tabs;
+    let mut tabs = Vec::new();
+    if side.projection {
+        tabs.push(Tab::Projection);
+    }
+    if config.dashboard.main && side.telemetry {
         tabs.push(Tab::Telemetry);
     }
-    if config.media.main {
+    if config.media.main && side.media {
         tabs.push(Tab::Media);
     }
-    if config.camera.main && !config.camera_id.is_empty() {
+    if side.clock {
+        tabs.push(Tab::Clock);
+    }
+    if config.camera.main && !config.camera_id.is_empty() && side.camera {
         tabs.push(Tab::Camera);
+    }
+    if config.games.enabled && side.games {
+        tabs.push(Tab::Games);
+    }
+    if config.minidsp.enabled && side.minidsp {
+        tabs.push(Tab::MiniDsp);
     }
     tabs.push(Tab::Settings);
     tabs
@@ -55,7 +89,15 @@ pub fn ui_scale(base: f32, zoom: f32, physical_height: f32) -> f32 {
     base * zoom * fit
 }
 
+pub const NIGHT_PRIMARY: [u8; 3] = [0xd9, 0x36, 0x36];
+pub const NIGHT_HIGHLIGHT: [u8; 3] = [0xa8, 0x28, 0x28];
+
 pub fn look(config: &Config) -> Look {
+    look_at(config, &Map::new())
+}
+
+pub fn look_at(config: &Config, telemetry: &Map<String, Value>) -> Look {
+    let night = telemetry.get("nightMode").and_then(Value::as_bool) == Some(true);
     let dark = config.dark_mode;
     let pick = |on_dark: &Option<String>, on_light: &Option<String>| {
         if dark { on_dark } else { on_light }
@@ -67,8 +109,16 @@ pub fn look(config: &Config) -> Look {
         tabs: tabs(config),
         right_hand: config.hand == HandDriveType::Rhd,
         dark,
-        primary: pick(&config.primary_color_dark, &config.primary_color_light),
-        highlight: pick(&config.highlight_color_dark, &config.highlight_color_light),
+        primary: if night {
+            Some(NIGHT_PRIMARY)
+        } else {
+            pick(&config.primary_color_dark, &config.primary_color_light)
+        },
+        highlight: if night {
+            Some(NIGHT_HIGHLIGHT)
+        } else {
+            pick(&config.highlight_color_dark, &config.highlight_color_light)
+        },
         background: pick(
             &config.background_color_dark,
             &config.background_color_light,
@@ -84,25 +134,41 @@ pub fn look(config: &Config) -> Look {
             positive(config.projection_height, 720),
         ),
         language: config.language.clone(),
+        style: style(config),
+        clock_style: config.clock_style,
+        clock_auto_hide: config.clock_auto_hide,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use livi_core_proto::config::defaults;
+    use livi_core_proto::config::{SidebarTabs, defaults};
+    use serde_json::json;
 
     use super::*;
 
-    #[test]
-    fn tabs_follow_the_config() {
+    fn telemetry(night: bool) -> Map<String, Value> {
+        json!({ "nightMode": night }).as_object().unwrap().clone()
+    }
+
+    fn plain() -> Config {
         let mut config = defaults();
         config.dashboard.main = false;
         config.media.main = true;
         config.camera.main = true;
         config.camera_id.clear();
+        config.games.enabled = false;
+        config.minidsp.enabled = false;
+        config.sidebar_tabs = SidebarTabs::default();
+        config
+    }
+
+    #[test]
+    fn tabs_follow_the_config() {
+        let mut config = plain();
         assert_eq!(
             tabs(&config),
-            vec![Tab::Projection, Tab::Media, Tab::Settings]
+            vec![Tab::Projection, Tab::Media, Tab::Clock, Tab::Settings]
         );
         config.dashboard.main = true;
         config.camera_id = "cam0".into();
@@ -112,10 +178,36 @@ mod tests {
                 Tab::Projection,
                 Tab::Telemetry,
                 Tab::Media,
+                Tab::Clock,
                 Tab::Camera,
                 Tab::Settings
             ]
         );
+        let mut config = plain();
+        config.games.enabled = true;
+        config.minidsp.enabled = true;
+        assert_eq!(
+            tabs(&config),
+            vec![
+                Tab::Projection,
+                Tab::Media,
+                Tab::Clock,
+                Tab::Games,
+                Tab::MiniDsp,
+                Tab::Settings
+            ]
+        );
+    }
+
+    #[test]
+    fn sidebar_tabs_can_be_hidden_without_disabling_their_features() {
+        let mut config = plain();
+        config.dashboard.main = true;
+        config.sidebar_tabs.projection = false;
+        config.sidebar_tabs.telemetry = false;
+        config.sidebar_tabs.media = false;
+        config.sidebar_tabs.clock = false;
+        assert_eq!(tabs(&config), vec![Tab::Settings]);
     }
 
     #[test]
@@ -139,5 +231,35 @@ mod tests {
         assert_eq!(l.primary, Some([0, 0xad, 0xad]));
         assert_eq!(l.zoom, 2.0);
         assert!(l.right_hand);
+    }
+
+    #[test]
+    fn night_swaps_the_accents_for_low_glare_red() {
+        let mut config = defaults();
+        config.dark_mode = true;
+        config.primary_color_dark = Some("#00ADAD".into());
+        config.highlight_color_dark = None;
+        let day = look_at(&config, &telemetry(false));
+        assert_eq!(day.primary, Some([0, 0xad, 0xad]));
+        assert_eq!(day.highlight, None);
+        let night = look_at(&config, &telemetry(true));
+        assert_eq!(night.primary, Some(NIGHT_PRIMARY));
+        assert_eq!(night.highlight, Some(NIGHT_HIGHLIGHT));
+        assert_eq!(look(&config), day);
+    }
+
+    #[test]
+    fn the_style_and_clock_follow_the_config() {
+        let mut config = defaults();
+        assert_eq!(look(&config).style, Style::Comand);
+        assert_eq!(look(&config).clock_style, ClockStyle::Classic);
+        assert!(!look(&config).clock_auto_hide);
+        config.ui_style = UiStyle::Standard;
+        config.clock_style = ClockStyle::Amber;
+        config.clock_auto_hide = true;
+        let l = look(&config);
+        assert_eq!(l.style, Style::Standard);
+        assert_eq!(l.clock_style, ClockStyle::Amber);
+        assert!(l.clock_auto_hide);
     }
 }

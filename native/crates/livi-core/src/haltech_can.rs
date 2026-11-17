@@ -236,7 +236,7 @@ impl Capture {
     }
 
     async fn stop(mut self) {
-        crate::child::terminate(&mut self.child, STOP_GRACE, false).await;
+        crate::system::child::terminate(&mut self.child, STOP_GRACE, false).await;
     }
 }
 
@@ -424,10 +424,10 @@ mod tests {
             Reading::Lambda(1.0),
             Reading::KnockLevels(12.34, 23.45),
         ];
-        let mut snap = crate::telemetry::Snapshot::new();
+        let mut snap = crate::vehicle::telemetry::Snapshot::new();
         for reading in readings {
             let patch = fresh.seen(reading, t0).unwrap();
-            crate::telemetry::merge(&mut snap, &patch);
+            crate::vehicle::telemetry::merge(&mut snap, &patch);
             assert_eq!(fresh.seen(reading, t0), None);
         }
         assert_eq!(snap["oilPressureKpa"], 400.0);
@@ -485,9 +485,9 @@ mod tests {
 
     #[test]
     fn a_null_takes_the_value_out_of_the_telemetry() {
-        let mut snap = crate::telemetry::Snapshot::new();
-        crate::telemetry::merge(&mut snap, &json!({ "rpm": 3000.0 }));
-        crate::telemetry::merge(&mut snap, &json!({ "rpm": null }));
+        let mut snap = crate::vehicle::telemetry::Snapshot::new();
+        crate::vehicle::telemetry::merge(&mut snap, &json!({ "rpm": 3000.0 }));
+        crate::vehicle::telemetry::merge(&mut snap, &json!({ "rpm": null }));
         assert_eq!(snap["rpm"].as_f64(), None);
     }
 

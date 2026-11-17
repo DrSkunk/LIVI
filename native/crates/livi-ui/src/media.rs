@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use base64::Engine;
-use livi_core_proto::state::{Protocol, State};
+use livi_core_proto::state::{LocalMusicEntryKind, MusicSyncPhase, Protocol, State};
 use livi_ui_model::media::{Radio, Station, dab, fm};
 use slint::{Rgba8Pixel, SharedPixelBuffer};
 
@@ -25,6 +25,53 @@ pub struct MediaView {
     pub artwork: Option<Option<Pixels>>,
     artwork_raw: Option<Option<String>>,
     pub session: String,
+    pub local_music: LocalMusicView,
+}
+
+#[derive(Clone)]
+pub struct LocalMusicRow {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+}
+
+#[derive(Clone, Default)]
+pub struct LocalMusicView {
+    pub active: bool,
+    pub browsing: bool,
+    pub folder_name: String,
+    pub parent: Option<String>,
+    pub entries: Vec<LocalMusicRow>,
+    pub error: String,
+    pub eject_device: String,
+    pub ejecting: bool,
+    pub sync_phase: String,
+    pub sync_code: String,
+    pub sync_verification: String,
+    pub sync_website: String,
+    pub sync_last_file: String,
+    pub sync_error: String,
+}
+
+fn kind_name(kind: LocalMusicEntryKind) -> String {
+    match kind {
+        LocalMusicEntryKind::Folder => "folder",
+        LocalMusicEntryKind::Playlist => "playlist",
+        LocalMusicEntryKind::Track => "track",
+    }
+    .into()
+}
+
+fn phase_name(phase: MusicSyncPhase) -> String {
+    match phase {
+        MusicSyncPhase::Idle => "idle",
+        MusicSyncPhase::Starting => "starting",
+        MusicSyncPhase::Pairing => "pairing",
+        MusicSyncPhase::Pending => "pending",
+        MusicSyncPhase::Connected => "connected",
+        MusicSyncPhase::Error => "error",
+    }
+    .into()
 }
 
 impl MediaView {
@@ -70,6 +117,32 @@ impl MediaReader {
     pub fn read(&mut self, state: &State) -> MediaView {
         let now = state.now_playing.clone();
         let sessions = state.sessions;
+        let local = &state.local_music;
+        let text = |v: &Option<String>| v.clone().unwrap_or_default();
+        let local_music = LocalMusicView {
+            active: local.active,
+            browsing: local.browsing,
+            folder_name: text(&local.folder_name),
+            parent: local.parent.clone(),
+            entries: local
+                .entries
+                .iter()
+                .map(|entry| LocalMusicRow {
+                    id: entry.id.clone(),
+                    label: entry.label.clone(),
+                    kind: kind_name(entry.kind),
+                })
+                .collect(),
+            error: text(&local.error),
+            eject_device: text(&local.eject_device),
+            ejecting: local.ejecting,
+            sync_phase: phase_name(local.sync.phase),
+            sync_code: text(&local.sync.code),
+            sync_verification: text(&local.sync.verification),
+            sync_website: text(&local.sync.website),
+            sync_last_file: text(&local.sync.last_file),
+            sync_error: text(&local.sync.error),
+        };
         let artwork_raw = (now.artwork != self.artwork).then(|| {
             self.artwork = now.artwork.clone();
             now.artwork.clone()
@@ -82,9 +155,11 @@ impl MediaReader {
             duration_ms: now.duration_ms.unwrap_or(0.0),
             elapsed_ms: now.elapsed_ms,
             playing: now.playing.unwrap_or(false),
-            can_seek: matches!(sessions.active, Some(Protocol::Carplay | Protocol::Airplay)),
+            can_seek: matches!(sessions.active, Some(Protocol::Carplay | Protocol::Airplay))
+                || local_music.active,
             artwork: None,
             artwork_raw,
+            local_music,
             session: format!("{:?}:{}", sessions.active, sessions.position),
         }
     }

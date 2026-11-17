@@ -14,7 +14,10 @@ pub struct Framebuffer {
 }
 
 impl Framebuffer {
-    pub fn from_external(context: &Rc<glow::Context>, fbo: <glow::Context as glow::HasContext>::Framebuffer) -> Self {
+    pub fn from_external(
+        context: &Rc<glow::Context>,
+        fbo: <glow::Context as glow::HasContext>::Framebuffer,
+    ) -> Self {
         Self {
             context: context.clone(),
             fbo,
@@ -43,7 +46,12 @@ impl Framebuffer {
         let stencil_rbo = unsafe { context.create_renderbuffer().unwrap() };
         unsafe {
             context.bind_renderbuffer(glow::RENDERBUFFER, Some(stencil_rbo));
-            context.renderbuffer_storage(glow::RENDERBUFFER, glow::STENCIL_INDEX8, width as i32, height as i32);
+            context.renderbuffer_storage(
+                glow::RENDERBUFFER,
+                glow::STENCIL_INDEX8,
+                width as i32,
+                height as i32,
+            );
             context.bind_renderbuffer(glow::RENDERBUFFER, None);
 
             context.framebuffer_renderbuffer(
@@ -89,7 +97,8 @@ impl Framebuffer {
 
     pub fn bind(&self) {
         unsafe {
-            self.context.bind_framebuffer(glow::FRAMEBUFFER, Some(self.fbo));
+            self.context
+                .bind_framebuffer(glow::FRAMEBUFFER, Some(self.fbo));
         }
     }
 

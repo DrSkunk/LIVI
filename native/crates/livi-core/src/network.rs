@@ -250,7 +250,7 @@ fn status(value: Value) -> Result<NetworkStatus, NetworkError> {
 
 fn local_time(utc: &str) -> Option<String> {
     let at: jiff::Timestamp = utc.parse().ok()?;
-    let zoned = at.to_zoned(jiff::tz::TimeZone::system());
+    let zoned = at.to_zoned_datetime(jiff::tz::TimeZone::system());
     Some(zoned.strftime("%Y-%m-%d %H:%M %Z").to_string())
 }
 

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc as std_mpsc;
@@ -16,12 +17,14 @@ use livi_core_proto::message::{LocalMusicCommand, MediaControl};
 use livi_core_proto::state::{
     LocalMusic as LocalMusicState, LocalMusicEntry, LocalMusicEntryKind, NowPlaying, State,
 };
-use livi_media::gst_host::{AudioCodec, AudioOpts, GstHost};
+use livi_media::output::{AudioCodec, AudioOpts, Output};
 use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, watch};
 
 pub(crate) const INTERNAL_MUSIC: &str = "/data/livi/music";
 const EXTERNAL_MUSIC: &str = "/run/livi-media";
+/// How often the USB mount directory is checked for drives coming and going.
+const DRIVE_POLL: Duration = Duration::from_secs(2);
 const RATE: u32 = 48_000;
 const CHANNELS: u8 = 2;
 
@@ -548,7 +551,7 @@ impl Drop for PipelineGuard {
 }
 
 struct HostStreamGuard {
-    host: GstHost,
+    host: Output,
     stream: u32,
 }
 
@@ -563,7 +566,7 @@ fn decoder(
     path: PathBuf,
     track_id: String,
     stream: u32,
-    host: GstHost,
+    host: Output,
     events: mpsc::UnboundedSender<DecoderEvent>,
 ) -> Result<Decoder, String> {
     let (commands, rx) = std_mpsc::channel();
@@ -595,7 +598,7 @@ fn decode(
     path: PathBuf,
     track_id: String,
     stream: u32,
-    host: GstHost,
+    host: Output,
     commands: std_mpsc::Receiver<DecoderCommand>,
     events: mpsc::UnboundedSender<DecoderEvent>,
 ) -> Result<bool, String> {
@@ -737,7 +740,7 @@ fn decode(
     Ok(false)
 }
 
-async fn open_stream(host: &GstHost, device: &str, level: f64) -> Option<u32> {
+async fn open_stream(host: &Output, device: &str, level: f64) -> Option<u32> {
     let opts = AudioOpts {
         codec: AudioCodec::PcmLe,
         payload_type: 0,
@@ -757,7 +760,7 @@ async fn open_stream(host: &GstHost, device: &str, level: f64) -> Option<u32> {
     Some(stream)
 }
 
-fn stop_decoder(decoder: Option<Decoder>, host: &GstHost, stream: Option<u32>) {
+fn stop_decoder(decoder: Option<Decoder>, host: &Output, stream: Option<u32>) {
     if let Some(decoder) = decoder {
         let _ = decoder.commands.send(DecoderCommand::Stop);
         let _ = decoder.thread.join();
@@ -767,9 +770,75 @@ fn stop_decoder(decoder: Option<Decoder>, host: &GstHost, stream: Option<u32>) {
     }
 }
 
+fn drive_names(dir: &Path) -> BTreeSet<OsString> {
+    fs::read_dir(dir)
+        .map(|entries| entries.flatten().map(|entry| entry.file_name()).collect())
+        .unwrap_or_default()
+}
+
+/// The playing track's file is gone, for example because its USB drive was pulled.
+fn lost_track(catalog: Option<&Catalog>, current: Option<&str>) -> bool {
+    current
+        .and_then(|id| catalog?.tracks.get(id))
+        .is_some_and(|track| !track.path.exists())
+}
+
+async fn rescan(
+    hub: &crate::hub::Hub,
+    state: &watch::Receiver<State>,
+    catalog: &mut Option<Catalog>,
+    current: Option<&str>,
+    show_browser: bool,
+) {
+    let roots = music_roots();
+    match tokio::task::spawn_blocking(move || Catalog::scan(&roots)).await {
+        Ok(mut found) => {
+            retain_playing_tags(catalog.as_ref(), &mut found, current);
+            let folder = state
+                .borrow()
+                .local_music
+                .folder
+                .clone()
+                .unwrap_or_else(|| "root".into());
+            let folder_data = found.entries(&folder).map(|(entries, parent)| {
+                let name = found.folders.get(&folder).map(|item| item.label.clone());
+                (entries, parent, name)
+            });
+            let root_data = found.entries("root").map(|(entries, parent)| {
+                let name = found.folders.get("root").map(|item| item.label.clone());
+                (entries, parent, name)
+            });
+            let (folder, data) = if folder_data.is_some() {
+                (folder, folder_data)
+            } else {
+                ("root".into(), root_data)
+            };
+            *catalog = Some(found);
+            hub.update(|s| {
+                s.local_music.scanned = true;
+                s.local_music.browsing |= show_browser;
+                s.local_music.error = None;
+                s.local_music.eject_device = catalog
+                    .as_ref()
+                    .and_then(|found| found.folders.get(&folder))
+                    .and_then(|folder| folder.eject_device.clone());
+                if let Some((entries, parent, name)) = data {
+                    s.local_music.folder = Some(folder);
+                    s.local_music.folder_name = name;
+                    s.local_music.parent = parent;
+                    s.local_music.entries = entries;
+                } else if let Some(catalog) = catalog.as_ref() {
+                    update_browse(&mut s.local_music, catalog, "root");
+                }
+            });
+        }
+        Err(error) => hub.update(|s| s.local_music.error = Some(error.to_string())),
+    }
+}
+
 pub async fn run(
     hub: std::sync::Arc<crate::hub::Hub>,
-    host: GstHost,
+    host: Output,
     mut asks: mpsc::UnboundedReceiver<Ask>,
 ) {
     let mut state = hub.watch();
@@ -784,9 +853,40 @@ pub async fn run(
     let mut duration_ms = None;
     let mut elapsed_ms = 0.0;
     let mut audio_level = 1.0;
+    let mut drives = drive_names(Path::new(EXTERNAL_MUSIC));
+    let mut drive_poll = tokio::time::interval(DRIVE_POLL);
+    drive_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
         tokio::select! {
+            _ = drive_poll.tick() => {
+                let now = drive_names(Path::new(EXTERNAL_MUSIC));
+                if now == drives {
+                    continue;
+                }
+                drives = now;
+                let lost = lost_track(catalog.as_ref(), current.as_deref());
+                if lost {
+                    stop_decoder(decoder.take(), &host, stream.take());
+                    queue.clear();
+                    current = None;
+                    duration_ms = None;
+                    elapsed_ms = 0.0;
+                }
+                if catalog.is_some() {
+                    rescan(&hub, &state, &mut catalog, current.as_deref(), false).await;
+                }
+                if lost {
+                    hub.update(|s| {
+                        s.local_music.playing = false;
+                        s.local_music.current_track = None;
+                        s.local_music.elapsed_ms = None;
+                        s.local_music.duration_ms = None;
+                        s.local_music.error = Some("The USB drive with this music was removed".into());
+                        s.now_playing.playing = Some(false);
+                    });
+                }
+            }
             Some(ask) = asks.recv() => {
                 match ask {
                     Ask::Command(LocalMusicCommand::Open) => {
@@ -849,44 +949,7 @@ pub async fn run(
                     }
                     command @ (Ask::Command(LocalMusicCommand::Refresh) | Ask::Rescan) => {
                         let show_browser = matches!(command, Ask::Command(LocalMusicCommand::Refresh));
-                        let roots = music_roots();
-                        match tokio::task::spawn_blocking(move || Catalog::scan(&roots)).await {
-                            Ok(mut found) => {
-                                retain_playing_tags(catalog.as_ref(), &mut found, current.as_deref());
-                                let folder = state.borrow().local_music.folder.clone().unwrap_or_else(|| "root".into());
-                                let folder_data = found.entries(&folder).map(|(entries, parent)| {
-                                    let name = found.folders.get(&folder).map(|item| item.label.clone());
-                                    (entries, parent, name)
-                                });
-                                let root_data = found.entries("root").map(|(entries, parent)| {
-                                    let name = found.folders.get("root").map(|item| item.label.clone());
-                                    (entries, parent, name)
-                                });
-                                let (folder, data) = if folder_data.is_some() {
-                                    (folder, folder_data)
-                                } else {
-                                    ("root".into(), root_data)
-                                };
-                                catalog = Some(found);
-                                hub.update(|s| {
-                                    s.local_music.scanned = true;
-                                    s.local_music.browsing |= show_browser;
-                                    s.local_music.error = None;
-                                    s.local_music.eject_device = catalog.as_ref()
-                                        .and_then(|found| found.folders.get(&folder))
-                                        .and_then(|folder| folder.eject_device.clone());
-                                    if let Some((entries, parent, name)) = data {
-                                        s.local_music.folder = Some(folder);
-                                        s.local_music.folder_name = name;
-                                        s.local_music.parent = parent;
-                                        s.local_music.entries = entries;
-                                    } else if let Some(catalog) = catalog.as_ref() {
-                                        update_browse(&mut s.local_music, catalog, "root");
-                                    }
-                                });
-                            }
-                            Err(error) => hub.update(|s| s.local_music.error = Some(error.to_string())),
-                        }
+                        rescan(&hub, &state, &mut catalog, current.as_deref(), show_browser).await;
                     }
                     Ask::Command(LocalMusicCommand::Eject { device }) => {
                         let roots = music_roots();
@@ -1120,7 +1183,7 @@ pub async fn run(
 #[allow(clippy::too_many_arguments)]
 async fn start_track(
     hub: &crate::hub::Hub,
-    host: &GstHost,
+    host: &Output,
     catalog: &Catalog,
     queue: &[String],
     queue_index: usize,
@@ -1329,7 +1392,7 @@ mod tests {
 
     #[tokio::test]
     async fn stopping_joins_decoder_before_deactivating_and_closing_host_audio() {
-        use livi_host_proto::{Framer, ops::*};
+        use livi_output_proto::{Framer, ops::*};
         use tokio::io::AsyncReadExt;
         use tokio::net::UnixStream;
 
@@ -1339,7 +1402,7 @@ mod tests {
             .strip_prefix(std::env::current_dir().unwrap())
             .unwrap()
             .join("gst.sock");
-        let host = GstHost::new(socket.clone());
+        let host = Output::new(socket.clone());
         let (commands, rx) = std_mpsc::channel();
         let decoder_host = host.clone();
         let runtime = tokio::runtime::Handle::current();
@@ -1358,7 +1421,7 @@ mod tests {
         for expected in [OP_AUDIO_DATA, OP_AUDIO_ACTIVE, OP_AUDIO_STOP] {
             let message = loop {
                 if let Some(message) = framer.next_message() {
-                    break message;
+                    break message.unwrap();
                 }
                 let mut buf = [0; 1024];
                 let count = tokio::time::timeout(Duration::from_secs(2), peer.read(&mut buf))
@@ -1378,7 +1441,7 @@ mod tests {
 
     #[tokio::test]
     async fn decoder_startup_error_closes_host_audio_without_waiting_for_actor() {
-        use livi_host_proto::{Framer, ops::*};
+        use livi_output_proto::{Framer, ops::*};
         use tokio::io::AsyncReadExt;
         use tokio::net::UnixStream;
 
@@ -1388,7 +1451,7 @@ mod tests {
             .strip_prefix(std::env::current_dir().unwrap())
             .unwrap()
             .join("gst.sock");
-        let host = GstHost::new(socket.clone());
+        let host = Output::new(socket.clone());
         host.set_audio_active(42, true);
         let mut peer = UnixStream::connect(&socket).await.unwrap();
         let (events, mut rx) = mpsc::unbounded_channel();
@@ -1409,7 +1472,7 @@ mod tests {
         ] {
             let message = loop {
                 if let Some(message) = framer.next_message() {
-                    break message;
+                    break message.unwrap();
                 }
                 let mut buf = [0; 1024];
                 let count = tokio::time::timeout(Duration::from_secs(2), peer.read(&mut buf))
@@ -1490,6 +1553,28 @@ mod tests {
         }
         assert!(!supported_audio(Path::new("cover.jpg")));
         assert!(!supported_audio(Path::new("playlist.m3u8")));
+    }
+
+    #[test]
+    fn a_pulled_drive_is_noticed_and_loses_the_track_playing_from_it() {
+        let media = TestDir::new();
+        let stick = media.0.join("sda1");
+        fs::create_dir_all(&stick).unwrap();
+        let song = stick.join("song.flac");
+        fs::write(&song, []).unwrap();
+        let before = drive_names(&media.0);
+        let catalog = Catalog::scan(&[Root {
+            label: "sda1".into(),
+            path: stick.clone(),
+            eject_device: Some("sda1".into()),
+        }]);
+        let id = path_id(&fs::canonicalize(&song).unwrap());
+        assert!(!lost_track(Some(&catalog), Some(&id)));
+
+        fs::remove_dir_all(&stick).unwrap();
+        assert_ne!(drive_names(&media.0), before);
+        assert!(lost_track(Some(&catalog), Some(&id)));
+        assert!(!lost_track(Some(&catalog), None));
     }
 
     #[test]

@@ -338,6 +338,7 @@ mod tests {
             front: livi,
             sessions: Default::default(),
             now_playing: Default::default(),
+            local_music: Default::default(),
             video_playback: None,
             navigation: Default::default(),
             system: Default::default(),
@@ -346,9 +347,12 @@ mod tests {
             update: Default::default(),
             cluster: Default::default(),
             dab: Default::default(),
+            games: Default::default(),
             fm: Default::default(),
             cameras: Vec::new(),
             mfi: Default::default(),
+            minidsp: Default::default(),
+            network: Default::default(),
             config: crate::files::config_file::defaults(),
         };
         assert!(!blinking(&s));

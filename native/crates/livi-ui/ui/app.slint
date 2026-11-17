@@ -6,18 +6,23 @@ import "fonts/Roboto-300.ttf";
 import "fonts/Roboto-400.ttf";
 import "fonts/Roboto-500.ttf";
 import "fonts/Roboto-700.ttf";
+import "fonts/D-DIN-400.otf";
+import "fonts/D-DIN-700.otf";
 import { Theme, Ui } from "theme.slint";
 import { Focus, FocusZone } from "focus.slint";
-import { Nav, Page, PhoneState, TabData } from "nav.slint";
-import { MediaPage, MediaSource, MediaText, Press, DabState, StationData } from "media.slint";
+import { Nav, Page, PhoneState, SidebarClock, TabData } from "nav.slint";
+import { MediaPage, MediaSource, MediaText, Press, DabState, StationData, LocalMusicRow } from "media.slint";
 import { ProjectionPage, TouchPhase } from "projection.slint";
 import { SettingsView, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData } from "settings/view.slint";
 import { Dashboard, DashState, GaugeData, CapData, TrailData, LabelData, LaneData, LaneArrowData, LampData } from "dashboard.slint";
 import { LevelOverlay, PhoneOverlay, OverlayState } from "overlays.slint";
 import { MaskData, ViewArea } from "mask.slint";
 import { TouchCalibration, TouchCalibrationState } from "touch_calibration.slint";
+import { GamesPage, GamesState, GamesText, GameData, ControllerData } from "games.slint";
+import { MiniDspPage, MiniDspState, DspPhase, DspPresetData, DspControlData } from "minidsp.slint";
+import { ClockFace, ClockPage, ClockText } from "clock.slint";
 
-export { Theme, Focus, FocusZone, Page, PhoneState, TabData, TouchPhase, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData, MediaSource, MediaText, Press, DabState, StationData, DashState, GaugeData, CapData, TrailData, LabelData, LaneData, LaneArrowData, LampData, OverlayState, MaskData, ViewArea, TouchCalibrationState }
+export { Theme, Focus, FocusZone, Page, PhoneState, TabData, TouchPhase, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData, MediaSource, MediaText, Press, DabState, StationData, DashState, GaugeData, CapData, TrailData, LabelData, LaneData, LaneArrowData, LampData, OverlayState, MaskData, ViewArea, TouchCalibrationState, SidebarClock, LocalMusicRow, MiniDspState, DspPhase, DspPresetData, DspControlData, GamesState, GamesText, GameData, ControllerData, ClockFace, ClockText }
 
 export component AppWindow inherits Window {
     in-out property <Page> page: Page.media;
@@ -25,6 +30,14 @@ export component AppWindow inherits Window {
     in property <image> projection-icon;
     in property <PhoneState> phone;
     in property <string> clock;
+    in property <SidebarClock> sidebar-clock;
+    in property <ClockFace> clock-face: ClockFace.classic;
+    in property <bool> clock-auto-hide;
+    in property <string> clock-time: "--:--";
+    in property <bool> clock-valid;
+    in property <float> clock-hour-angle;
+    in property <float> clock-minute-angle;
+    in property <float> clock-second-angle;
     in property <bool> right-hand;
     in property <int> stream-width: 1280;
     in property <int> stream-height: 720;
@@ -52,6 +65,20 @@ export component AppWindow inherits Window {
     in property <float> elapsed-ms;
     in property <float> total-ms;
     in property <bool> can-seek;
+    in property <bool> local-music-active;
+    in property <bool> local-music-browsing;
+    in property <string> local-music-parent;
+    in property <string> local-music-folder;
+    in property <[LocalMusicRow]> local-music-entries;
+    in property <string> local-music-error;
+    in property <string> local-music-eject-device;
+    in property <bool> local-music-ejecting;
+    in property <string> music-sync-phase: "idle";
+    in property <string> music-sync-code;
+    in property <string> music-sync-verification;
+    in property <string> music-sync-website;
+    in property <string> music-sync-last-file;
+    in property <string> music-sync-error;
     in-out property <bool> show-spectrum;
     in property <[float]> bands;
 
@@ -66,14 +93,25 @@ export component AppWindow inherits Window {
     callback next();
     callback seek(float);
     callback spectrum-changed(bool);
+    callback local-music();
+    callback local-item(string, string);
+    callback local-back();
+    callback local-refresh();
+    callback local-eject();
+    callback music-sync-start();
+    callback music-sync-approve();
+    callback music-sync-reject();
+    callback music-sync-stop();
+    callback clock-style-picked(ClockFace);
 
-    property <bool> nav-hidden: root.page == Page.projection && root.phone == PhoneState.streaming;
+    property <bool> nav-hidden: (root.page == Page.projection && root.phone == PhoneState.streaming)
+        || (root.page == Page.clock && root.clock-auto-hide && root.nav-asleep);
     property <bool> nav-asleep;
 
     public function wake-nav() {
         root.nav-asleep = false;
         DashState.dots-shown = true;
-        if (root.page == Page.telemetry) {
+        if (root.page == Page.telemetry || (root.page == Page.clock && root.clock-auto-hide)) {
             nav-timer.start();
             nav-timer.restart();
         } else {
@@ -86,16 +124,23 @@ export component AppWindow inherits Window {
         running: false;
         triggered => {
             self.stop();
-            root.nav-asleep = true;
-            DashState.dots-shown = false;
+            if (root.page == Page.telemetry) {
+                root.nav-asleep = true;
+                DashState.dots-shown = false;
+            } else if (root.page == Page.clock && root.clock-auto-hide) {
+                root.nav-asleep = true;
+            }
         }
+    }
+    changed clock-auto-hide => {
+        root.wake-nav();
     }
     changed page => {
         root.wake-nav();
     }
 
     title: "LIVI";
-    default-font-family: "Roboto";
+    default-font-family: Theme.font-family;
     preferred-width: 1280px;
     preferred-height: 720px;
     min-width: 320px;
@@ -141,7 +186,7 @@ export component AppWindow inherits Window {
             tabs: root.tabs;
             active: root.page;
             phone: root.phone;
-            clock: root.clock;
+            clock: root.sidebar-clock;
             right-hand: false;
             asleep: root.nav-asleep;
             select(p) => {
@@ -149,7 +194,7 @@ export component AppWindow inherits Window {
                 root.page-chosen(p);
             }
         }
-        Rectangle {
+        content := Rectangle {
             horizontal-stretch: 1;
             if root.page == Page.projection: ProjectionPage {
                 width: parent.width;
@@ -196,6 +241,20 @@ export component AppWindow inherits Window {
                 elapsed-ms: root.elapsed-ms;
                 total-ms: root.total-ms;
                 can-seek: root.can-seek;
+                local-music-active: root.local-music-active;
+                local-music-browsing: root.local-music-browsing;
+                local-music-parent: root.local-music-parent;
+                local-music-folder: root.local-music-folder;
+                local-music-entries: root.local-music-entries;
+                local-music-error: root.local-music-error;
+                local-music-eject-device: root.local-music-eject-device;
+                local-music-ejecting: root.local-music-ejecting;
+                music-sync-phase: root.music-sync-phase;
+                music-sync-code: root.music-sync-code;
+                music-sync-verification: root.music-sync-verification;
+                music-sync-website: root.music-sync-website;
+                music-sync-last-file: root.music-sync-last-file;
+                music-sync-error: root.music-sync-error;
                 show-spectrum <=> root.show-spectrum;
                 bands: root.bands;
                 play-pause => { root.play-pause(); }
@@ -203,13 +262,41 @@ export component AppWindow inherits Window {
                 next => { root.next(); }
                 seek(f) => { root.seek(f); }
                 spectrum-changed(on) => { root.spectrum-changed(on); }
+                local-music => { root.local-music(); }
+                local-item(id, kind) => { root.local-item(id, kind); }
+                local-back => { root.local-back(); }
+                local-refresh => { root.local-refresh(); }
+                local-eject => { root.local-eject(); }
+                music-sync-start => { root.music-sync-start(); }
+                music-sync-approve => { root.music-sync-approve(); }
+                music-sync-reject => { root.music-sync-reject(); }
+                music-sync-stop => { root.music-sync-stop(); }
+            }
+            if root.page == Page.clock: ClockPage {
+                width: parent.width;
+                height: parent.height;
+                style: root.clock-face;
+                time: root.clock-time;
+                valid: root.clock-valid;
+                hour-angle: root.clock-hour-angle;
+                minute-angle: root.clock-minute-angle;
+                second-angle: root.clock-second-angle;
+                style-picked(style) => { root.clock-style-picked(style); }
+            }
+            if root.page == Page.games: GamesPage {
+                width: parent.width;
+                height: parent.height;
+            }
+            if root.page == Page.minidsp: MiniDspPage {
+                width: parent.width;
+                height: parent.height;
             }
             if root.page == Page.settings: SettingsView {
                 width: parent.width;
                 height: parent.height;
             }
             if root.page == Page.camera && !root.camera-found: Rectangle {
-                background: Theme.background;
+                background: Theme.backdrop;
                 Text {
                     text: root.no-camera;
                     color: Theme.text-secondary;
@@ -221,7 +308,7 @@ export component AppWindow inherits Window {
             tabs: root.tabs;
             active: root.page;
             phone: root.phone;
-            clock: root.clock;
+            clock: root.sidebar-clock;
             right-hand: true;
             asleep: root.nav-asleep;
             select(p) => {
@@ -253,7 +340,7 @@ export component SecondaryWindow inherits Window {
     in property <string> window-title;
     title: root.window-title;
     in property <string> empty-label: "No content on this screen";
-    default-font-family: "Roboto";
+    default-font-family: Theme.font-family;
     background: root.has-dashboard ? transparent : #000000;
 
     if root.has-dashboard: Dashboard {

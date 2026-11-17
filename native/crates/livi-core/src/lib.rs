@@ -15,20 +15,32 @@ use tokio::sync::Notify;
 
 mod audio;
 mod camera;
+mod can_telemetry;
 mod devices;
 mod dongle;
 mod files;
 mod fonts;
+mod games;
 mod gnss;
+mod haltech_can;
 mod helper;
 mod http;
 mod hub;
+mod livi_os;
+mod local_music;
 mod mfi;
+mod minidsp;
+mod music_sync;
+mod network;
+mod obd2;
+mod os_readiness;
+mod os_update;
 mod projection;
 mod radio;
 pub mod resources;
 mod server;
 mod services;
+mod sun_schedule;
 mod system;
 mod ui;
 mod update;
@@ -84,6 +96,13 @@ pub async fn run(
     res: Resources,
     stop: impl Future<Output = ()>,
 ) -> Result<Exit, String> {
+    // WebRTC's DTLS verifier needs a process default; keep reqwest's existing provider.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let installed = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        if installed.is_err() && rustls::crypto::CryptoProvider::get_default().is_none() {
+            return Err("Cannot initialize the TLS cryptography provider".into());
+        }
+    }
     // SAFETY: geteuid has no preconditions.
     let uid = unsafe { libc::geteuid() };
     let paths = &instance.paths;
@@ -103,6 +122,7 @@ pub async fn run(
     let resume_radio = saved.radio;
     let start = projection::start_page(&config, saved.ui_path.as_deref());
     let wants = projection::first_wants(&start);
+    let local_music_audio_level = config.audio_volume;
     let livi = PerScreen {
         main: Front::Livi,
         cluster: Front::Livi,
@@ -113,6 +133,10 @@ pub async fn run(
         front: livi,
         sessions: Default::default(),
         now_playing: Default::default(),
+        local_music: livi_core_proto::state::LocalMusic {
+            audio_level: local_music_audio_level,
+            ..Default::default()
+        },
         video_playback: None,
         telemetry: Default::default(),
         navigation: Default::default(),
@@ -124,9 +148,12 @@ pub async fn run(
         update: Default::default(),
         cluster: Default::default(),
         dab: Default::default(),
+        games: Default::default(),
         fm: Default::default(),
         cameras: Vec::new(),
         mfi: Default::default(),
+        minidsp: Default::default(),
+        network: Default::default(),
         config,
     });
     let (asks_tx, asks, dongle_asks, update_asks) = projection::ui_channels(wants);
@@ -150,8 +177,10 @@ pub async fn run(
     let (inside, inside_rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(vehicle::telemetry::run(core.clone(), inside_rx, saved));
     tokio::spawn(gnss::run(core.clone(), inside.clone()));
+    tokio::spawn(sun_schedule::run(core.clone(), inside.clone()));
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     tokio::spawn(vehicle::car_bridge::run(core.clone(), inside.clone()));
+    tokio::spawn(can_telemetry::run(core.clone(), inside.clone()));
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     tokio::spawn(audio::system_volume::follow(core.clone()));
     tokio::spawn(update::run(
@@ -159,6 +188,17 @@ pub async fn run(
         update_asks,
         res.installer.clone(),
     ));
+    if let Some(asks) = core.take_os_update_asks() {
+        tokio::spawn(os_update::run(core.clone(), asks));
+    }
+    if let Some(asks) = core.take_minidsp_asks() {
+        tokio::spawn(minidsp::run(core.clone(), asks));
+    }
+    if network::Helper::available()
+        && let Some(asks) = core.take_network_asks()
+    {
+        tokio::spawn(network::run(core.clone(), asks));
+    }
     tokio::spawn(fonts::follow(core.clone(), user_data.join("fonts")));
     files::state_files::start(&core, core.activity(), &user_data);
     tokio::spawn(audio::audio_devices::follow(
@@ -167,14 +207,27 @@ pub async fn run(
         core.shared.clone(),
     ));
     system::host_setup::prepare();
+    let livi_os = livi_os::active();
+    if livi_os {
+        println!(
+            "[livi-os] contract {}, helper {}",
+            livi_os::CONTRACT,
+            livi_os::helper().display()
+        );
+    }
     let privileged = res
         .helper_bin()
         .zip(res.templates.clone())
         .map(|(helper, templates)| system::privileged::Privileged {
             templates,
-            helper: helper::resolve_bin(helper, &user_data),
-            helper_named: user_data.join("driver/livi-helperd"),
+            helper: helper::locate(helper, &user_data),
+            helper_named: if livi_os {
+                livi_os::helper()
+            } else {
+                user_data.join("driver/livi-helperd")
+            },
             user_data: user_data.clone(),
+            livi_os,
         });
     if let Some(privileged) = privileged {
         if system::udev_rule::ensure(&privileged).await {
@@ -206,10 +259,20 @@ pub async fn run(
         core.hub.clone(),
         quit.clone(),
         asks,
+        core.take_local_music_asks()
+            .ok_or("local music player asks were already taken")?,
         inside,
         settings,
         resume_radio,
     );
+    let (music_sync_stop, music_sync_shutdown) = tokio::sync::oneshot::channel();
+    let music_sync = tokio::spawn(music_sync::run(
+        core.clone(),
+        user_data.join("music-sync.json"),
+        core.take_music_sync_asks()
+            .ok_or("music sync asks were already taken")?,
+        music_sync_shutdown,
+    ));
 
     tokio::select! {
         _ = server::serve(core.clone(), listener) => {}
@@ -217,6 +280,10 @@ pub async fn run(
         _ = quit.notified() => println!("[core] stopping"),
     }
     let _ = tokio::time::timeout(Duration::from_secs(2), system::gvfs_guard::stop()).await;
+    let _ = music_sync_stop.send(());
+    if let Err(error) = music_sync.await {
+        eprintln!("[music-sync] service stopped unexpectedly: {error}");
+    }
     goodbye(&core).await;
     services.stop().await;
     let _ = tokio::time::timeout(Duration::from_secs(2), system::wifi_ap::release_for_quit()).await;
@@ -228,8 +295,6 @@ pub async fn run(
                 .unwrap_or_else(|e| e.into_inner())
                 .take(),
         )
-    } else if core.quit_asked.load(Ordering::SeqCst) && system::power::owns_host() {
-        Exit::PowerOff
     } else {
         Exit::Quit
     })

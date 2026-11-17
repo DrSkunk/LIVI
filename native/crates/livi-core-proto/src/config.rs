@@ -44,9 +44,18 @@ pub struct Config {
     pub cluster_palettes: std::collections::BTreeMap<String, String>,
 
     pub gps_enabled: bool,
+    pub gps_speed_enabled: bool,
     pub gps_device: String,
     pub gps_baud_rate: u32,
     pub timezone: String,
+
+    pub haltech_can_enabled: bool,
+    #[serde(default)]
+    pub can_telemetry_backend: CanTelemetryBackend,
+    #[serde(default)]
+    pub obd2_bitrate: Obd2Bitrate,
+    #[serde(default)]
+    pub obd2_bus_validated: bool,
 
     pub projection_width: u32,
     pub projection_height: u32,
@@ -125,6 +134,8 @@ pub struct Config {
     pub dab_ppm: i32,
     pub fm_deemphasis_us: u32,
 
+    pub minidsp: MiniDspConfig,
+
     pub auto_conn: bool,
     pub auto_switch_on_reverse: bool,
 
@@ -133,6 +144,15 @@ pub struct Config {
     pub kiosk: PerScreen<bool>,
     pub ui_zoom_percent: u32,
     pub appearance_mode: AppearanceMode,
+    pub sun_latitude: f64,
+    pub sun_longitude: f64,
+    pub ui_style: UiStyle,
+    #[serde(default)]
+    pub clock_style: ClockStyle,
+    #[serde(default)]
+    pub clock_auto_hide: bool,
+    #[serde(default)]
+    pub sidebar_tabs: SidebarTabs,
     pub appearance_setting: AppearanceSetting,
     pub main_ui_night_mode: bool,
     pub main_map_night_mode: bool,
@@ -141,6 +161,7 @@ pub struct Config {
 
     pub display_mode: PerScreen<String>,
     pub display_connector: PerScreen<String>,
+    pub display_rotation: PerScreen<u16>,
 
     pub screen_width_mm: PerScreen<u32>,
     pub screen_height_mm: PerScreen<u32>,
@@ -204,6 +225,81 @@ pub struct Config {
     pub dismissed_packages: Vec<String>,
 
     pub bindings: KeyBindings,
+
+    pub games: GamesConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SidebarTabs {
+    pub projection: bool,
+    pub telemetry: bool,
+    pub media: bool,
+    pub clock: bool,
+    pub camera: bool,
+    pub games: bool,
+    pub minidsp: bool,
+}
+
+impl Default for SidebarTabs {
+    fn default() -> Self {
+        Self {
+            projection: true,
+            telemetry: true,
+            media: true,
+            clock: true,
+            camera: true,
+            games: true,
+            minidsp: true,
+        }
+    }
+}
+
+pub const DEFAULT_ROM_DIRECTORY: &str = "~/Games/roms";
+pub const DEFAULT_PLAYLIST_DIRECTORY: &str = "~/.config/retroarch/playlists";
+pub const DEFAULT_THUMBNAIL_DIRECTORY: &str = "~/.config/retroarch/thumbnails";
+pub const DEFAULT_CORES_DIRECTORY: &str = "~/.config/retroarch/cores";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GamesConfig {
+    pub enabled: bool,
+    pub retro_arch_path: String,
+    pub rom_directory: String,
+    pub playlist_directory: String,
+    pub thumbnail_directory: String,
+    pub cores_directory: String,
+}
+
+impl Default for GamesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            retro_arch_path: "retroarch".into(),
+            rom_directory: DEFAULT_ROM_DIRECTORY.into(),
+            playlist_directory: DEFAULT_PLAYLIST_DIRECTORY.into(),
+            thumbnail_directory: DEFAULT_THUMBNAIL_DIRECTORY.into(),
+            cores_directory: DEFAULT_CORES_DIRECTORY.into(),
+        }
+    }
+}
+
+impl GamesConfig {
+    pub fn with_blanks_filled(mut self) -> Self {
+        let defaults = Self::default();
+        for (value, default) in [
+            (&mut self.retro_arch_path, defaults.retro_arch_path),
+            (&mut self.rom_directory, defaults.rom_directory),
+            (&mut self.playlist_directory, defaults.playlist_directory),
+            (&mut self.thumbnail_directory, defaults.thumbnail_directory),
+            (&mut self.cores_directory, defaults.cores_directory),
+        ] {
+            if value.trim().is_empty() {
+                *value = default;
+            }
+        }
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -220,6 +316,7 @@ pub enum WifiBand {
 #[serde(rename_all = "camelCase")]
 pub enum AppearanceMode {
     Auto,
+    Sun,
     Night,
     Day,
 }
@@ -229,9 +326,27 @@ impl AppearanceMode {
         match self {
             AppearanceMode::Night => Some(true),
             AppearanceMode::Day => Some(false),
-            AppearanceMode::Auto => None,
+            AppearanceMode::Auto | AppearanceMode::Sun => None,
         }
     }
+}
+
+/// Look of the LIVI UI itself. `Standard` is upstream's look; `Comand` is the
+/// fork's Mercedes COMAND-style head-unit look (bevelled panels, DIN typeface).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UiStyle {
+    Standard,
+    Comand,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClockStyle {
+    #[default]
+    Classic,
+    Amber,
+    Digital,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -445,6 +560,22 @@ pub struct KeyBindings {
     pub voice_assistant_release: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanTelemetryBackend {
+    #[default]
+    HaltechV2,
+    HaltechObd2,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
+#[repr(u32)]
+pub enum Obd2Bitrate {
+    #[default]
+    Kbit500 = 500000,
+    Mbit1 = 1000000,
+}
+
 pub const APPEARANCE_MODE: &str = "appearanceMode";
 
 pub const NIGHT_MODE_KEYS: [&str; 4] = [
@@ -564,9 +695,14 @@ pub fn defaults() -> Config {
         cluster_layout: String::new(),
         cluster_palettes: Default::default(),
         gps_enabled: false,
+        gps_speed_enabled: false,
         gps_device: "/dev/ttyAMA0".into(),
         gps_baud_rate: 38400,
         timezone: String::new(),
+        haltech_can_enabled: false,
+        can_telemetry_backend: CanTelemetryBackend::HaltechV2,
+        obd2_bitrate: Obd2Bitrate::Kbit500,
+        obd2_bus_validated: false,
         projection_width: 1280,
         projection_height: 720,
         projection_fps: 60,
@@ -627,6 +763,7 @@ pub fn defaults() -> Config {
         dab_gain_auto: true,
         dab_gain_db: 19.7,
         dab_ppm: 0,
+        minidsp: default_minidsp(),
         fm_deemphasis_us: 50,
         auto_conn: true,
         auto_switch_on_reverse: true,
@@ -634,7 +771,13 @@ pub fn defaults() -> Config {
         language: "en".into(),
         kiosk: off,
         ui_zoom_percent: 100,
-        appearance_mode: AppearanceMode::Night,
+        appearance_mode: AppearanceMode::Sun,
+        sun_latitude: 0.0,
+        sun_longitude: 0.0,
+        ui_style: UiStyle::Comand,
+        clock_style: ClockStyle::default(),
+        clock_auto_hide: false,
+        sidebar_tabs: SidebarTabs::default(),
         appearance_setting: AppearanceSetting::User,
         main_ui_night_mode: true,
         main_map_night_mode: true,
@@ -642,6 +785,7 @@ pub fn defaults() -> Config {
         cluster_map_night_mode: true,
         display_mode: PerScreen::default(),
         display_connector: PerScreen::default(),
+        display_rotation: PerScreen::default(),
         screen_width_mm: PerScreen::default(),
         screen_height_mm: PerScreen::default(),
         view_area: PerScreen::default(),
@@ -683,6 +827,58 @@ pub fn defaults() -> Config {
         update_nightly: false,
         dismissed_packages: Vec::new(),
         bindings: default_bindings(),
+        games: GamesConfig::default(),
+    }
+}
+
+/// MiniDSP page, driven through the minidsp-rs daemon's HTTP API.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MiniDspConfig {
+    pub enabled: bool,
+    /// Simulated device, honoured by development builds only.
+    pub mock_device: bool,
+    pub server_url: String,
+    pub device_index: u32,
+    pub volume_min_db: f64,
+    pub volume_max_db: f64,
+    pub volume_step_db: f64,
+    /// Zero-based outputs the bass control sets the gain of.
+    pub bass_output_channels: Vec<u32>,
+    pub bass_gain_db: f64,
+    pub bass_min_db: f64,
+    pub bass_max_db: f64,
+    pub bass_step_db: f64,
+    pub presets: Vec<MiniDspPreset>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MiniDspPreset {
+    pub index: u32,
+    pub label: String,
+}
+
+fn default_minidsp() -> MiniDspConfig {
+    MiniDspConfig {
+        enabled: true,
+        mock_device: false,
+        server_url: "http://127.0.0.1:5380".into(),
+        device_index: 0,
+        volume_min_db: -80.0,
+        volume_max_db: 0.0,
+        volume_step_db: 0.5,
+        bass_output_channels: vec![2, 3],
+        bass_gain_db: 0.0,
+        bass_min_db: -80.0,
+        bass_max_db: 12.0,
+        bass_step_db: 0.5,
+        presets: (0..4)
+            .map(|index| MiniDspPreset {
+                index,
+                label: format!("Preset {}", index + 1),
+            })
+            .collect(),
     }
 }
 
@@ -799,7 +995,7 @@ mod tests {
     #[test]
     fn day_and_night_fix_the_night_modes_until_a_night_mode_arrives() {
         let mut cfg = defaults();
-        assert_eq!(cfg.appearance_mode, AppearanceMode::Night);
+        assert_eq!(cfg.appearance_mode, AppearanceMode::Sun);
         cfg.appearance_mode = AppearanceMode::Day;
         cfg.settle_night_modes(|k| k == APPEARANCE_MODE);
         assert_eq!(cfg.night_modes(), [false; 4]);
@@ -825,6 +1021,31 @@ mod tests {
     }
 
     #[test]
+    fn games_use_the_retroarch_folders_and_blank_paths_fall_back_to_them() {
+        let games = defaults().games;
+        assert!(games.enabled);
+        assert_eq!(games.retro_arch_path, "retroarch");
+        assert_eq!(games.rom_directory, "~/Games/roms");
+        assert_eq!(games.playlist_directory, "~/.config/retroarch/playlists");
+        assert_eq!(games.thumbnail_directory, "~/.config/retroarch/thumbnails");
+        let blank = GamesConfig {
+            enabled: false,
+            retro_arch_path: "/opt/retroarch".into(),
+            rom_directory: " ".into(),
+            playlist_directory: String::new(),
+            thumbnail_directory: String::new(),
+            cores_directory: String::new(),
+        }
+        .with_blanks_filled();
+        assert!(!blank.enabled);
+        assert_eq!(blank.retro_arch_path, "/opt/retroarch");
+        assert_eq!(blank.rom_directory, DEFAULT_ROM_DIRECTORY);
+        assert_eq!(blank.playlist_directory, DEFAULT_PLAYLIST_DIRECTORY);
+        assert_eq!(blank.thumbnail_directory, DEFAULT_THUMBNAIL_DIRECTORY);
+        assert_eq!(blank.cores_directory, DEFAULT_CORES_DIRECTORY);
+    }
+
+    #[test]
     fn names_from_telemetry_match_in_any_case() {
         assert_eq!(
             CarType::from_name(" hybriddiesel "),
@@ -837,5 +1058,60 @@ mod tests {
             Some(EvConnectorType::Combo2)
         );
         assert_eq!(EvConnectorType::from_name("Type 2"), None);
+    }
+
+    #[test]
+    fn the_fork_defaults_to_the_comand_ui_style() {
+        assert_eq!(defaults().ui_style, UiStyle::Comand);
+        let json = serde_json::to_value(defaults()).unwrap();
+        assert_eq!(json["uiStyle"], "comand");
+        assert_eq!(
+            serde_json::from_value::<UiStyle>(serde_json::json!("standard")).unwrap(),
+            UiStyle::Standard
+        );
+    }
+
+    #[test]
+    fn sidebar_tabs_default_to_visible_and_accept_older_config_files() {
+        let mut saved = serde_json::to_value(defaults()).unwrap();
+        saved.as_object_mut().unwrap().remove("sidebarTabs");
+        let config: Config = serde_json::from_value(saved).unwrap();
+        assert_eq!(config.sidebar_tabs, SidebarTabs::default());
+
+        let partial: SidebarTabs =
+            serde_json::from_value(serde_json::json!({ "media": false })).unwrap();
+        assert!(!partial.media);
+        assert!(partial.projection);
+        assert!(partial.clock);
+    }
+
+    #[test]
+    fn clock_style_round_trips_and_defaults_for_older_configs() {
+        let mut saved = serde_json::to_value(defaults()).unwrap();
+        assert_eq!(saved["clockStyle"], "classic");
+        saved.as_object_mut().unwrap().remove("clockStyle");
+        let config: Config = serde_json::from_value(saved).unwrap();
+        assert_eq!(config.clock_style, ClockStyle::Classic);
+
+        for (name, style) in [
+            ("classic", ClockStyle::Classic),
+            ("amber", ClockStyle::Amber),
+            ("digital", ClockStyle::Digital),
+        ] {
+            assert_eq!(serde_json::to_value(style).unwrap(), name);
+            assert_eq!(
+                serde_json::from_value::<ClockStyle>(name.into()).unwrap(),
+                style
+            );
+        }
+        assert!(serde_json::from_value::<ClockStyle>("unknown".into()).is_err());
+    }
+
+    #[test]
+    fn clock_auto_hide_defaults_off_for_older_configs() {
+        let mut saved = serde_json::to_value(defaults()).unwrap();
+        saved.as_object_mut().unwrap().remove("clockAutoHide");
+        let config: Config = serde_json::from_value(saved).unwrap();
+        assert!(!config.clock_auto_hide);
     }
 }

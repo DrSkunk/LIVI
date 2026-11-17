@@ -40,6 +40,7 @@ const HELPER_MAX_RESTARTS: u32 = 5;
 const COMPOSITOR_STOP_GRACE: Duration = Duration::from_secs(3);
 
 pub struct Services {
+    readiness: Option<crate::os_readiness::Reporter>,
     helper: Option<HelperSupervisor>,
     compositor: Option<Watched>,
     ui: Option<UiSupervisor>,
@@ -135,6 +136,7 @@ impl Services {
         hub: Arc<Hub>,
         quit: Arc<Notify>,
         mut asks: UiAsks,
+        local_music_asks: mpsc::UnboundedReceiver<crate::local_music::Ask>,
         telemetry: mpsc::UnboundedSender<serde_json::Value>,
         settings: mpsc::UnboundedSender<serde_json::Value>,
         resume_radio: Option<crate::radio::Band>,
@@ -173,7 +175,7 @@ impl Services {
         let env_accessory = accessory.clone();
         let helper = res.helper.clone().map(|helper| {
             let helper = match helper {
-                Helper::Process(bin) => Helper::Process(helper::resolve_bin(&bin, user_data)),
+                Helper::Process(bin) => Helper::Process(helper::locate(&bin, user_data)),
                 other => other,
             };
             HelperSupervisor::start(Spec {
@@ -192,6 +194,7 @@ impl Services {
                 }),
                 restart: helper_restart.clone(),
                 use_sudo: cfg!(target_os = "linux"),
+                livi_os: crate::livi_os::active(),
                 user_data: user_data.to_path_buf(),
                 restart_delay: HELPER_RESTART_DELAY,
                 max_restarts: Some(HELPER_MAX_RESTARTS),
@@ -223,6 +226,11 @@ impl Services {
                 gst.set_launch(launch);
             }
         }
+        tokio::spawn(crate::local_music::run(
+            hub.clone(),
+            gst.clone(),
+            local_music_asks,
+        ));
         let plane = MainPlane::new(gst.clone(), ctrl.clone());
         let clusters = ClusterPlanes::new(gst.clone(), ctrl.clone());
         let airplay_plane = MainPlane::airplay(gst.clone(), ctrl.clone());
@@ -254,6 +262,11 @@ impl Services {
         if ui.is_none() {
             println!("[core] running without a UI");
         }
+        let readiness = crate::os_readiness::Reporter::start(
+            ctrl.clone(),
+            compositor.as_ref().and_then(Child::id),
+            ui.as_ref().map(|ui| ui.pid.clone()),
+        );
         let compositor = compositor.map(|child| watch_compositor(child, quit));
         tokio::spawn(spectrum::follow(
             gst.clone(),
@@ -293,6 +306,14 @@ impl Services {
         #[cfg(not(usb_host))]
         let _ = (asks.radio.take(), resume_radio);
 
+        if let Some(games_asks) = asks.games.take() {
+            tokio::spawn(crate::games::run(
+                hub.clone(),
+                games_asks,
+                compositor.is_some().then(|| ctrl.ui()),
+            ));
+        }
+
         let carplay = CarPlay {
             airplay_events,
             airplay_audio,
@@ -327,6 +348,7 @@ impl Services {
         tokio::spawn(follow_host(gst, plane, airplay_plane, clusters, state));
 
         Self {
+            readiness,
             helper,
             compositor,
             ui,
@@ -334,6 +356,9 @@ impl Services {
     }
 
     pub async fn stop(mut self) {
+        if let Some(readiness) = self.readiness.take() {
+            readiness.stop().await;
+        }
         if let Some(ui) = self.ui.take() {
             ui.stop().await;
         }
@@ -692,11 +717,18 @@ fn name_of(screen: Screen) -> &'static str {
 async fn follow_display_mode(mut applied: watch::Receiver<Config>, ctrl: CompositorControl) {
     let mut last = None;
     loop {
-        let now = applied.borrow_and_update().display_mode.clone();
+        let now = {
+            let cfg = applied.borrow_and_update();
+            (cfg.display_mode.clone(), cfg.display_rotation)
+        };
         if last.as_ref() != Some(&now) {
-            ctrl.mode("main", &now.main);
-            ctrl.mode("cluster", &now.cluster);
-            ctrl.mode("aux", &now.aux);
+            let (mode, rotation) = &now;
+            ctrl.mode("main", &mode.main);
+            ctrl.mode("cluster", &mode.cluster);
+            ctrl.mode("aux", &mode.aux);
+            ctrl.rotation("main", rotation.main);
+            ctrl.rotation("cluster", rotation.cluster);
+            ctrl.rotation("aux", rotation.aux);
             last = Some(now);
         }
         if applied.changed().await.is_err() {

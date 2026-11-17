@@ -181,15 +181,9 @@ pub fn send_panels(state: &mut LiviState) {
         .iter()
         .enumerate()
         .filter_map(|(i, s)| {
-            let (mm_w, mm_h) = crate::host::panel_mm(state, i)?;
-            if s.width > 0 && s.height > 0 {
-                Some(format!(
-                    "panel {} {} {} {} {}\n",
-                    s.role, mm_w, mm_h, s.width, s.height
-                ))
-            } else {
-                None
-            }
+            let ((mm_w, mm_h), (px_w, px_h)) = crate::host::panel(state, i)?;
+            (px_w > 0 && px_h > 0)
+                .then(|| format!("panel {} {mm_w} {mm_h} {px_w} {px_h}\n", s.role))
         })
         .collect();
     for p in panels {
@@ -198,6 +192,12 @@ pub fn send_panels(state: &mut LiviState) {
 }
 
 fn handle_line(state: &mut LiviState, line: &str) {
+    if line == "health" {
+        let line =
+            crate::drm::presented(state).map_or_else(|| "presented -\n".to_string(), |p| p.line());
+        send(state, &line);
+        return;
+    }
     let Some(cmd) = Command::parse(line) else {
         if !line.is_empty() {
             log::info!("ctrl < {line} (not understood)");
@@ -306,6 +306,13 @@ fn handle_line(state: &mut LiviState, line: &str) {
             };
             log::info!("ctrl < {line}");
             crate::drm::set_mode(state, idx, mode);
+        }
+        Command::Rotation { role, degrees } => {
+            let Some(idx) = state.screen_idx_by_role(&role) else {
+                return;
+            };
+            log::info!("ctrl < {line}");
+            crate::drm::set_rotation(state, idx, degrees);
         }
         Command::Backdrop([r, g, b]) => {
             let dbg = std::env::var("LIVI_DEBUG_BG").is_ok();

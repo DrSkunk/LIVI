@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 
 use livi_core_proto::state::{Front, Protocol, State, VideoPlayback};
-use livi_ui_model::shell::{Look, look};
+use livi_ui_model::shell::{Look, look_at};
 
 use crate::PhoneState;
 use crate::dashboard_ui::{DashReader, DashView};
@@ -15,7 +15,9 @@ use livi_ui_model::mask::{Mask, Stream, mask};
 use livi_ui_model::overlay;
 
 pub enum Update {
-    Media(MediaView),
+    Media(Box<MediaView>),
+    Games(crate::games_ui::GamesView),
+    MiniDsp(livi_ui_model::minidsp::View),
     Radio(Box<Radios>),
     Dash(Box<DashView>),
     DashOn(livi_core_proto::state::Screen, Box<DashView>),
@@ -43,6 +45,7 @@ pub enum Update {
 #[derive(Default)]
 pub struct Follow {
     media: MediaReader,
+    covers: crate::games_ui::CoverReader,
     front: Option<Front>,
     phone: Option<PhoneState>,
     look: Option<Look>,
@@ -58,6 +61,7 @@ pub struct Follow {
     main_mask: Option<Option<Mask>>,
     view_area: Option<livi_core_proto::config::ViewArea>,
     fonts: Option<Vec<String>>,
+    minidsp: Option<livi_ui_model::minidsp::View>,
     video: Option<Option<VideoPlayback>>,
     mirrored: Option<bool>,
     held: Option<bool>,
@@ -79,14 +83,25 @@ impl Follow {
         let all = keys.is_none_or(|k| k.contains(""));
         let hit = |key: &str| all || keys.is_some_and(|k| k.contains(key));
         let mut out = Vec::new();
-        if hit("nowPlaying") || hit("sessions") {
-            out.push(Update::Media(self.media.read(state)));
+        if hit("nowPlaying") || hit("sessions") || hit("localMusic") {
+            out.push(Update::Media(Box::new(self.media.read(state))));
         }
         if (hit("dab") || hit("fm"))
             && let Some(r) = self.media.read_radio(state)
         {
             out.push(Update::Radio(Box::new(r)));
         }
+        if hit("games") {
+            out.push(Update::Games(self.covers.read(state)));
+        }
+        if hit("minidsp") || hit("config") {
+            let next = livi_ui_model::minidsp::view(state);
+            if self.minidsp.as_ref() != Some(&next) {
+                self.minidsp = Some(next.clone());
+                out.push(Update::MiniDsp(next));
+            }
+        }
+
         if hit("sessions") {
             let phone = if state.sessions.active.is_none() {
                 PhoneState::None
@@ -117,12 +132,14 @@ impl Follow {
                 out.push(Update::Front(front));
             }
         }
-        if hit("config") {
-            let next = look(&state.config);
+        if hit("config") || hit("telemetry") {
+            let next = look_at(&state.config, &state.telemetry);
             if self.look.as_ref() != Some(&next) {
                 self.look = Some(next.clone());
                 out.push(Update::Look(next));
             }
+        }
+        if hit("config") {
             let area = state.config.view_area.main;
             if self.view_area != Some(area) {
                 self.view_area = Some(area);
@@ -234,10 +251,34 @@ impl Follow {
 
 #[cfg(test)]
 mod tests {
+    use livi_core_proto::config::ClockStyle;
     use serde_json::Value;
 
     use super::*;
 
+    #[test]
+    fn clock_style_changes_are_forwarded_without_restarting() {
+        let mut follow = Follow::default();
+        let keys = BTreeSet::from(["config".to_string()]);
+        let mut state = State::default();
+        state.config.clock_style = ClockStyle::Classic;
+        let looks = |follow: &mut Follow, state: &State| {
+            follow
+                .changed(Some(&keys), state)
+                .into_iter()
+                .filter_map(|u| match u {
+                    Update::Look(look) => Some(look.clock_style),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(looks(&mut follow, &state), vec![ClockStyle::Classic]);
+        assert!(looks(&mut follow, &state).is_empty());
+        state.config.clock_style = ClockStyle::Amber;
+        assert_eq!(looks(&mut follow, &state), vec![ClockStyle::Amber]);
+        state.config.clock_style = ClockStyle::Digital;
+        assert_eq!(looks(&mut follow, &state), vec![ClockStyle::Digital]);
+    }
     #[test]
     fn every_fixture_reads_into_the_typed_state() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");

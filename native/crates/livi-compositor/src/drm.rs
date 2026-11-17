@@ -67,6 +67,7 @@ pub struct DrmState {
     outputs: Vec<Output>,
     wanted: BTreeSet<usize>,
     mode_settings: HashMap<usize, Option<String>>,
+    rotation_settings: HashMap<usize, u16>,
     touch_outputs: HashMap<String, String>,
     touch_devices: Vec<smithay::reexports::input::Device>,
     touch_cal: HashMap<String, TouchCal>,
@@ -166,7 +167,7 @@ fn ui_surfaces(state: &LiviState, screen_idx: usize) -> Vec<(Id, u32)> {
         .collect()
 }
 
-pub fn presented(state: &LiviState) -> Option<livi_host_proto::readiness::PresentedOutput> {
+pub fn presented(state: &LiviState) -> Option<livi_output_proto::readiness::PresentedOutput> {
     let drm = state.drm.as_ref().filter(|d| d.active)?;
     let output = drm.outputs.iter().find(|o| o.screen_idx == 0)?;
     if output
@@ -187,7 +188,7 @@ pub fn presented(state: &LiviState) -> Option<livi_host_proto::readiness::Presen
         _ => return None,
     };
     let (width, height) = output.mode.size();
-    Some(livi_host_proto::readiness::PresentedOutput {
+    Some(livi_output_proto::readiness::PresentedOutput {
         compositor: std::process::id(),
         ui: presented.1,
         connector: output.connector.clone(),
@@ -309,6 +310,7 @@ fn start(
         outputs: Vec::new(),
         wanted: BTreeSet::from([0]),
         mode_settings: HashMap::new(),
+        rotation_settings: HashMap::new(),
         touch_outputs: HashMap::new(),
         touch_devices: Vec::new(),
         touch_cal: HashMap::new(),
@@ -522,6 +524,53 @@ pub fn set_mode(state: &mut LiviState, screen_idx: usize, setting: Option<String
     }
 }
 
+fn rotation_setting(state: &LiviState, screen_idx: usize) -> u16 {
+    state
+        .drm
+        .as_ref()
+        .and_then(|d| d.rotation_settings.get(&screen_idx).copied())
+        .or_else(|| role_env(state, screen_idx, "ROTATION")?.parse().ok())
+        .unwrap_or(0)
+}
+
+fn turned(panel: Transform, degrees: u16) -> Transform {
+    let quarters = match panel {
+        Transform::_90 => 1,
+        Transform::_180 => 2,
+        Transform::_270 => 3,
+        _ => 0,
+    };
+    match (quarters + degrees / 90) % 4 {
+        1 => Transform::_90,
+        2 => Transform::_180,
+        3 => Transform::_270,
+        _ => Transform::Normal,
+    }
+}
+
+pub fn set_rotation(state: &mut LiviState, screen_idx: usize, degrees: u16) {
+    let transform_setting = role_env(state, screen_idx, "TRANSFORM");
+    let Some(drm) = state.drm.as_mut() else {
+        return;
+    };
+    drm.rotation_settings.insert(screen_idx, degrees);
+    let stale = drm.outputs.iter().position(|o| {
+        o.screen_idx == screen_idx
+            && drm
+                .connectors
+                .iter()
+                .find(|c| c.name == o.connector)
+                .is_some_and(|c| {
+                    output_transform(transform_setting.as_deref(), c.transform)
+                        .is_none_or(|base| turned(base, degrees) != o.transform)
+                })
+    });
+    if let Some(pos) = stale {
+        drm.outputs.remove(pos);
+        arrange(state);
+    }
+}
+
 fn assign(wanted: &[(usize, Option<String>)], connected: &[String]) -> Vec<(usize, String)> {
     let is_free = |taken: &[(usize, String)], name: &str| !taken.iter().any(|(_, t)| t == name);
     let mut taken: Vec<(usize, String)> = Vec::new();
@@ -668,6 +717,7 @@ fn light(
     if scale_setting.as_deref().is_some_and(|s| s != "1") {
         return Err("only output scale 1 is supported".into());
     }
+    let rotation = rotation_setting(state, screen_idx);
     let drm = state.drm.as_mut().ok_or("no display device")?;
     let connector = drm
         .connectors
@@ -682,6 +732,7 @@ fn light(
         .find(|c| !busy.contains(c))
         .ok_or("no free crtc")?;
     let transform = output_transform(transform_setting.as_deref(), connector.transform)
+        .map(|base| turned(base, rotation))
         .ok_or("invalid output transform (expected normal, 90, 180 or 270)")?;
     let handle = connector.handle;
     let surface = drm.device.create_surface(crtc, mode, &[handle])?;

@@ -262,8 +262,8 @@ impl Telemetry {
                 self.core.open_app(app.to_string());
             }
         }
-        self.night_modes_from(patch).await;
-        self.appearance_setting_from(patch).await;
+        self.night_modes_from(&patch).await;
+        self.appearance_setting_from(&patch).await;
         let path = self.snap.get("path").cloned();
         let Some(changed) = merge(&mut self.snap, &patch) else {
             return;

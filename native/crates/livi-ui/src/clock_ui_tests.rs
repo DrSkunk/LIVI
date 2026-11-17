@@ -542,13 +542,9 @@ fn clock_shows_one_centered_face_with_swipe_and_dot_selection() {
                 },
             }
         );
-        let state = json!({
-            "config": {
-                "clockStyle": expected,
-                "clockAutoHide": true,
-                "hand": 0
-            }
-        });
+        let mut state = livi_core_proto::state::State::default();
+        state.config.clock_style = serde_json::from_value(json!(expected)).unwrap();
+        state.config.clock_auto_hide = true;
         let update = follow
             .changed(Some(&changed), &state)
             .into_iter()

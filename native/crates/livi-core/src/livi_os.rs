@@ -24,7 +24,7 @@ pub const CONTRACT: &str = "2";
 const PATH: &str = "/usr/sbin:/usr/bin:/sbin:/bin";
 
 /// What `helper::helper_env` hands the helper, all of it reaches it through `env_keep`.
-pub const HELPER_KEYS: [&str; 20] = [
+pub const HELPER_KEYS: [&str; 26] = [
     LIFELINE_ENV,
     "DEBUG",
     "LIVI_AA_WIRELESS",
@@ -45,11 +45,17 @@ pub const HELPER_KEYS: [&str; 20] = [
     "LIVI_CP_PK",
     "LIVI_CP_PI",
     "LIVI_CP_AIRPLAY_PORT",
+    "LIVI_CP_SOURCE_VERSION",
+    "LIVI_CP_MFI_I2C_BUS",
+    "LIVI_CP_MFI_POWER_GPIO",
+    "LIVI_AIRPLAY_NAME",
+    "LIVI_AIRPLAY_PORT",
+    "LIVI_AIRPLAY_TXT",
 ];
 
 /// Developer knobs the helper reads that LIVI does not set, taken over from LIVI's own
 /// environment when they are there.
-pub const PASSTHROUGH_KEYS: [&str; 12] = [
+pub const PASSTHROUGH_KEYS: [&str; 10] = [
     "LIVI_AP_IP",
     "LIVI_PORT",
     "LIVI_DONGLE",
@@ -59,9 +65,7 @@ pub const PASSTHROUGH_KEYS: [&str; 12] = [
     "LIVI_CHANNEL_WIDTH",
     "LIVI_CP_USB_IFACE",
     "LIVI_LOCKDOWN_STORE",
-    "LIVI_CP_MFI_POWER_GPIO",
     "LIVI_CP_AVAILABLE_CURRENT_MA",
-    "LIVI_CP_SOURCE_VERSION",
 ];
 
 fn active_in(value: Option<&str>) -> bool {
