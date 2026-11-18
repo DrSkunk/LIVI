@@ -170,11 +170,58 @@ fn host_libva_ok() -> bool {
     })
 }
 
-pub fn gst_env(root: &Path) -> Vec<(String, String)> {
-    gst_env_with(root, cfg!(target_os = "linux") && !host_libva_ok())
+const WAYLAND_LIBS: [&str; 4] = [
+    "libwayland-client.so.0",
+    "libwayland-server.so.0",
+    "libwayland-cursor.so.0",
+    "libwayland-egl.so.1",
+];
+
+fn wayland_version(lib: &Path) -> Option<(u32, u32)> {
+    let real = std::fs::canonicalize(lib).ok()?;
+    let mut parts = real
+        .file_name()?
+        .to_str()?
+        .strip_prefix("libwayland-client.so.0.")?
+        .split('.');
+    Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
 }
 
-fn gst_env_with(root: &Path, libva_compat: bool) -> Vec<(String, String)> {
+/// The host's Mesa needs a libwayland at least as new as itself, and an older
+/// one from the bundle in front of it breaks EGL (`wl_fixes_interface`).
+/// libwayland stays backward compatible, so a newer host copy goes first.
+fn host_wayland_dir(root: &Path, link_dir: &Path, host_dirs: &[&Path]) -> Option<PathBuf> {
+    let bundled = wayland_version(&root.join("lib").join(WAYLAND_LIBS[0]))?;
+    let host = host_dirs
+        .iter()
+        .find(|dir| wayland_version(&dir.join(WAYLAND_LIBS[0])).is_some_and(|v| v > bundled))?;
+    std::fs::create_dir_all(link_dir).ok()?;
+    for lib in WAYLAND_LIBS {
+        let (src, link) = (host.join(lib), link_dir.join(lib));
+        let _ = std::fs::remove_file(&link);
+        if src.exists() {
+            std::os::unix::fs::symlink(&src, &link).ok()?;
+        }
+    }
+    Some(link_dir.to_path_buf())
+}
+
+pub fn gst_env(root: &Path) -> Vec<(String, String)> {
+    let linux = cfg!(target_os = "linux");
+    let host_first = std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|_| linux)
+        .and_then(|run| {
+            let dirs: Vec<&Path> = LIBVA_DIRS.iter().map(Path::new).collect();
+            host_wayland_dir(root, &Path::new(&run).join("livi/host-libs"), &dirs)
+        });
+    gst_env_with(root, linux && !host_libva_ok(), host_first.as_deref())
+}
+
+fn gst_env_with(
+    root: &Path,
+    libva_compat: bool,
+    host_first: Option<&Path>,
+) -> Vec<(String, String)> {
     let utf8 = if cfg!(target_os = "macos") {
         "en_US.UTF-8"
     } else {
@@ -187,11 +234,14 @@ fn gst_env_with(root: &Path, libva_compat: bool) -> Vec<(String, String)> {
     };
     let p = |rel: &str| root.join(rel).display().to_string();
     let compat = root.join("lib/libva-compat");
-    let libs = if libva_compat && compat.is_dir() {
+    let mut libs = if libva_compat && compat.is_dir() {
         format!("{}:{}", compat.display(), p("lib"))
     } else {
         p("lib")
     };
+    if let Some(dir) = host_first {
+        libs = format!("{}:{libs}", dir.display());
+    }
     vec![
         ("LANG".into(), utf8.into()),
         ("LC_ALL".into(), utf8.into()),
@@ -278,7 +328,7 @@ mod tests {
         let dir = crate::files::config_file::tests::TempDir::new();
         std::fs::create_dir_all(dir.0.join("lib/libva-compat")).unwrap();
         let libs = |compat| {
-            gst_env_with(&dir.0, compat)
+            gst_env_with(&dir.0, compat, None)
                 .into_iter()
                 .find(|(n, _)| n == "LD_LIBRARY_PATH" || n == "DYLD_LIBRARY_PATH")
                 .map(|(_, v)| v)
@@ -289,6 +339,44 @@ mod tests {
         assert_eq!(
             libs(true),
             format!("{}:{lib}", dir.0.join("lib/libva-compat").display())
+        );
+    }
+
+    #[test]
+    fn a_newer_host_libwayland_goes_in_front_of_the_bundle() {
+        let dir = crate::files::config_file::tests::TempDir::new();
+        let lib = |d: &str, version: &str| {
+            let d = dir.0.join(d);
+            std::fs::create_dir_all(&d).unwrap();
+            let real = format!("libwayland-client.so.0.{version}");
+            std::fs::write(d.join(&real), "").unwrap();
+            std::os::unix::fs::symlink(&real, d.join("libwayland-client.so.0")).unwrap();
+            d
+        };
+        let bundle = dir.0.join("bundle");
+        lib("bundle/lib", "23.1");
+        let (old, new) = (lib("old", "22.0"), lib("new", "24.0"));
+        let links = dir.0.join("links");
+
+        assert_eq!(host_wayland_dir(&bundle, &links, &[&old]), None);
+        assert_eq!(
+            host_wayland_dir(&bundle, &links, &[&old, &new]),
+            Some(links.clone())
+        );
+        assert_eq!(
+            std::fs::read_link(links.join("libwayland-client.so.0")).unwrap(),
+            new.join("libwayland-client.so.0")
+        );
+        assert!(!links.join("libwayland-egl.so.1").exists());
+
+        let path = gst_env_with(&bundle, false, Some(&links))
+            .into_iter()
+            .find(|(n, _)| n == "LD_LIBRARY_PATH" || n == "DYLD_LIBRARY_PATH")
+            .unwrap()
+            .1;
+        assert_eq!(
+            path,
+            format!("{}:{}", links.display(), bundle.join("lib").display())
         );
     }
 }
