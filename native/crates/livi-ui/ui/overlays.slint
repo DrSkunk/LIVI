@@ -11,6 +11,9 @@ export global OverlayState {
     in property <bool> phone-shown;
     in property <image> phone-icon;
     in property <string> phone-name;
+    in property <bool> power-shown;
+    in property <string> power-title;
+    in property <string> power-detail;
 }
 
 component Card inherits Rectangle {
@@ -109,6 +112,32 @@ export component PhoneOverlay inherits Card {
             color: #ffffffeb;
             vertical-alignment: center;
             overflow: elide;
+        }
+    }
+}
+
+export component PowerOverlay inherits Rectangle {
+    background: #000000;
+
+    // Swallow input so nothing behind the notice can be pressed while the host goes down.
+    TouchArea { }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 12px;
+
+        Text {
+            text: OverlayState.power-title;
+            font-size: 34px;
+            font-weight: 500;
+            color: #ffffffeb;
+            horizontal-alignment: center;
+        }
+        if OverlayState.power-detail != "": Text {
+            text: OverlayState.power-detail;
+            font-size: 22px;
+            color: #ffffffa8;
+            horizontal-alignment: center;
         }
     }
 }

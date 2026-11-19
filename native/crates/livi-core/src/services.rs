@@ -274,6 +274,7 @@ impl Services {
             state.clone(),
         ));
         tokio::spawn(crate::vehicle::blinker::run(hub.clone(), gst.clone()));
+        crate::system::power::follow_os_state(hub.clone());
         tokio::spawn(crate::camera::run(
             hub.clone(),
             gst.clone(),

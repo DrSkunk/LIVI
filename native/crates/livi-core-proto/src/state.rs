@@ -506,6 +506,18 @@ pub enum DeviceStatus {
     Offline,
 }
 
+/// A pending host power change; absent while the host keeps running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum HostPower {
+    #[serde(rename_all = "camelCase")]
+    IgnitionOff {
+        seconds_remaining: u32,
+    },
+    Poweroff,
+    Reboot,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct System {
@@ -513,6 +525,8 @@ pub struct System {
     pub power_busy: bool,
     #[serde(default)]
     pub power_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_power: Option<HostPower>,
     #[serde(default)]
     pub os_update: OsUpdate,
     pub wifi_interfaces: Vec<String>,

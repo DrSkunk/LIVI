@@ -15,7 +15,7 @@ import { MediaPage, MediaSource, MediaText, Press, DabState, StationData, LocalM
 import { ProjectionPage, TouchPhase } from "projection.slint";
 import { SettingsView, SettingsState, ScreenKind, RowData, RowKind, PickData, KnobData } from "settings/view.slint";
 import { Dashboard, DashState, GaugeData, CapData, TrailData, LabelData, LaneData, LaneArrowData, LampData } from "dashboard.slint";
-import { LevelOverlay, PhoneOverlay, OverlayState } from "overlays.slint";
+import { LevelOverlay, PhoneOverlay, PowerOverlay, OverlayState } from "overlays.slint";
 import { MaskData, ViewArea } from "mask.slint";
 import { TouchCalibration, TouchCalibrationState } from "touch_calibration.slint";
 import { GamesPage, GamesState, GamesText, GameData, ControllerData } from "games.slint";
@@ -329,6 +329,10 @@ export component AppWindow inherits Window {
         y: root.area-top + 16px;
     }
     if TouchCalibrationState.active: TouchCalibration {
+        width: root.width;
+        height: root.height;
+    }
+    if OverlayState.power-shown: PowerOverlay {
         width: root.width;
         height: root.height;
     }

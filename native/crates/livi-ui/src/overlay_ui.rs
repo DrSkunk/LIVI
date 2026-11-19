@@ -4,7 +4,8 @@
 
 use std::time::Duration;
 
-use livi_ui_model::overlay::{VolumeIcon, percent, volume_icon};
+use livi_core_proto::state::HostPower;
+use livi_ui_model::overlay::{VolumeIcon, percent, power_text, volume_icon};
 use slint::{ComponentHandle, Timer, TimerMode};
 
 use crate::icons::icon;
@@ -60,4 +61,14 @@ pub fn phone(ui: &AppWindow, name: &str) {
     o.set_phone_name(name.into());
     o.set_phone_shown(true);
     hide_later(&PHONE_HIDE, ui, PHONE_SHOWN, |o| o.set_phone_shown(false));
+}
+
+pub fn power(ui: &AppWindow, power: Option<HostPower>) {
+    let o = ui.global::<OverlayState>();
+    if let Some(power) = power {
+        let text = power_text(power, crate::settings_ui::tr);
+        o.set_power_title(text.title.into());
+        o.set_power_detail(text.detail.into());
+    }
+    o.set_power_shown(power.is_some());
 }

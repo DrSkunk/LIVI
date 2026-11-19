@@ -4,7 +4,7 @@
 
 use std::collections::BTreeSet;
 
-use livi_core_proto::state::{DeviceStatus, DeviceView, State};
+use livi_core_proto::state::{DeviceStatus, DeviceView, HostPower, State};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VolumeIcon {
@@ -25,6 +25,30 @@ pub fn volume_icon(level: f64) -> VolumeIcon {
 
 pub fn percent(level: f64) -> u32 {
     (level.clamp(0.0, 1.0) * 100.0).round() as u32
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PowerText {
+    pub title: String,
+    pub detail: String,
+}
+
+pub fn power_text(power: HostPower, tr: impl Fn(&str, &str) -> String) -> PowerText {
+    match power {
+        HostPower::IgnitionOff { seconds_remaining } => PowerText {
+            title: tr("power.ignitionOff", "Ignition off"),
+            detail: tr("power.shuttingDownIn", "Shutting down in {{seconds}} s")
+                .replace("{{seconds}}", &seconds_remaining.to_string()),
+        },
+        HostPower::Poweroff => PowerText {
+            title: tr("power.shuttingDown", "Shutting down..."),
+            detail: String::new(),
+        },
+        HostPower::Reboot => PowerText {
+            title: tr("power.restarting", "Restarting..."),
+            detail: String::new(),
+        },
+    }
 }
 
 pub fn enabled(state: &State) -> bool {
@@ -102,6 +126,21 @@ mod tests {
 
     fn with_volume(v: f64) -> State {
         state(json!({ "config": { "huVolume": v } }))
+    }
+
+    #[test]
+    fn power_text_counts_down_ignition_off_in_english() {
+        let en = livi_i18n::Strings::new("en");
+        let tr = |k: &str, t: &str| en.t(k, t);
+        let counting = power_text(
+            HostPower::IgnitionOff {
+                seconds_remaining: 7,
+            },
+            tr,
+        );
+        assert_eq!(counting.title, "Ignition off");
+        assert_eq!(counting.detail, "Shutting down in 7 s");
+        assert_eq!(power_text(HostPower::Reboot, tr).title, "Restarting...");
     }
 
     #[test]

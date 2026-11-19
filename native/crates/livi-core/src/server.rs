@@ -286,11 +286,13 @@ impl Core {
     }
 
     async fn power(&self, action: crate::system::power::Power) -> Result<(), String> {
-        self.power_with(crate::system::power::request(action)).await
+        self.power_with(action.notice(), crate::system::power::request(action))
+            .await
     }
 
     async fn power_with(
         &self,
+        notice: livi_core_proto::state::HostPower,
         request: impl std::future::Future<Output = Result<(), String>>,
     ) -> Result<(), String> {
         let mut allowed = Ok(());
@@ -311,6 +313,8 @@ impl Core {
             } else {
                 s.system.power_busy = true;
                 s.system.power_error = None;
+                // Shown before the helper runs: systemd may stop LIVI before it returns.
+                s.system.host_power = Some(notice);
             }
         });
         allowed?;
@@ -320,6 +324,7 @@ impl Core {
             self.hub.update(|s| {
                 s.system.power_busy = false;
                 s.system.power_error = Some(e.clone());
+                s.system.host_power = None;
             });
         }
         result
@@ -857,25 +862,33 @@ mod tests {
 
     #[tokio::test]
     async fn failed_power_keeps_core_alive_and_exposes_a_retryable_error() {
+        use livi_core_proto::state::HostPower;
         let dir = TempDir::new();
         let (core, _) = start(&dir);
         assert!(
-            core.power_with(async { Err("sudo denied".into()) })
+            core.power_with(HostPower::Poweroff, async { Err("sudo denied".into()) })
                 .await
                 .is_err()
         );
         let current = core.hub.watch().borrow().clone();
         assert!(!current.system.power_busy);
         assert_eq!(current.system.power_error.as_deref(), Some("sudo denied"));
+        assert_eq!(current.system.host_power, None);
         assert!(!core.restart.load(Ordering::SeqCst));
         assert!(
             tokio::time::timeout(Duration::from_millis(10), core.quit.notified())
                 .await
                 .is_err()
         );
-        core.power_with(async { Ok(()) }).await.unwrap();
+        core.power_with(HostPower::Poweroff, async { Ok(()) })
+            .await
+            .unwrap();
         assert!(core.hub.watch().borrow().system.power_busy);
         assert!(core.hub.watch().borrow().system.power_error.is_none());
+        assert_eq!(
+            core.hub.watch().borrow().system.host_power,
+            Some(HostPower::Poweroff)
+        );
     }
 
     #[tokio::test]
@@ -894,13 +907,13 @@ mod tests {
 
     #[tokio::test]
     async fn power_refuses_updates_and_duplicate_requests_without_running_helper() {
-        use livi_core_proto::state::{OsUpdatePhase, UpdatePhase};
+        use livi_core_proto::state::{HostPower, OsUpdatePhase, UpdatePhase};
         let dir = TempDir::new();
         let (core, _) = start(&dir);
         core.hub
             .update(|s| s.system.os_update.phase = OsUpdatePhase::Staging);
         assert!(
-            core.power_with(async { panic!("must not run") })
+            core.power_with(HostPower::Poweroff, async { panic!("must not run") })
                 .await
                 .is_err()
         );
@@ -909,7 +922,7 @@ mod tests {
             s.update.phase = UpdatePhase::Installing;
         });
         assert!(
-            core.power_with(async { panic!("must not run") })
+            core.power_with(HostPower::Poweroff, async { panic!("must not run") })
                 .await
                 .is_err()
         );
@@ -918,7 +931,7 @@ mod tests {
             s.system.power_busy = true;
         });
         assert!(
-            core.power_with(async { panic!("must not run") })
+            core.power_with(HostPower::Poweroff, async { panic!("must not run") })
                 .await
                 .is_err()
         );

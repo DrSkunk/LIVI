@@ -420,6 +420,12 @@
   "camera": {
     "noCamera": "No camera found"
   },
+  "power": {
+    "ignitionOff": "Ignition off",
+    "shuttingDownIn": "Shutting down in {{seconds}} s",
+    "shuttingDown": "Shutting down...",
+    "restarting": "Restarting..."
+  },
   "dashboard": {
     "gear": "GEAR",
     "noDashboard": "No dashboard on this screen"

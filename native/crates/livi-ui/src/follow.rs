@@ -4,7 +4,7 @@
 
 use std::collections::BTreeSet;
 
-use livi_core_proto::state::{Front, Protocol, State, VideoPlayback};
+use livi_core_proto::state::{Front, HostPower, Protocol, State, VideoPlayback};
 use livi_ui_model::shell::{Look, look_at};
 
 use crate::PhoneState;
@@ -40,6 +40,7 @@ pub enum Update {
     Video(Option<VideoPlayback>),
     Mirrored(bool),
     Held(bool),
+    Power(Option<HostPower>),
 }
 
 #[derive(Default)]
@@ -65,6 +66,7 @@ pub struct Follow {
     video: Option<Option<VideoPlayback>>,
     mirrored: Option<bool>,
     held: Option<bool>,
+    power: Option<Option<HostPower>>,
 }
 
 impl Follow {
@@ -211,6 +213,11 @@ impl Follow {
             }
         }
         if hit("system") {
+            let power = state.system.host_power;
+            if self.power != Some(power) {
+                self.power = Some(power);
+                out.push(Update::Power(power));
+            }
             let fonts = state.system.fonts.clone();
             if self.fonts.as_ref() != Some(&fonts) {
                 self.fonts = Some(fonts.clone());
@@ -279,6 +286,31 @@ mod tests {
         state.config.clock_style = ClockStyle::Digital;
         assert_eq!(looks(&mut follow, &state), vec![ClockStyle::Digital]);
     }
+    #[test]
+    fn host_power_changes_are_forwarded_once() {
+        let mut follow = Follow::default();
+        let keys = BTreeSet::from(["system".to_string()]);
+        let mut state = State::default();
+        let powers = |follow: &mut Follow, state: &State| {
+            follow
+                .changed(Some(&keys), state)
+                .into_iter()
+                .filter_map(|u| match u {
+                    Update::Power(power) => Some(power),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(powers(&mut follow, &state), vec![None]);
+        assert!(powers(&mut follow, &state).is_empty());
+        state.system.host_power = Some(HostPower::IgnitionOff {
+            seconds_remaining: 9,
+        });
+        assert_eq!(powers(&mut follow, &state), vec![state.system.host_power]);
+        state.system.host_power = Some(HostPower::Poweroff);
+        assert_eq!(powers(&mut follow, &state), vec![Some(HostPower::Poweroff)]);
+    }
+
     #[test]
     fn every_fixture_reads_into_the_typed_state() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");

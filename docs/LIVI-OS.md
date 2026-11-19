@@ -29,6 +29,14 @@ requests and power changes during app/OS staging/install are blocked. The UI
 warns that a previously staged OS update is tried at the next boot. Internal
 application-update relaunches restart the app, not the whole host.
 
+While a host power change is pending, the UI covers every page with a
+full-screen "Shutting down..." or "Restarting..." notice that ignores touches.
+Core sets it as soon as a request is allowed, because systemd may stop LIVI
+before the helper returns, and clears it if the request fails. On LIVI OS,
+core also polls `/run/livi-power/state` and shows the CarPiHAT ignition-off
+countdown ("Shutting down in N s") or an externally queued poweroff/reboot.
+After LIVI exits, the OS boot splash shows the same message until power is cut.
+
 Older images without the OS power helper require an updated OS image; installing
 desktop helpers into the immutable image or granting arbitrary systemctl/sudo
 access is not a workaround. A real Pi shutdown test is still required: orderly
