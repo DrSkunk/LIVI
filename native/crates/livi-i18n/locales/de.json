@@ -420,6 +420,12 @@
   "camera": {
     "noCamera": "Keine Kamera gefunden"
   },
+  "power": {
+    "ignitionOff": "Zündung aus",
+    "shuttingDownIn": "Herunterfahren in {{seconds}} s",
+    "shuttingDown": "Wird heruntergefahren...",
+    "restarting": "Wird neu gestartet..."
+  },
   "dashboard": {
     "gear": "GANG",
     "noDashboard": "Kein Dashboard auf diesem Bildschirm"

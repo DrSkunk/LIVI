@@ -420,6 +420,12 @@
   "camera": {
     "noCamera": "未找到摄像头"
   },
+  "power": {
+    "ignitionOff": "点火已关闭",
+    "shuttingDownIn": "{{seconds}} 秒后关机",
+    "shuttingDown": "正在关机...",
+    "restarting": "正在重启..."
+  },
   "dashboard": {
     "gear": "挡位",
     "noDashboard": "此屏幕无仪表盘"

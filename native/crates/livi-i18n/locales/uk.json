@@ -420,6 +420,12 @@
   "camera": {
     "noCamera": "Камеру не знайдено"
   },
+  "power": {
+    "ignitionOff": "Запалювання вимкнено",
+    "shuttingDownIn": "Вимкнення за {{seconds}} с",
+    "shuttingDown": "Вимкнення...",
+    "restarting": "Перезапуск..."
+  },
   "dashboard": {
     "gear": "ПЕРЕДАЧА",
     "noDashboard": "Немає панелі приладів на цьому екрані"

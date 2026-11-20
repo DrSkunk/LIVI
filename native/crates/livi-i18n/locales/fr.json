@@ -420,6 +420,12 @@
   "camera": {
     "noCamera": "Aucune caméra trouvée"
   },
+  "power": {
+    "ignitionOff": "Contact coupé",
+    "shuttingDownIn": "Arrêt dans {{seconds}} s",
+    "shuttingDown": "Arrêt en cours...",
+    "restarting": "Redémarrage..."
+  },
   "dashboard": {
     "gear": "RAPPORT",
     "noDashboard": "Aucun tableau de bord sur cet écran"
